@@ -1,13 +1,12 @@
 '''
 Try a different approach.
 '''
-import logging
+import logging, re, copy
 
 import pymel.core as pm
-import RigIt.shapes
-from RigIt.nodetracking import NodeTracker
-import RigIt.utils as utils
-import RigIt.nodetagging as nodetagging
+import throttle.control as control
+import throttle.utils as utils
+
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -30,99 +29,6 @@ class ControlXformDiff(Diff):
     '''
     def __init__(self):
         pass
-
-COLOR_MAP = {'null':0,
-           'black':1,
-           'dark grey':2,
-           'lite grey':3,
-           'crimson':4,
-           'dark blue':5,
-           'blue':6,
-           'dark green':7,
-           'navy':8,
-           'fuscia':9,
-           'brown':10,
-           'dark brown':11,
-           'dark red':12,
-           'red':13,
-           'green':14,
-           'blue2':15,
-           'white':16,
-           'yellow':17,
-           'lite blue':18,
-           'sea green':19,
-           'salmon':20,
-           'tan':21,
-           'yellow2':22,
-           'green2':23,
-           'brown2':24,
-           'puke':25,
-           'green3':26,
-           'green4':27,
-           'aqua':28,
-           'blue3':29,
-           'purple':30,
-           'fuscia2':31}
-SHAPE_ORDER_TAG = 'shapeOrder'
-
-class Control(object):
-    '''
-    A rig control - a shape created under a transform or joint
-    '''
-    @classmethod
-    def controlFromNode(cls, node):
-        '''Create a shape on a node'''
-        
-    def __init__(self, xformType='joint', name='control', shape='cube', shapeType='crv'):
-        self._xform = pm.createNode(xformType, n=name)
-        self.setShape(shape, shapeType=shapeType)
-        
-    def setShape(self, shape, shapeType='crv'):
-        shapeFunc = getattr(RigIt.shapes, 'shape_%s_%s' % (shape, shapeType))
-        for shape in self._xform.listRelatives(type='geometryShape'):
-            pm.delete(shape)
-        tmpXform = pm.createNode('transform', n='TMP')
-        nodes = []
-        with NodeTracker() as nt:
-            shapeFunc()
-            shapes = [n for n in nt.getObjects() if isinstance(n, pm.nt.GeometryShape)]
-            for i, shapeNode in enumerate(shapes):
-                shapeNode.rename("%sShape" % (self._xform.name()))
-                tag = nodetagging.DctNodeTag(shapeNode, SHAPE_ORDER_TAG)
-                tag['order'] = i
-        utils.parentShapes(tmpXform, nodes)
-        utils.snap(self._xform, tmpXform)
-        utils.parentShape(self._xform, tmpXform)                
-        #create the transform
-        #create the shape under a group
-        #snap the group to the transform
-        #parent shape nodes in group to transform
-        #delete transform
-    def shapeNodes(self):
-        """
-        Return a list of shapes in the order they were created
-        """
-        nodes = self._xform.listRelatives(shapes=1)
-        sortedNodes = {}
-        for node in nodes:
-            i = int(nodetagging.DctNodeTag(node, SHAPE_ORDER_TAG)['order'])
-            sortedNodes[i] = node
-        sortedKeys = sortedNodes.keys()
-        sortedKeys.sort()
-        return [sortedNodes[i] for i in sortedKeys]
-
-        
-    def setColor(self, color):
-        if color not in COLOR_MAP:
-            logger.warning("invalid color '%s'" % color)
-            return
-
-        self._color = color
-        if self.state() == self.BUILT:
-            for shape in self.shapeNodes():
-                shape.overrideEnabled.set(1)
-                shape.overrideColor.set(COLOR_MAP[self._color])
-        
         
         
 class Namer(object):
@@ -133,23 +39,27 @@ class Namer(object):
     pattern is desired
     '''
     tokenSymbols = {'c': 'character',
-                               'n': 'characterNum',
-                               'r': 'resolution',
-                               's': 'side',
-                               'p': 'part',
-                               't': 'tokens',
-                               'x': 'suffix'}
-    
+                       'n': 'characterNum',
+                       'r': 'resolution',
+                       's': 'side',
+                       'p': 'part',
+                       'd': 'description',
+                       'x': 'suffix',
+                    'e': 'extras'}
+
     def __init__(self, characterName):
         self.__namedTokens = {'character': characterName,
                               'characterNum': '',
-                         'resolution': '',
-                         'side': '',
-                         'part': ''}
+                              'resolution': '',
+                              'side': '',
+                              'part': '',
+                              'description': '',
+                              'extras': '',
+                              'suffix': ''}
         
-        self._pattern = "$c$n_$r_$s_$p_$t_$x"
+        self._pattern = "$c$n_$r_$s_$p_$d_$e_$x"
     
-    def __fullToken(self, token):
+    def _fullToken(self, token):
         if token in self.tokenSymbols.values():
             return token
         elif token in self.tokenSymbols.keys():
@@ -157,18 +67,38 @@ class Namer(object):
         else:
             raise Exception("Invalid token '%s'" % token)
         
+    def _shortToken(self, token):
+        if token in self.tokenSymbols.keys():
+            return token
+        elif token in self.tokenSymbols.values():
+            for k, v in self.tokenSymbols.items():
+                if self.tokenSymbols[k] == token:
+                    return k
+        else:
+            raise Exception("Invalid token '%s'" % token)
+        
     def setToken(self, token, name):
-        key = self.__fullToken(token)
+        key = self._fullToken(token)
         if key == 'side':
             if name not in ['lf', 'rt', 'cn']:
                 raise Exception ("invalid side '%s'" % name)
         self.__namedTokens[key] = name
-                
-    def name(self, *args):
-        argsTok = args.join('_')
         
-
-class RigItError(Exception): pass
+    def getToken(self, token):
+        fullToken = self._fullToken(token)
+        return self.__namedTokens[fullToken]
+    
+    def name(self, **kwargs):
+        nameParts = copy.copy(self.__namedTokens)
+        for tok, val in kwargs.items():
+            fullTok = self._fullToken(tok)
+            nameParts[fullTok] = val
+        name = self._pattern
+        for shortTok, longTok in self.tokenSymbols.items():
+            name = re.sub('\$%s' % shortTok, nameParts[longTok], name)
+        name = '_'.join([tok for tok in name.split('_') if tok])
+        return name
+        
 class BuildCheck(object):
     """
     warn and gracefully exit if the object is not in the
@@ -187,7 +117,7 @@ class BuildCheck(object):
                 msg = "Not in one of these states: %s" \
                     % ", ".join(self.__acceptableStates)
                 if self.__raiseException:
-                    raise RigItError(msg)
+                    raise utils.ThrottleError(msg)
                 else:
                     _logger.warning(msg)
                     return
@@ -223,14 +153,17 @@ class LegLayout(object):
         build the layout
         """
         legJoints = {}
-        
+        toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toeTip']
+        pm.select(cl=1)
         legJoints['hip'] = pm.joint(p =[0, 5, 0])
         legJoints['knee'] = pm.joint(p =[0, 3.5, 1])
         legJoints['ankle'] = pm.joint(p =[0, 1, 0])
         legJoints['ball'] = pm.joint(p =[0, 0, 0.5])
         legJoints['toe'] = pm.joint(p =[0, 0, 1])
         legJoints['toeTip'] = pm.joint(p =[0, 0, 1.5])
-
+        for tok in toks:
+            utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])            
+        
         
     @BuildCheck('built')
     def delete(self):

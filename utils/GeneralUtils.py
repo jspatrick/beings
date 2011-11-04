@@ -795,7 +795,7 @@ def makeJntChain(char, widgetName, side, namePosList):
     pm.select(cl=1)
     return result
 
-def orientJnt(joint, worldUpVec, aimVector=[0, 1, 0], upVector=[0, 0, 1], curAimAxis=None):
+def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curAimAxis=None):
     #if either joint or loc not provided, query from selection
     joint = pm.PyNode(joint)
     try:
@@ -827,7 +827,7 @@ def orientJnt(joint, worldUpVec, aimVector=[0, 1, 0], upVector=[0, 0, 1], curAim
     joint.jointOrientZ.set(0)
 
     #aim at next jnt using up loc
-    aimCst = pm.aimConstraint (aimTgt, joint, offset=[0, 0, 0], aimVector=aimVector, upVector=upVector, worldUpType="vector",
+    aimCst = pm.aimConstraint (aimTgt, joint, offset=[0, 0, 0], aimVector=aimVec, upVector=upVec, worldUpType="vector",
                                worldUpVector=worldUpVec)
 
     pm.delete(aimCst)

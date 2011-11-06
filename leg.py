@@ -18,29 +18,56 @@ import throttle.nodetracking as nodetracking
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-def _getStateDct(node):    
-     return {'localMatrix': pm.xform(node, q=1, m=1),
-             'worldMatrix': pm.xform(node, q=1, m=1, ws=1)}
+def _getStateDct(obj):
+    ''' Get a dict representing the state of the node '''
+    result = {}
+    if isinstance (obj, control.Control):
+        result.update(obj.getHandleInfo())
+        obj = obj.xformNode()
+    result['localMatrix'] = pm.xform(obj, q=1, m=1)
+    result['worldMatrix'] = pm.xform(obj, q=1, m=1, ws=1)
+    return result
 
 class Differ(object):
     '''
-    Apply transform tweaks
+    Get and set node differences
     '''
     def __init__(self):
-        self.__nodes = set([])
+        self.__nodes = []
+        self.__controls = []
         self.__initialState = {}
         
-    def addNodes(self, nodes):
-        for node in nodes:
-            self._nameCheck(node)
-            self.__nodes.add(node)
-        
-    def _nameCheck(self, node):
-        '''All pathless node names should be unique'''
-        nodeNames = [n.nodeName() for n in self.__nodes]
-        if node.nodeName() in nodeNames:
-            _logger.warning('Node named %s already exists!' % node.nodeName())
+    def addObjs(self, objs, diffSpaceType='local'):
+        '''
+        Add Control objects or other nodes to the differ.
+        @param diffSpaceType="local": get diffs in this space (local or world)
+        '''
+        for obj in objs:
+            if isinstance(obj, control.Control):
+                if obj not in self.__controls:
+                    self.__controls.append((obj, diffSpaceType))
+                else:
+                    ctlName = obj.xformNode().nodeName()
+                    _logger.warning("%s is already a control in the differ; skipping" % ctlName)
+            else:
+                nodeName = obj
+                if isinstance(nodeName, pm.PyNode):
+                    nodeName = obj.nodeName()
+                if nodeName in self.__nodes:
+                    _logger.warning("%s is already a node in the differ; skipping" % nodeName)
+                else:
+                    self.__nodes.append((nodeName, diffSpaceType))
 
+    def _nameCheck(self):
+        '''All pathless node names should be unique'''
+        nodes = [n[0] for n in self.__nodes]
+        nodes.extend([c[0].xformNode().nodeName() for c in self.__controls])
+        for node in nodes:                        
+            n = len(pm.ls(node))
+            if n > 1:                
+                _logger.warning('Multiple nodes called %s' % node)
+            elif n == 0:
+                _logger.warning('%s does not exist' % node)
     
     def setInitialState(self):
         '''
@@ -48,7 +75,7 @@ class Differ(object):
         '''
         self.__initialState = {}
         for node in self.__nodes:
-            self.__initialState[node.nodeName()] = _getStateDct(node)
+            self.__initialState[node[0]] = _getStateDct(node)
             
     def getDiffs(self):
         '''
@@ -57,9 +84,9 @@ class Differ(object):
         if not self.__initialState:
             raise utils.ThrottleError("Initial state was never set")
         allDiffs = {}
-        for node in self.__nodes:
+        for node, space in self.__nodes:
             diff = {}
-            initialState = self.__initialState[node.nodeName()]
+            initialState = self.__initialState[node]
             state = _getStateDct(node)
             for k in initialState.keys():
                 if initialState[k] != state[k]:
@@ -72,7 +99,12 @@ class Differ(object):
         '''
         Apply diffs for nodes
         '''
-        pass
+        if isinstance(diffDct, basestring):
+            diffDct = json.loads(diffDct)
+        for node, diffs in diffDct.items():
+            node = pm.PyNode(node)
+            #apply local space
+        
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
     Create a stretch
@@ -129,16 +161,7 @@ class Namer(object):
             raise Exception("Invalid token '%s'" % token)
     
     def _shortToken(self, token):
-        if token in self.tokenSymbols.keys():
-            return token
-        elif token in self.tokenSymbols.values():
-            for k, v in self.tokenSymbols.items():
-                if self.tokenSymbols[k] == token:
-                    return k
-        else:
-            raise Exception("Invalid token '%s'" % token)
-        
-    def setTokens(self, **kwargs):
+
         for token, name in kwargs.items():
             name = str(name)
             key = self._fullToken(token)
@@ -150,7 +173,16 @@ class Namer(object):
     def getToken(self, token):
         fullToken = self._fullToken(token)
         return self.__namedTokens[fullToken]
-    
+        
+    def setTokens(self, **kwargs):
+        for token, name in kwargs.items():
+            name = str(name)
+            key = self._fullToken(token)
+            if key == 'side':
+                if name not in ['lf', 'rt', 'cn']:
+                    raise Exception ("invalid side '%s'" % name)
+            self.__namedTokens[key] = name
+            
     def name(self, **kwargs):
         nameParts = copy.copy(self.__namedTokens)
         for tok, val in kwargs.items():

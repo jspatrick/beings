@@ -1,12 +1,13 @@
 '''
 Try a different approach.
 '''
-import logging, sys
+import logging, sys, copy, json
 import pymel.core as pm
 import maya.mel as mm
 import nodetagging as nodetagging
 import utils
 reload(utils)
+
 logging.basicConfig(level=logging.DEBUG)
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
@@ -72,28 +73,80 @@ def bbScale(shape, freeze=True):
     if freeze:
         pm.makeIdentity(shape, apply=True, r=0, s=1, t=0, n=0)
 
+#json utils
+def _decode_list(lst):
+    newlist = []
+    for i in lst:
+        if isinstance(i, unicode):
+            i = i.encode('utf-8')
+        elif isinstance(i, list):
+            i = _decode_list(i)
+        newlist.append(i)
+    return newlist
+
+def _decode_dict(dct):
+    newdict = {}
+    for k, v in dct.iteritems():
+        if isinstance(k, unicode):
+            k = k.encode('utf-8')
+        if isinstance(v, unicode):
+             v = v.encode('utf-8')
+        elif isinstance(v, list):
+            v = _decode_list(v)
+        newdict[k] = v
+    return newdict
+
 class Control(object):
     '''
     A rig control - a shape created under a transform or joint
     '''
-    def __init__(self, xformNode=None, xformType='joint', name='control',
-                 shape='cube', shapeType='crv'):
+
+    @classmethod
+    def fromExistingNode(cls, node):
+        '''Get a control object from an existing node'''
+        info = json.loads(node.throttleControlInfo.get(), object_hook=_decode_dict)
+        c = cls(xformNode = node, skipBuild=True, **info)
+        return c
+    
+    def __init__(self, xformNode=None, xformType='joint', name='control', skipBuild=False,
+                 **kwargs):
         if not xformNode:
             self._xform = pm.createNode(xformType, n=name)
         else:
-            self._xform = xformNode        
-        self._color = 'null'
-        self._shape = shape
-        self._shapeType = shapeType
-        self._rot = [0,0,0]
-        self._scale=[1,1,1]
-        self._pos=[0,0,0] #offset position, occurs before rotation
-        self.setShape()
+            self._xform = xformNode
+
+        self._shapeData = {'color': 'null',
+                           'shape': 'sphere',
+                           'shapeType': 'crv',
+                           'rot': [0,0,0],
+                           'scale': [1,1,1],
+                           'pos': [0,0,0]}
+
+        dataKeys = self._shapeData.keys()
+        for k, v in kwargs.items():
+            if k not in dataKeys:
+                raise utils.ThrottleError("Invalid param '%s'" % k)
+            self._shapeData[k] = v
+
+        if not skipBuild:
+            self.setShape(**kwargs)
+        
     def __str__(self):
         return self.xformNode().name()
+    
     def __repr__(self):
         return "Control(%s)" % self.xformNode().name()
-    
+
+    def _writeInfoToNode(self):
+        '''
+        Add an attribute to the node with the control info
+        '''
+        node = self.xformNode()
+        if not node.hasAttr('throttleControlInfo'):
+            node.addAttr('throttleControlInfo', dt='string')
+        infoStr = json.dumps(self.getHandleInfo())
+        node.throttleControlInfo.set(infoStr)
+            
     def scaleToChild(self, axis='y', neg=False):
         axisIndex = {'x': 0,
                    'y': 1,
@@ -108,26 +161,34 @@ class Control(object):
         v = pm.dt.Vector(childPos)
         v2 = pm.dt.Vector(parentPos)
         scale = v2.distanceTo(v)
-        self._scale[axisIndex[axis]] = scale/2.0
+        self._shapeData['scale'][axisIndex[axis]] = scale/2.0
         if neg:
             scale *= -1
-        self._pos[axisIndex[axis]] = scale/2.0
+        self._shapeData['pos'][axisIndex[axis]] = scale/2.0
         self.setShape()
         
-        
-    def setShape(self, shape=None, shapeType=None, scale=None, rot=None, pos=None):
-        shape = shape and shape or self._shape
-        shapeType = shapeType and shapeType or self._shapeType
-        scale = scale and scale or self._scale
-        rot = rot and rot or self._rot
-        pos = pos and pos or self._pos
+    def getHandleInfo(self):
+        '''Get a dict that can be passed to setShape'''
+        return copy.deepcopy(self._shapeData)
+    
+    def setShape(self, shape=None, shapeType=None, scale=None, rot=None, pos=None,
+                 color=None):
+        shape = shape and shape or self._shapeData['shape']
+        shapeType = shapeType and shapeType or self._shapeData['shapeType']
+        scale = scale and scale or self._shapeData['scale']
+        rot = rot and rot or self._shapeData['rot']
+        pos = pos and pos or self._shapeData['pos']
+        color = color and color or self._shapeData['color']      
         thisModule = sys.modules[__name__]
         shapeFunc = getattr(thisModule, 'shape_%s_%s' % (shape, shapeType))
-        self._shape = shape
-        self._shapeType = shapeType
-        self._scale = scale
-        self._rot = rot
-        self._pos = pos
+        
+        self._shapeData['shape'] = shape
+        self._shapeData['shapeType'] = shapeType
+        self._shapeData['scale'] = scale
+        self._shapeData['rot'] = rot
+        self._shapeData['pos'] = pos
+        self._shapeData['color'] = color
+        
         for shape in self._xform.listRelatives(type='geometryShape'):
             pm.delete(shape)
         tmpXform = pm.createNode('transform', n='TMP')
@@ -151,12 +212,15 @@ class Control(object):
         utils.snap(self._xform, tmpXform)
         
         #apply transformations
-        pm.xform(tmpXform, t=self._pos, r=1)
+        pm.xform(tmpXform, t=self._shapeData['pos'], r=1)
         #tmpXform.t.set(self._pos)
-        tmpXform.s.set(self._scale)
-        tmpXform.r.set(self._rot)
+        tmpXform.s.set(self._shapeData['scale'])
+        tmpXform.r.set(self._shapeData['rot'])
         
-        utils.parentShape(self._xform, tmpXform)                
+        utils.parentShape(self._xform, tmpXform)
+        
+        self._setColor(color)
+        self._writeInfoToNode()
         
     def _tmpShapeXform(self):
         ''' extract the shape nodes to a temporary transform'''
@@ -180,15 +244,14 @@ class Control(object):
         return [sortedNodes[i] for i in sortedKeys]
 
         
-    def setColor(self, color):
+    def _setColor(self, color):
         if color not in COLOR_MAP:
             _logger.warning("invalid color '%s'" % color)
             return
-        self._color = color
+        self._shapeData['color'] = color
         for shape in self.shapeNodes():
             shape.overrideEnabled.set(1)
-            shape.overrideColor.set(COLOR_MAP[self._color])
-        
+            shape.overrideColor.set(COLOR_MAP[self._shapeData['color']])        
         
 #####################################################
 ## curve shapes

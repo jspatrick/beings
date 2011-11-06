@@ -30,53 +30,46 @@ def _getStateDct(obj):
 
 class Differ(object):
     '''
-    Get and set node differences
+    Get and set control differences
     '''
     def __init__(self):
-        self.__nodes = []
         self.__controls = []
         self.__initialState = {}
-        
-    def addObjs(self, objs, diffSpaceType='local'):
+
+    def addCtls(self, objs, diffSpaceType='local'):
         '''
         Add Control objects or other nodes to the differ.
         @param diffSpaceType="local": get diffs in this space (local or world)
         '''
         for obj in objs:
-            if isinstance(obj, control.Control):
-                if obj not in self.__controls:
-                    self.__controls.append((obj, diffSpaceType))
-                else:
-                    ctlName = obj.xformNode().nodeName()
-                    _logger.warning("%s is already a control in the differ; skipping" % ctlName)
+            if not isinstance(obj, control.Control):
+                _logger.warning("%r is not a control; skipping" % obj)
+                continue
+            if self._nameCheck(obj):
+                self.__controls.append((obj, diffSpaceType))
             else:
-                nodeName = obj
-                if isinstance(nodeName, pm.PyNode):
-                    nodeName = obj.nodeName()
-                if nodeName in self.__nodes:
-                    _logger.warning("%s is already a node in the differ; skipping" % nodeName)
-                else:
-                    self.__nodes.append((nodeName, diffSpaceType))
+                ctlName = obj.xformNode().nodeName()
+                _logger.warning("%s is already a control in the differ; skipping" % ctlName)
 
-    def _nameCheck(self):
-        '''All pathless node names should be unique'''
-        nodes = [n[0] for n in self.__nodes]
-        nodes.extend([c[0].xformNode().nodeName() for c in self.__controls])
-        for node in nodes:                        
-            n = len(pm.ls(node))
-            if n > 1:                
-                _logger.warning('Multiple nodes called %s' % node)
-            elif n == 0:
-                _logger.warning('%s does not exist' % node)
-    
+    def _nameCheck(self, control):
+        '''Short names for the xform nodes in controls'''
+        names = [c[0].xformNode().nodeName() for c in self.__controls]
+        controlName = control.xformNode().nodeName()
+        if controlName in names:
+            _logger.warning('%s is already a control in the differ' % controlName)
+            return False
+        else:
+            return True
+        
     def setInitialState(self):
         '''
         Set the initial state for all nodes
         '''
         self.__initialState = {}
-        for node in self.__nodes:
-            self.__initialState[node[0]] = _getStateDct(node)
-            
+        for ctl in self.__controls:
+            self.__initialState[ctl[0].xformNode().nodeName()] = _getStateDct(ctl[0])
+
+    #TODO: make it work
     def getDiffs(self):
         '''
         Get diffs for all nodes
@@ -84,7 +77,7 @@ class Differ(object):
         if not self.__initialState:
             raise utils.ThrottleError("Initial state was never set")
         allDiffs = {}
-        for node, space in self.__nodes:
+        for node, space in self.__controls:
             diff = {}
             initialState = self.__initialState[node]
             state = _getStateDct(node)
@@ -159,16 +152,16 @@ class Namer(object):
             return self.tokenSymbols[token]
         else:
             raise Exception("Invalid token '%s'" % token)
-    
-    def _shortToken(self, token):
 
-        for token, name in kwargs.items():
-            name = str(name)
-            key = self._fullToken(token)
-            if key == 'side':
-                if name not in ['lf', 'rt', 'cn']:
-                    raise Exception ("invalid side '%s'" % name)
-            self.__namedTokens[key] = name
+    def _shortToken(self, token):
+        if token in self.tokenSymbols.keys():
+            return token
+        elif token in self.tokenSymbols.values():
+            for k, v in self.tokenSymbols.items():
+                if self.tokenSymbols[k] == token:
+                    return k
+        else:
+            raise Exception("Invalid token '%s'" % token)
         
     def getToken(self, token):
         fullToken = self._fullToken(token)

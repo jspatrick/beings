@@ -76,8 +76,8 @@ class Control(object):
     '''
     A rig control - a shape created under a transform or joint
     '''
-    def __init__(self, xformType='joint', name='control', shape='cube', shapeType='crv',
-                 xformNode = None):
+    def __init__(self, xformNode=None, xformType='joint', name='control',
+                 shape='cube', shapeType='crv'):
         if not xformNode:
             self._xform = pm.createNode(xformType, n=name)
         else:
@@ -89,7 +89,11 @@ class Control(object):
         self._scale=[1,1,1]
         self._pos=[0,0,0] #offset position, occurs before rotation
         self.setShape()
-
+    def __str__(self):
+        return self.xformNode().name()
+    def __repr__(self):
+        return "Control(%s)" % self.xformNode().name()
+    
     def scaleToChild(self, axis='y', neg=False):
         axisIndex = {'x': 0,
                    'y': 1,

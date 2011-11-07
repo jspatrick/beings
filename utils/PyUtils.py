@@ -40,7 +40,7 @@ def isIter(arg, string=False):
     return False
 
 #json utils
-def _decode_list(lst):
+def decodeList(lst):
     newlist = []
     for i in lst:
         if isinstance(i, unicode):
@@ -50,7 +50,7 @@ def _decode_list(lst):
         newlist.append(i)
     return newlist
 
-def _decode_dict(dct):
+def decodeDict(dct):
     newdict = {}
     for k, v in dct.iteritems():
         if isinstance(k, unicode):
@@ -58,6 +58,6 @@ def _decode_dict(dct):
         if isinstance(v, unicode):
              v = v.encode('utf-8')
         elif isinstance(v, list):
-            v = _decode_list(v)
+            v = decodeList(v)
         newdict[k] = v
     return newdict

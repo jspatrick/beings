@@ -3,10 +3,23 @@ import throttle.control as C
 reload(C)
 import throttle.leg as L
 import pymel.core as pm
+import throttle.utils
 reload(L)
 pm.newFile(force=1)
 ll = L.LegLayout()
 ll.build()
+ctl = C.Control.fromNode(pm.PyNode('leg1_cn_ctl2'))
+d = L.Differ()
+d.addObjs([ctl])
+d.setInitialState()
+ctl.xformNode().tx.set(1)
+diffs = d.getDiffs()
+pm.newFile(force=1)
+ll = L.LegLayout()
+ll.build()
+ll.delete()
+d.applyDiffs(diffs)
+
 '''
 import logging, re, copy, weakref
 import json
@@ -36,7 +49,7 @@ class Differ(object):
         self.__controls = []
         self.__initialState = {}
 
-    def addCtls(self, objs, diffSpaceType='local'):
+    def addObjs(self, objs, diffSpaceType='local'):
         '''
         Add Control objects or other nodes to the differ.
         @param diffSpaceType="local": get diffs in this space (local or world)
@@ -69,7 +82,7 @@ class Differ(object):
         for ctl in self.__controls:
             self.__initialState[ctl[0].xformNode().nodeName()] = _getStateDct(ctl[0])
 
-    #TODO: make it work
+
     def getDiffs(self):
         '''
         Get diffs for all nodes
@@ -77,26 +90,48 @@ class Differ(object):
         if not self.__initialState:
             raise utils.ThrottleError("Initial state was never set")
         allDiffs = {}
-        for node, space in self.__controls:
+        for control, space in self.__controls:
+            name = control.xformNode().nodeName()
             diff = {}
-            initialState = self.__initialState[node]
-            state = _getStateDct(node)
+            initialState = self.__initialState[name]
+            state = _getStateDct(control)
             for k in initialState.keys():
+                if space == 'world' and k == 'localMatrix':
+                    continue
+                elif space == 'local' and k == 'worldMatrix':
+                    continue
                 if initialState[k] != state[k]:
                     diff[k] = state[k]
             if diff:
-                allDiffs[node.nodeName()] = diff
+                allDiffs[name] = diff
         return allDiffs
     
     def applyDiffs(self, diffDct):
         '''
-        Apply diffs for nodes
+        Apply diffs for nodes.
         '''
+        diffDct = copy.deepcopy(diffDct)
         if isinstance(diffDct, basestring):
-            diffDct = json.loads(diffDct)
+            diffDct = json.loads(diffDct, object_hook=utils.decodeDict)
+
         for node, diffs in diffDct.items():
             node = pm.PyNode(node)
-            #apply local space
+            ctl = control.Control.fromNode(node)
+            
+            #apply and discard the matricies from the diff dict
+            matrix = diffs.get('worldMatrix', None)
+            if matrix:
+                pm.xform(node, m=matrix, ws=1)
+                diffs.pop('worldMatrix')
+                
+            matrix = diffs.get('localMatrix', None)
+            if matrix:
+                pm.xform(node, m=matrix)
+                diffs.pop('localMatrix')
+
+            #remaining kwargs are shapes, so apply them
+            if diffs:
+                ctl.setShape(**diffs)
         
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """

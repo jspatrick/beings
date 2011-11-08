@@ -40,3 +40,25 @@ def isIter(arg, string=False):
     return False
 
 
+#json utils
+def decodeList(lst):
+    newlist = []
+    for i in lst:
+        if isinstance(i, unicode):
+            i = i.encode('utf-8')
+        elif isinstance(i, list):
+            i = _decode_list(i)
+        newlist.append(i)
+    return newlist
+
+def decodeDict(dct):
+    newdict = {}
+    for k, v in dct.iteritems():
+        if isinstance(k, unicode):
+            k = k.encode('utf-8')
+        if isinstance(v, unicode):
+             v = v.encode('utf-8')
+        elif isinstance(v, list):
+            v = decodeList(v)
+        newdict[k] = v
+    return newdict

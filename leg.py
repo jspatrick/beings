@@ -1,4 +1,4 @@
-'''
+"""
 import throttle.control as C
 reload(C)
 import throttle.leg as L
@@ -19,8 +19,8 @@ ll = L.LegLayout()
 ll.build()
 ll.delete()
 d.applyDiffs(diffs)
+"""
 
-'''
 import logging, re, copy, weakref
 import json
 import pymel.core as pm
@@ -32,7 +32,7 @@ _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 def _getStateDct(obj):
-    ''' Get a dict representing the state of the node '''
+    """ Get a dict representing the state of the node """
     result = {}
     if isinstance (obj, control.Control):
         result.update(obj.getHandleInfo())
@@ -42,82 +42,85 @@ def _getStateDct(obj):
     return result
 
 class Differ(object):
-    '''
+    """
     Get and set control differences
-    '''
+    """
     def __init__(self):
-        self.__controls = []
+        self.__controls = {}
         self.__initialState = {}
 
-    def addObjs(self, objs, diffSpaceType='local'):
-        '''
-        Add Control objects or other nodes to the differ.
+    def addObjs(self, objDct, diffSpaceType='local'):
+        """
+        Add Control objects to the differ.
+        @param objDct:  a dict of {objectKey: object}
         @param diffSpaceType="local": get diffs in this space (local or world)
-        '''
-        for obj in objs:
+        """
+        for key, obj in objDct.items():
             if not isinstance(obj, control.Control):
                 _logger.warning("%r is not a control; skipping" % obj)
                 continue
             if self._nameCheck(obj):
-                self.__controls.append((obj, diffSpaceType))
-            else:
-                ctlName = obj.xformNode().nodeName()
-                _logger.warning("%s is already a control in the differ; skipping" % ctlName)
+                self.__controls[key] = (obj, diffSpaceType)
+            else:                
+                _logger.warning("%s is already a key in the differ; skipping" % key)
 
-    def _nameCheck(self, control):
-        '''Short names for the xform nodes in controls'''
-        names = [c[0].xformNode().nodeName() for c in self.__controls]
-        controlName = control.xformNode().nodeName()
-        if controlName in names:
-            _logger.warning('%s is already a control in the differ' % controlName)
+    def _nameCheck(self, key):
+        """Short names for the xform nodes in controls"""
+        if key in  self.__controls.keys():
+            _logger.warning('%s is already a control in the differ' % key)
             return False
         else:
             return True
         
     def setInitialState(self):
-        '''
+        """
         Set the initial state for all nodes
-        '''
+        """
         self.__initialState = {}
-        for ctl in self.__controls:
-            self.__initialState[ctl[0].xformNode().nodeName()] = _getStateDct(ctl[0])
+        for k, ctl in self.__controls.items():
+            self.__initialState[k] = _getStateDct(ctl[0])
 
 
     def getDiffs(self):
-        '''
+        """
         Get diffs for all nodes
-        '''
+        """
         if not self.__initialState:
             raise utils.ThrottleError("Initial state was never set")
         allDiffs = {}
-        for control, space in self.__controls:
-            name = control.xformNode().nodeName()
+        for k, ctlPair in self.__controls.items():
+            control = ctlPair[0]
+            space = ctlPair[1]
             diff = {}
-            initialState = self.__initialState[name]
+            initialState = self.__initialState[k]
             state = _getStateDct(control)
-            for k in initialState.keys():
-                if space == 'world' and k == 'localMatrix':
+            for ik in initialState.keys():
+                if space == 'world' and ik == 'localMatrix':
                     continue
-                elif space == 'local' and k == 'worldMatrix':
+                elif space == 'local' and ik == 'worldMatrix':
                     continue
-                if initialState[k] != state[k]:
-                    diff[k] = state[k]
+                if initialState[ik] != state[ik]:
+                    diff[ik] = state[ik]
             if diff:
-                allDiffs[name] = diff
+                allDiffs[k] = diff
         return allDiffs
     
     def applyDiffs(self, diffDct):
-        '''
+        """
         Apply diffs for nodes.
-        '''
+        """
         diffDct = copy.deepcopy(diffDct)
         if isinstance(diffDct, basestring):
             diffDct = json.loads(diffDct, object_hook=utils.decodeDict)
 
-        for node, diffs in diffDct.items():
-            node = pm.PyNode(node)
-            ctl = control.Control.fromNode(node)
+        for ctlKey, diffs in diffDct.items():
+            try:
+                ctl = self.__controls[ctlKey][0]                
+            except ValueError:
+                _logger.warning("%s does not exist, skipping" % ctlKey)
+                continue
             
+            node = ctl.xformNode()
             #apply and discard the matricies from the diff dict
             matrix = diffs.get('worldMatrix', None)
             if matrix:
@@ -151,12 +154,12 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
     
 class Namer(object):
-    '''
+    """
     Store name information, and help name nodes.    
     Nodes are named based on a token pattern.  Nodes should always be named via
     this namer, so that it can be replaced with a different namer if a different
     pattern is desired
-    '''
+    """
     tokenSymbols = {'c': 'character',
                        'n': 'characterNum',
                        'r': 'resolution',
@@ -223,7 +226,7 @@ class Namer(object):
         return name
 
     def stripPrefix(self, name, errorOnFailure=False):
-        '''Strip prefix from a name.'''
+        """Strip prefix from a name."""
         prefix = '%s%s_' % (self.getToken('c'), self.getToken('n'))
         newName = ''
         parts = name.split(prefix)
@@ -268,9 +271,9 @@ class BuildCheck(object):
         return new
 
 def storeNodes(func):
-    '''
+    """
     stores created nodes.  Should always decorate build functions.
-    '''
+    """
     def new(self, *args, **kwargs):
         with nodetracking.NodeTracker() as nt:
             result = func(self, *args, **kwargs)
@@ -299,10 +302,11 @@ class LegLayout(object):
         self._layoutControls = {}
         self._rigControls = {}
         self.storeRef(self)
+        self.differ = Differ()
         
     @classmethod
     def storeRef(cls, obj):
-        '''Store weak reference to the object'''
+        """Store weak reference to the object"""
         cls.layoutObjs.add(weakref.ref(obj))
         oldRefs = set([])
         for ref in cls.layoutObjs:
@@ -334,7 +338,7 @@ class LegLayout(object):
             return "unbuilt"
 
     def registerControl(self, control, ctlType ='layout'):
-        '''Register a control that should be cached'''
+        """Register a control that should be cached"""
         ctlDct = getattr(self, '_%sControls' % ctlType)
         controlName = self._namer.stripPrefix(control.xformNode().name())
         if controlName in ctlDct.keys():

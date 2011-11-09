@@ -10,7 +10,7 @@ reload(utils)
 
 logging.basicConfig(level=logging.DEBUG)
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
+_logger.setLevel(logging.INFO)
 
 COLOR_MAP = {'null':0,
            'black':1,

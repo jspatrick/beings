@@ -61,7 +61,7 @@ class Differ(object):
                 continue
             if self._nameCheck(obj):
                 self.__controls[key] = (obj, diffSpaceType)
-            else:                
+            else:
                 _logger.warning("%s is already a key in the differ; skipping" % key)
 
     def _nameCheck(self, key):
@@ -71,7 +71,7 @@ class Differ(object):
             return False
         else:
             return True
-        
+
     def setInitialState(self):
         """
         Set the initial state for all nodes
@@ -104,7 +104,7 @@ class Differ(object):
             if diff:
                 allDiffs[k] = diff
         return allDiffs
-    
+
     def applyDiffs(self, diffDct):
         """
         Apply diffs for nodes.
@@ -115,18 +115,18 @@ class Differ(object):
 
         for ctlKey, diffs in diffDct.items():
             try:
-                ctl = self.__controls[ctlKey][0]                
+                ctl = self.__controls[ctlKey][0]
             except ValueError:
                 _logger.warning("%s does not exist, skipping" % ctlKey)
                 continue
-            
+
             node = ctl.xformNode()
             #apply and discard the matricies from the diff dict
             matrix = diffs.get('worldMatrix', None)
             if matrix:
                 pm.xform(node, m=matrix, ws=1)
                 diffs.pop('worldMatrix')
-                
+
             matrix = diffs.get('localMatrix', None)
             if matrix:
                 pm.xform(node, m=matrix)
@@ -135,13 +135,13 @@ class Differ(object):
             #remaining kwargs are shapes, so apply them
             if diffs:
                 ctl.setShape(**diffs)
-        
+
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
     Create a stretch
     """
     if not namer.getToken('part'):
-        _logger.warning('You should really give the namer a part...')        
+        _logger.warning('You should really give the namer a part...')
     dist = pm.createNode('distanceBetween', n=namer.name(d='stretch', x='dst'))
     pm.select(dist)
     distNode1.worldMatrix.connect(dist.inMatrix1)
@@ -152,10 +152,10 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     mdn.input2X.set(staticDist)
     mdn.operation.set(2) #divide
     mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
-    
+
 class Namer(object):
     """
-    Store name information, and help name nodes.    
+    Store name information, and help name nodes.
     Nodes are named based on a token pattern.  Nodes should always be named via
     this namer, so that it can be replaced with a different namer if a different
     pattern is desired
@@ -178,11 +178,11 @@ class Namer(object):
                               'description': '',
                               'extras': '',
                               'suffix': ''}
-        
+
         self._pattern = "$c$n_$r_$s_$p_$d_$e_$x"
         if toks:
             self.setTokens(**toks)
-        
+
     def _fullToken(self, token):
         if token in self.tokenSymbols.values():
             return token
@@ -200,11 +200,11 @@ class Namer(object):
                     return k
         else:
             raise Exception("Invalid token '%s'" % token)
-        
+
     def getToken(self, token):
         fullToken = self._fullToken(token)
         return self.__namedTokens[fullToken]
-        
+
     def setTokens(self, **kwargs):
         for token, name in kwargs.items():
             name = str(name)
@@ -213,7 +213,7 @@ class Namer(object):
                 if name not in ['lf', 'rt', 'cn']:
                     raise Exception ("invalid side '%s'" % name)
             self.__namedTokens[key] = name
-            
+
     def name(self, **kwargs):
         nameParts = copy.copy(self.__namedTokens)
         for tok, val in kwargs.items():
@@ -230,17 +230,17 @@ class Namer(object):
         prefix = '%s%s_' % (self.getToken('c'), self.getToken('n'))
         newName = ''
         parts = name.split(prefix)
-        if (parts[0] == prefix):
+        if (parts[0] == ''):
             newName = newName.join(parts[1:])
         else:
-            msg = 'Cannot strip %s from %s' % (prefix, name)
+            msg = 'Cannot strip %s from %s; parts[0] == %s' % (prefix, name, parts[0])
             if errorOnFailure:
                 raise utils.ThrottleError(msg)
             else:
                 _logger.warning(msg)
                 newName = name
         return newName
-        
+
 class BuildCheck(object):
     """
     warn and gracefully exit if the object is not in the
@@ -249,7 +249,7 @@ class BuildCheck(object):
     def __init__(self, *acceptableStates, **kwargs):
         self.__raiseException = kwargs.get('raiseException', False)
         self.__acceptableStates = acceptableStates
-        
+
     def __call__(self, method):
         """
         Decorate the method, checking that it's in an acceptable state
@@ -270,40 +270,25 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
-def storeNodes(func):
-    """
-    stores created nodes.  Should always decorate build functions.
-    """
-    def new(self, *args, **kwargs):
-        with nodetracking.NodeTracker() as nt:
-            result = func(self, *args, **kwargs)
-            self._nodes.extend(nt.getObjects())
-            return result
-    new.__name__ = func.__name__
-    new.__doc__ = "<using storeCreateNodes>\n%s" % (func.__doc__ or "")
-    new.__dict__.update(func.__dict__)
-    return new
 
 class LegLayout(object):
-    
-    layoutObjs = set([])    
+    layoutObjs = set([])
     def __init__(self, num=1):
         self._namer = Namer('leg', n=num)
 
-        for ref in self.layoutObjs:            
+        for ref in self.layoutObjs:
             obj = ref()
             if obj and obj._namer.getToken('n') == str(num):
                 _logger.warning("Warning! %s has already been used" % str(num))
-        
-        self.__tweaks = []
+
         self._nodes = []
-        self._status = 'unbuilt'
         self._bindJoints = []
         self._layoutControls = {}
         self._rigControls = {}
         self.storeRef(self)
         self.differ = Differ()
-        
+        self._cachedDiffs = {}
+
     @classmethod
     def storeRef(cls, obj):
         """Store weak reference to the object"""
@@ -313,13 +298,14 @@ class LegLayout(object):
             if not ref():
                 oldRefs.add(ref)
         cls.layoutObjs.difference_update(oldRefs)
-        
+
     @BuildCheck('built')
     def getBindJoints(self, newPrefix, oriented=True):
         """
         Duplicate the bind joints.
         """
-        
+        raise NotImplementedError
+
     def getNodes(self):
         nodes = []
         for node in self._nodes:
@@ -327,7 +313,7 @@ class LegLayout(object):
                 nodes.append(node)
         self._nodes = nodes
         return nodes
-    
+
     def state(self):
         """
         Return built or unbuilt
@@ -343,16 +329,28 @@ class LegLayout(object):
         controlName = self._namer.stripPrefix(control.xformNode().name())
         if controlName in ctlDct.keys():
             _logger.warning("Warning!  %s already exists - overriding." % controlName)
-        
+        else:
+            ctlDct[controlName] = control
+
     @BuildCheck('unbuilt')
-    @storeNodes
-    def build(self):
+    def build(self, useCachedDiffs=True):
+        with nodetracking.NodeTracker() as nt:
+            try:
+                self._setupRig()
+            finally:
+                self._nodes = nt.getObjects()
+        self.differ.addObjs(self._layoutControls)
+        self.differ.addObjs(self._rigControls)
+        self.differ.setInitialState()
+        if useCachedDiffs:
+            self.differ.applyDiffs(self._cachedDiffs)
+    def _setupRig(self):
         """
         build the layout
         """
         namer = self._namer
         namer.setTokens(side='cn')
-        
+
         toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toetip']
         positions = [(0,5,0),
                      (0,2.75,1),
@@ -365,17 +363,17 @@ class LegLayout(object):
         legCtls = {}
         pm.select(cl=1)
         for i, tok in enumerate(toks):
-            legJoints[tok] = pm.joint(p=positions[i], n = namer.name(r='bnd'))            
+            legJoints[tok] = pm.joint(p=positions[i], n = namer.name(r='bnd'))
             legCtls[tok] = control.Control(name = namer.name(x='ctl'), shape='sphere')
-            self.registerControl(legCtls[tok])            
+            self.registerControl(legCtls[tok])
             legCtls[tok].setShape(scale=[0.3, 0.3, 0.3])
-            utils.snap(legJoints[tok], legCtls[tok].xformNode(), orient=False)            
+            utils.snap(legJoints[tok], legCtls[tok].xformNode(), orient=False)
             pm.select(legJoints[tok])
         for tok in toks:
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
             pm.parentConstraint(legCtls[tok].xformNode(), legJoints[tok])
 
-        #create up-vec locs        
+        #create up-vec locs
         l = pm.spaceLocator(n=namer.name(d='orientor_loc'))
         pm.pointConstraint(legCtls['hip'], legCtls['ankle'], l)
         pm.aimConstraint(legCtls['hip'], l,
@@ -383,59 +381,66 @@ class LegLayout(object):
                          worldUpType='object',
                          worldUpObject = legCtls['knee'])
 
-        
     @BuildCheck('built')
-    def delete(self):
+    def delete(self, cache=True):
         """
         Delete the layout
         """
+        if cache:
+            self.cacheDiffs()
         for node in self.getNodes():
             if pm.objExists(node):
                 pm.delete(node)
         self._nodes = []
-                
+
     @BuildCheck('built')
-    def cacheTweaks(self):
+    def cacheDiffs(self):
         """
         Store tweaks internally
         """
-        
-    def getTweaks(self, cached=False):
+        self._cachedDiffs = self.differ.getDiffs()
+
+    def getDiffs(self, cached=False):
         """
         get the object's tweaks, if built
         @param cached=False: return tweaks cached in memory
         """
-        pass
-    
+        if cached:
+            return self._cachedDiffs
+        elif self.state() == 'built':
+            return self.differ.getDiffs()
+        else:
+            raise utils.ThrottleError("If not built, must get cached tweaks")
+
     @BuildCheck('built')
-    def applyTweaks(self, tweaks):
+    def applyDiffs(self, diffDict):
         """
         Apply tweaks
         """
-        pass
+        self.differ.applyDiffs(diffDict)
 
 class LegRig(object):
     def __init__(self, layout):
         self.__layout = layout
-        
+
     def build(self, charName, side='cn'):
         """
         Build the rig, using the information in the layout
         """
         pass
-    
+
     def _getTopFkChildren(self):
         """
         Get the nodes that should be directly parented under another rig's node
         """
         pass
-    
+
     def _getTopIkChildren(self):
         """
         Get the nodes that should be parented under the character's 'master' control
         """
         pass
-    
+
     def _getDNTNodes(self):
         """
         Get the nodes that should be parented under the DNT

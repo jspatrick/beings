@@ -295,11 +295,13 @@ class LegLayout(object):
         self.__tweaks = []
         self._nodes = []
         self._status = 'unbuilt'
-        self._bindJoints = []
+        self._bindJoints = {}
         self._layoutControls = {}
         self._rigControls = {}
         self.storeRef(self)
-        
+
+    def name(self):
+        return self._namer.getToken('c') + self._namer.getToken('n')
     @classmethod
     def storeRef(cls, obj):
         '''Store weak reference to the object'''
@@ -311,10 +313,13 @@ class LegLayout(object):
         cls.layoutObjs.difference_update(oldRefs)
         
     @BuildCheck('built')
-    def getBindJoints(self, newPrefix, oriented=True):
+    def duplicateBindJoints(self, prefix, oriented=True):
         """
-        Duplicate the bind joints.
+        Duplicate the bind joints.  Give a new prefix
         """
+        if prefix == self.name():
+            raise utils.ThrottleError("Prefix must be different than the rig name")
+        
         
     def getNodes(self):
         nodes = []
@@ -332,7 +337,23 @@ class LegLayout(object):
             return "built"
         else:
             return "unbuilt"
-
+    def registerBindJoint(self, jnt, jntParent=None):
+        '''Register bind joints to be duplicated'''
+        def checkName(self, jnt):            
+            if isInstance(jnt, pm.PyNode):
+                jntName = jnt.name()
+            else:
+                jntName = jnt
+            if not jntName.startsWith(self.name()):
+                raise utils.ThrottleError("Joint name must start with the rig prefix('%s')" % self.name())
+            if '|' in jntName or not pm.objExists(jntName):
+                raise utils.ThrottleError('One and only one object may exist called %s' % jntName)
+            return jntName
+        jntName = checkName(jnt)
+        if parent:
+            parent = checkName(jntParent)
+        self._bindJoints[jntName] = parent
+        
     def registerControl(self, control, ctlType ='layout'):
         '''Register a control that should be cached'''
         ctlDct = getattr(self, '_%sControls' % ctlType)
@@ -412,13 +433,18 @@ class LegLayout(object):
 
 class LegRig(object):
     def __init__(self, layout):
-        self.__layout = layout
+        self.layout = layout
         
     def build(self, charName, side='cn'):
         """
         Build the rig, using the information in the layout
         """
-        pass
+        
+        
+    def _makeRig(self):
+        if self.layout.state() != 'built':
+            self.layout.build()
+        bindJntDct = self.__layout.duplicateBindJoints(prefix='tmp')        
     
     def _getTopFkChildren(self):
         """

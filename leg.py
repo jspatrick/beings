@@ -348,11 +348,18 @@ class LegLayout(object):
             # for node in chain:
             #     pm.xform(node, m=wsXforms[node], ws=1)
             utils.fixInverseScale(chain)
-            
+        self._orientBindJoints(result)
         return result
     def _orientBindJoints(self, jntDct):
         '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
-
+        worldUpVec = utils.getXProductFromNodes(jntDct['knee'], jntDct['hip'], jntDct['ankle'])
+        for jnt in jntDct.values():
+            utils.freeze(jnt)
+        for tok in ['hip', 'knee']:
+            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=worldUpVec)
+        for tok in ['ankle', 'ball', 'toe', 'toetip']:
+            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
+                                           
         
     def getNodes(self):
         nodes = []
@@ -447,7 +454,13 @@ class LegLayout(object):
             if i > 0:
                 parent = legJoints[toks[i-1]]
             self.registerBindJoint(tok, legJoints[tok], parent)
+            legCtls[tok].xformNode().r.setLocked(True)
             
+        ankleCtl = legCtls['ankle']
+        for tok in ['ball', 'toe', 'toetip']:
+            ctl = legCtls[tok]
+            ctl.xformNode().setParent(ankleCtl.xformNode())
+            ctl.xformNode().tx.setLocked(True)
         #create up-vec locs
         l = pm.spaceLocator(n=namer.name(d='orientor_loc'))
         pm.pointConstraint(legCtls['hip'], legCtls['ankle'], l)

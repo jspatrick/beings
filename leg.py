@@ -225,7 +225,7 @@ class Namer(object):
         name = '_'.join([tok for tok in name.split('_') if tok])
         return name
 
-    def stripPrefix(self, name, errorOnFailure=False):
+    def stripPrefix(self, name, errorOnFailure=False, replaceWith=''):
         """Strip prefix from a name."""
         prefix = '%s%s_' % (self.getToken('c'), self.getToken('n'))
         newName = ''
@@ -239,6 +239,8 @@ class Namer(object):
             else:
                 _logger.warning(msg)
                 newName = name
+        if replaceWith:
+            newName = '%s_%s' % (replaceWith, newName)
         return newName
 
 class BuildCheck(object):
@@ -282,12 +284,15 @@ class LegLayout(object):
                 _logger.warning("Warning! %s has already been used" % str(num))
 
         self._nodes = []
-        self._bindJoints = []
+        self._bindJoints = {}
         self._layoutControls = {}
         self._rigControls = {}
         self.storeRef(self)
         self.differ = Differ()
         self._cachedDiffs = {}
+
+    def name(self):
+        return self._namer.getToken('c') + self._namer.getToken('n')
 
     @classmethod
     def storeRef(cls, obj):
@@ -300,12 +305,55 @@ class LegLayout(object):
         cls.layoutObjs.difference_update(oldRefs)
 
     @BuildCheck('built')
-    def getBindJoints(self, newPrefix, oriented=True):
+    def duplicateBindJoints(self, prefix, oriented=True):
         """
-        Duplicate the bind joints.
+        Duplicate the bind joints.  Give a new prefix
         """
-        raise NotImplementedError
+        if prefix == self.name():
+            raise utils.ThrottleError("Prefix must be different than the rig name")
+        
+        #duplicate all joints, parent them to the world
+        result = {}
+        newJnts = []
+        for tok, jnts in self._bindJoints.items():
+            jnt = jnts[0]
+            parent = jnts[1]
+            newName = self._namer.stripPrefix(jnt, replaceWith=prefix, errorOnFailure=True)
+            newJnt = pm.duplicate(jnt, name=newName, po=True)[0]
+            newJnt.setParent(world=True)
+            #get the name of the duplicated parent
+            if parent:
+                newParentName  = self._namer.stripPrefix(parent, replaceWith=prefix, errorOnFailure=True)
+            else:
+                newParentName = None
+            result[tok] = newJnt
+            newJnts.append((newJnt, newParentName))
+            
+        #find parents for joints and store pre-parented world matrices
+        topJnts = []
+        #wsXforms = {}
+        for newJnt, newParentName in newJnts:
+            #wsXforms[newJnt] = pm.xform(newJnt, m=1, ws=1, q=1)
+            if not newParentName:
+                topJnts.append(newJnt)
+                continue
+            newParentNode = pm.PyNode(newParentName)            
+            pm.connectJoint(newJnt, newParentNode, pm=True)
 
+        #make sure parenting didn't alter the world matrix
+        for jnt in topJnts:
+            chain = jnt.listRelatives(ad=1)
+            chain.append(jnt)
+            chain.reverse()
+            # for node in chain:
+            #     pm.xform(node, m=wsXforms[node], ws=1)
+            utils.fixInverseScale(chain)
+            
+        return result
+    def _orientBindJoints(self, jntDct):
+        '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
+
+        
     def getNodes(self):
         nodes = []
         for node in self._nodes:
@@ -322,7 +370,26 @@ class LegLayout(object):
             return "built"
         else:
             return "unbuilt"
-
+        
+    def registerBindJoint(self, name, jnt, jntParent=None):
+        '''Register bind joints to be duplicated'''
+        if name in self._bindJoints.keys():
+            _logger.warning("%s is already a key in bind joints dict" % name)
+        def checkName(jnt): 
+            if isinstance(jnt, pm.PyNode):
+                jntName = jnt.name()
+            else:
+                jntName = jnt
+            if not jntName.startswith(self.name()):
+                raise utils.ThrottleError("Joint name must start with the rig prefix('%s')" % self.name())
+            if '|' in jntName or not pm.objExists(jntName):
+                raise utils.ThrottleError('One and only one object may exist called %s' % jntName)
+            return jntName
+        jnt = checkName(jnt.name())
+        if jntParent:
+            jntParent = checkName(jntParent.name())
+        self._bindJoints[name] = (jnt, jntParent)
+        
     def registerControl(self, control, ctlType ='layout'):
         """Register a control that should be cached"""
         ctlDct = getattr(self, '_%sControls' % ctlType)
@@ -334,6 +401,9 @@ class LegLayout(object):
 
     @BuildCheck('unbuilt')
     def build(self, useCachedDiffs=True):
+        self._bindJoints = {}
+        self._layoutControls = {}
+        self._rigControls = {}
         with nodetracking.NodeTracker() as nt:
             try:
                 self._setupRig()
@@ -344,6 +414,7 @@ class LegLayout(object):
         self.differ.setInitialState()
         if useCachedDiffs:
             self.differ.applyDiffs(self._cachedDiffs)
+            
     def _setupRig(self):
         """
         build the layout
@@ -363,16 +434,20 @@ class LegLayout(object):
         legCtls = {}
         pm.select(cl=1)
         for i, tok in enumerate(toks):
-            legJoints[tok] = pm.joint(p=positions[i], n = namer.name(r='bnd'))
-            legCtls[tok] = control.Control(name = namer.name(x='ctl'), shape='sphere')
+            legJoints[tok] = pm.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
+            legCtls[tok] = control.Control(name = namer.name(x='ctl', d=tok), shape='sphere')
             self.registerControl(legCtls[tok])
             legCtls[tok].setShape(scale=[0.3, 0.3, 0.3])
             utils.snap(legJoints[tok], legCtls[tok].xformNode(), orient=False)
             pm.select(legJoints[tok])
-        for tok in toks:
+        for i, tok in enumerate(toks):
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
             pm.parentConstraint(legCtls[tok].xformNode(), legJoints[tok])
-
+            parent = None
+            if i > 0:
+                parent = legJoints[toks[i-1]]
+            self.registerBindJoint(tok, legJoints[tok], parent)
+            
         #create up-vec locs
         l = pm.spaceLocator(n=namer.name(d='orientor_loc'))
         pm.pointConstraint(legCtls['hip'], legCtls['ankle'], l)
@@ -380,7 +455,7 @@ class LegLayout(object):
                          aimVector=[0,1,0], upVector=[0,0,1],
                          worldUpType='object',
                          worldUpObject = legCtls['knee'])
-
+        
     @BuildCheck('built')
     def delete(self, cache=True):
         """
@@ -421,14 +496,19 @@ class LegLayout(object):
 
 class LegRig(object):
     def __init__(self, layout):
-        self.__layout = layout
-
+        self.layout = layout
+        
     def build(self, charName, side='cn'):
         """
         Build the rig, using the information in the layout
         """
-        pass
-
+        self._makeRig()
+        
+    def _makeRig(self):
+        if self.layout.state() != 'built':
+            self.layout.build()
+        bindJntDct = self.__layout.duplicateBindJoints(prefix='tmp')        
+    
     def _getTopFkChildren(self):
         """
         Get the nodes that should be directly parented under another rig's node
@@ -445,6 +525,7 @@ class LegRig(object):
         """
         Get the nodes that should be parented under the DNT
         """
+        
     def parentTo(self, otherRig, node):
         """
         parent this rig to otherRig under node

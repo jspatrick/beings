@@ -807,7 +807,7 @@ def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curA
         if curAimAxis == None:
             msg = "Warning - orienting childless joint %s, and no current aim axis provided." % joint
             msg += "\n...orienting to 'None'"
-            logger.warning(msg)
+            logger.debug(msg)
             pm.joint(joint, e=1, oj="none", zso=True)
             return
 

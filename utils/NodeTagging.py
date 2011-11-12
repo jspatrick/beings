@@ -6,13 +6,13 @@ RITag_tagType: "key^value~key^value"
 '''
 import logging, copy
 import pymel.core as pm
-from utils.Exceptions import * #@UnusedWildImport
+from throttle.utils.Exceptions import * #@UnusedWildImport
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 #constants
-TAG_PREFIX = 'RItag_'
+TAG_PREFIX = 'tag_'
 
 #tag types
 UNLOCKED_TAG = 'unlockedAttrs'
@@ -29,10 +29,7 @@ class DctNodeTag(object):
         """
         Store an attribute of an object internally
         """
-        #if it's not passed with the prefix, add it
-        if not tag.startswith(TAG_PREFIX):
-            tag = TAG_PREFIX + tag
-
+        tag = TAG_PREFIX + tag
         node = pm.PyNode(node)
         self.node = node
 
@@ -46,12 +43,8 @@ class DctNodeTag(object):
             try:
                 assert(isinstance(node, pm.nt.Transform))
             except AssertionError:
-                logger.debug('Tagger is tagging a non-transform node, "%s"' % node.name())
+                logger.warning('Tagger is tagging a non-transform node, "%s"' % node.name())
 
-            #udAttrs = node.listAttr(ud=True)
-
-            #add the attribute if it's not there yet
-            #if "%s.%s" % (node.name(), tag) not in [attr.name() for attr in udAttrs]:
             node.addAttr(tag, dt='string')
             self.nodeAttr = pm.Attribute(node.name() + "." + tag)
 
@@ -199,16 +192,6 @@ class LockNodeTag(DctNodeTag):
             attr.set(channelBox=True)
             attr.set(keyable=True)
             self.__delitem__(attr.name(includeNode=False))
-
-def tagNode(node, tag):
-    """
-    Tag a node with an attribute.  If the tag attribute exists, do nothing.
-    @Return: NodeTag 
-    """
-    if UNLOCKED_TAG in tag:
-        return LockNodeTag(node)
-
-    return DctNodeTag(node, tag)
 
 
 def getTaggedNodesTags(nodeList, tag, getChildren=True):

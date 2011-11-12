@@ -26,7 +26,6 @@ import json
 import pymel.core as pm
 import throttle.control as control
 import throttle.utils as utils
-import throttle.nodetracking as nodetracking
 
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -411,7 +410,7 @@ class LegLayout(object):
         self._bindJoints = {}
         self._layoutControls = {}
         self._rigControls = {}
-        with nodetracking.NodeTracker() as nt:
+        with utils.NodeTracker() as nt:
             try:
                 self._setupRig()
             finally:
@@ -507,6 +506,22 @@ class LegLayout(object):
         """
         self.differ.applyDiffs(diffDict)
 
+
+    def buildRig(self, charName):
+        """build the rig"""
+        if self.state() != "built":
+            self.build()
+        pm.refresh()
+        jntDct = self.duplicateBindJoints(charName)
+        self.delete()
+        with utils.NodeTracker() as nt:                
+            self._makeRig(jntDct)
+        self._nodes = nt.getObjects()
+                
+    def _makeRig(self, bindJntDct):
+        topGrp = pm.createNode('transform', n='%s_rig_grp' % self.name())
+        bindJntDct['hip'].setParent(topGrp)
+        
 class LegRig(object):
     def __init__(self, layout):
         self.layout = layout

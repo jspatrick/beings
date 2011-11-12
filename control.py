@@ -4,8 +4,8 @@ Try a different approach.
 import logging, sys, copy, json
 import pymel.core as pm
 import maya.mel as mm
-import nodetagging as nodetagging
-import utils
+
+import throttle.utils as utils
 reload(utils)
 
 logging.basicConfig(level=logging.DEBUG)
@@ -181,7 +181,7 @@ class Control(object):
             _logger.debug('Xforms: %s' % xforms)
         for i, shapeNode in enumerate(shapes):
             shapeNode.rename("%sShape" % (self._xform.name()))
-            tag = nodetagging.DctNodeTag(shapeNode, SHAPE_ORDER_TAG)
+            tag = utils.DctNodeTag(shapeNode, SHAPE_ORDER_TAG)
             tag['order'] = i
 
         utils.parentShapes(tmpXform, xforms)
@@ -215,7 +215,7 @@ class Control(object):
         nodes = self._xform.listRelatives(shapes=1)
         sortedNodes = {}
         for node in nodes:
-            i = int(nodetagging.DctNodeTag(node, SHAPE_ORDER_TAG)['order'])
+            i = int(utils.DctNodeTag(node, SHAPE_ORDER_TAG)['order'])
             sortedNodes[i] = node
         sortedKeys = sortedNodes.keys()
         sortedKeys.sort()

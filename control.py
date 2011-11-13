@@ -91,8 +91,7 @@ class Control(object):
         if not xformNode:
             self._xform = pm.createNode(xformType, n=name)
         else:
-            self._xform = xformNode
-
+            self._xform = pm.PyNode(xformNode)
         self._shapeData = {'color': 'null',
                            'shape': 'sphere',
                            'shapeType': 'crv',
@@ -100,10 +99,19 @@ class Control(object):
                            'scale': [1,1,1],
                            'pos': [0,0,0]}
 
+        #check if the node is already a control
+        if self._xform.hasAttr('throttleControlInfo'):
+            info = json.loads(self._xform.throttleControlInfo.get(), object_hook=utils.decodeDict)
+            for k, v in info.items():
+                if k in self._shapeData:
+                    self._shapeData[k] = v
+                else:
+                    _logger.warning("Warning! Found bad attr in control info - %s" % k)
+
         dataKeys = self._shapeData.keys()
         for k, v in kwargs.items():
             if k not in dataKeys:
-                raise utils.ThrottleError("Invalid param '%s'" % k)
+                _logger.debug("Invalid param '%s'" % k)
             self._shapeData[k] = v
 
         if not skipBuild:
@@ -125,32 +133,59 @@ class Control(object):
         infoStr = json.dumps(self.getHandleInfo())
         node.throttleControlInfo.set(infoStr)
             
-    def scaleToChild(self, axis='y', neg=False):
-        axisIndex = {'x': 0,
-                   'y': 1,
-                   'z': 2}
+    def scaleToChild(self, setData=False, skipBuild=False, keepPos=True, keepScale=True):
+        xf = self.xformNode()
+        children = xf.listRelatives(type='transform')
         try:
-            child = self._xform.listRelatives(type='transform')[0]
+            child = children[0]
         except IndexError:
-            _logger.warning("No child to scale to")
+            _logger.error('no children found to scale to, returning')
             return
-        childPos = pm.xform(child, q=1, t=1, ws=1)
-        parentPos = pm.xform(self._xform, q=1, t=1, ws=1)
-        v = pm.dt.Vector(childPos)
-        v2 = pm.dt.Vector(parentPos)
-        scale = v2.distanceTo(v)
-        self._shapeData['scale'][axisIndex[axis]] = scale/2.0
-        if neg:
-            scale *= -1
-        self._shapeData['pos'][axisIndex[axis]] = scale/2.0
-        self.setShape()
+        if len(children) < 1:
+            _logger.warning('multiple children found - scaling to %s' % children[0])
+        worldVector = pm.dt.Vector(pm.xform(child, t=1, ws=1, q=1)) - \
+                      pm.dt.Vector(pm.xform(xf, t=1, ws=1, q=1))
+        wm = xf.worldMatrix.get()
+        localVector = wm * worldVector
         
+        #make sure that the scale of the local vector is in world space, since we're moving
+        #a node outside of the hierarchy
+        if not pm.pluginInfo('decomposeMatrix', q=1, loaded=1):
+            pm.loadPlugin('decomposeMatrix')
+        dcm = pm.createNode('decomposeMatrix')
+        xf.worldMatrix.connect(dcm.inputMatrix)
+        pm.select(dcm)
+        scale = dcm.outputScale.get()
+        localVector = localVector / scale
+        pm.delete(dcm)
+
+        #get scale amount
+        scale = localVector/pm.dt.Vector(2,2,2)
+        scale = [abs(scale.x), abs(scale.y), abs(scale.z)]
+        if keepScale:
+            for i in range(3):
+                if scale[i] < .01:
+                    scale[i] = self._shapeData['scale'][i]
+        
+        pos = localVector/pm.dt.Vector(2,2,2)
+        pos = [pos.x, pos.y, pos.z]
+        if keepPos:
+            for i in range(3):
+                if abs(pos[i]) < .01:
+                    pos[i] = self._shapeData['pos'][i]
+        if setData:
+            self._shapeData['pos'] = pos
+            self._shapeData['scale'] = scale
+        if not skipBuild:
+            self.setShape(pos=pos, scale=scale)
+        return {'pos': pos, 'scale': scale}
+    
     def getHandleInfo(self):
         '''Get a dict that can be passed to setShape'''
         return copy.deepcopy(self._shapeData)
     
     def setShape(self, shape=None, shapeType=None, scale=None, rot=None, pos=None,
-                 color=None):
+                 color=None, scaleToChild=False):
         shape = shape and shape or self._shapeData['shape']
         shapeType = shapeType and shapeType or self._shapeData['shapeType']
         scale = scale and scale or self._shapeData['scale']
@@ -158,15 +193,20 @@ class Control(object):
         pos = pos and pos or self._shapeData['pos']
         color = color and color or self._shapeData['color']      
         thisModule = sys.modules[__name__]
-        shapeFunc = getattr(thisModule, 'shape_%s_%s' % (shape, shapeType))
-        
+        shapeFunc = getattr(thisModule, 'shape_%s_%s' % (shape, shapeType))        
+            
         self._shapeData['shape'] = shape
         self._shapeData['shapeType'] = shapeType
         self._shapeData['scale'] = scale
         self._shapeData['rot'] = rot
         self._shapeData['pos'] = pos
         self._shapeData['color'] = color
-        
+
+        if scaleToChild:
+            r = self.scaleToChild(skipBuild=True, setData=True)
+            pos = r['pos']
+            scale = r['scale']
+            
         for shape in self._xform.listRelatives(type='geometryShape'):
             pm.delete(shape)
         tmpXform = pm.createNode('transform', n='TMP')
@@ -188,12 +228,10 @@ class Control(object):
         bbScale(tmpXform)
         bbCenter(tmpXform)
         utils.snap(self._xform, tmpXform)
-        
         #apply transformations
-        pm.xform(tmpXform, t=self._shapeData['pos'], r=1)
-        #tmpXform.t.set(self._pos)
+        pm.xform(tmpXform, ro=self._shapeData['rot'], r=1)
+        pm.xform(tmpXform, t=self._shapeData['pos'], r=1, os=1)
         tmpXform.s.set(self._shapeData['scale'])
-        tmpXform.r.set(self._shapeData['rot'])
         
         utils.parentShape(self._xform, tmpXform)
         

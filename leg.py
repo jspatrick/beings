@@ -203,7 +203,7 @@ class Namer(object):
     def getToken(self, token):
         fullToken = self._fullToken(token)
         return self.__namedTokens[fullToken]
-    
+
     def setTokens(self, **kwargs):
         for token, name in kwargs.items():
             name = str(name)
@@ -273,7 +273,7 @@ class BuildCheck(object):
 
 class Layout(object):
     '''Lay out a rig'''
-    
+
 class LegLayout(object):
     layoutObjs = set([])
     def __init__(self, num=1, **kwargs):
@@ -284,11 +284,11 @@ class LegLayout(object):
             obj = ref()
             if obj and obj._namer.getToken('n') == str(num):
                 _logger.warning("Warning! %s has already been used" % str(num))
-        self.storeRef(self)        
+        self.storeRef(self)
         self._nodes = []
         self._bindJoints = {}
         self._layoutControls = {}
-        self._rigControls = {}        
+        self._rigControls = {}
         self.differ = Differ()
         self._cachedDiffs = {}
         self._options = {'side': 'cn',
@@ -333,14 +333,14 @@ class LegLayout(object):
                 newParentName = None
             result[tok] = newJnt
             newJnts.append((newJnt, newParentName))
-            
+
         #reparent joints
         topJnts = []
         for newJnt, newParentName in newJnts:
             if not newParentName:
                 topJnts.append(newJnt)
                 continue
-            newParentNode = pm.PyNode(newParentName)            
+            newParentNode = pm.PyNode(newParentName)
             pm.connectJoint(newJnt, newParentNode, pm=True)
 
         #rename the joints to use the charName and side options
@@ -356,7 +356,7 @@ class LegLayout(object):
                 jnt.rename(newName)
         self._orientBindJoints(result)
         return result
-    
+
     def _orientBindJoints(self, jntDct):
         '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
         worldUpVec = utils.getXProductFromNodes(jntDct['knee'], jntDct['hip'], jntDct['ankle'])
@@ -365,8 +365,8 @@ class LegLayout(object):
         for tok in ['hip', 'knee']:
             utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=worldUpVec)
         for tok in ['ankle', 'ball', 'toe', 'toetip']:
-            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])                                           
-        
+            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
+
     def getNodes(self):
         nodes = []
         for node in self._nodes:
@@ -383,12 +383,12 @@ class LegLayout(object):
             return "built"
         else:
             return "unbuilt"
-        
+
     def registerBindJoint(self, name, jnt, jntParent=None):
         '''Register bind joints to be duplicated'''
         if name in self._bindJoints.keys():
             _logger.warning("%s is already a key in bind joints dict" % name)
-        def checkName(jnt): 
+        def checkName(jnt):
             if isinstance(jnt, pm.PyNode):
                 jntName = jnt.name()
             else:
@@ -402,7 +402,7 @@ class LegLayout(object):
         if jntParent:
             jntParent = checkName(jntParent.name())
         self._bindJoints[name] = (jnt, jntParent)
-        
+
     def registerControl(self, control, ctlType ='layout'):
         """Register a control that should be cached"""
         ctlDct = getattr(self, '_%sControls' % ctlType)
@@ -428,12 +428,12 @@ class LegLayout(object):
         self.differ.setInitialState()
         if useCachedDiffs:
             self.differ.applyDiffs(self._cachedDiffs)
-            
+
     def _setupRig(self):
         """
         build the layout
         """
-        namer = self._namer        
+        namer = self._namer
 
         toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toetip']
         positions = [(0,5,0),
@@ -461,7 +461,7 @@ class LegLayout(object):
                 parent = legJoints[toks[i-1]]
             self.registerBindJoint(tok, legJoints[tok], parent)
             legCtls[tok].xformNode().r.setLocked(True)
-            
+
         ankleCtl = legCtls['ankle']
         for tok in ['ball', 'toe', 'toetip']:
             ctl = legCtls[tok]
@@ -474,7 +474,7 @@ class LegLayout(object):
                          aimVector=[0,1,0], upVector=[0,0,1],
                          worldUpType='object',
                          worldUpObject = legCtls['knee'])
-        
+
     @BuildCheck('built')
     def delete(self, cache=True):
         """
@@ -521,6 +521,7 @@ class LegLayout(object):
         pm.refresh()
         jntDct = self.duplicateBindJoints()
         self.delete()
+        result = {}
         with utils.NodeTracker() as nt:
             origName = self._namer.getToken('c')
             origNum = self._namer.getToken('n')
@@ -531,38 +532,62 @@ class LegLayout(object):
                 for tok in ['dnt', 'ik', 'fk']:
                     grps[tok] = pm.createNode('transform', n='%s_%s_grp' % (self.name(), tok))
                     grps[tok].setParent(grps['top'])
-                self._makeRig(jntDct, grps)
+                result.update(self._makeRig(jntDct, grps))
             finally:
                 self._nodes = nt.getObjects()
-                self._namer.setTokens(c=origName, n=origNum, side='cn')                
-        
+                self._namer.setTokens(c=origName, n=origNum, side='cn')
+        return result
     def setSide(self, side):
         self._options['side'] = side
     def getSide(self):
         return self._options['side']
-        
-    def _makeRig(self, bindJntDct, grps):        
-        bindJntDct['hip'].setParent(grps['top'])
+
+    def _makeRig(self, bndJnts, grps):
+        bndJnts['hip'].setParent(grps['top'])
         o = utils.Orientation()
-        if self.getSide() == 'rt':            
+        if self.getSide() == 'rt':
             o.setAxis('aim', 'negY')
-            o.reorientJoints(bindJntDct.values())
-        
+            o.reorientJoints(bndJnts.values())
+            
+        fkJnts = utils.dupJntDct(bndJnts, '_bnd_', '_fk_')
+        fkCtls = {}
+        for tok, jnt in fkJnts.items():
+            if tok == 'toetip':
+                continue
+            ctl = control.Control(jnt, shape='cube', scaleToChild=True, scale=[.25, .25, .25],
+                                  color='green')
+            fkCtls[tok] = ctl
+        pm.delete(fkJnts['toetip'])
+        fkJnts.pop('toetip')        
+        self._namer.setTokens(r='ik')
+        ikJnts = utils.dupJntDct(bndJnts, '_bnd_', '_ik_')
+        ikCtl = control.Control(name=self._namer.name(), shape='sphere', color='lite blue').xformNode()
+        utils.snap(bndJnts['ankle'], ikCtl, orient=False)
+        ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'], ee=ikJnts['ankle'], solver='ikRPsolver',
+                                      n=self._namer.name(s='ikh'))
+        ikHandle.setParent(ikCtl)
+        ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)
+        fkIkRev = pm.createNode('reverse', n=self._namer.name(d='fkik', s='rev'))
+        ikCtl.fkIk.connect(fkIkRev.inputX)
+        for j in fkJnts.values():
+            fkIkRev.outputX.connect(j.v)
+        return locals()
+        #setup blend
 class LegRig(object):
     def __init__(self, layout):
         self.layout = layout
-        
+
     def build(self, charName, side='cn'):
         """
         Build the rig, using the information in the layout
         """
         self._makeRig()
-        
+
     def _makeRig(self):
         if self.layout.state() != 'built':
             self.layout.build()
-        bindJntDct = self.__layout.duplicateBindJoints(prefix='tmp')        
-    
+        bindJntDct = self.__layout.duplicateBindJoints(prefix='tmp')
+
     def _getTopFkChildren(self):
         """
         Get the nodes that should be directly parented under another rig's node
@@ -579,7 +604,7 @@ class LegRig(object):
         """
         Get the nodes that should be parented under the DNT
         """
-        
+
     def parentTo(self, otherRig, node):
         """
         parent this rig to otherRig under node

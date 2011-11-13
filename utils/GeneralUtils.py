@@ -772,6 +772,25 @@ def createJointsFromDict(jointDict, deleteExisting=False):
     fixInverseScale([pm.nodetypes.Joint(jnt) for jnt in jointDict.keys()])
     return result
 
+def dupJntDct(dct, oldNamePart, newNamePart):
+    '''
+    Duplicate a joint dict.  Rename the joints
+    '''
+    result = {}
+    parents = {}
+    for tok, jnt in dct.items():
+        origName = jnt.nodeName()
+        newName = re.sub(oldNamePart, newNamePart, origName)        
+        result[tok] = pm.duplicate(jnt, parentOnly=1, n=newName)[0]
+        parent = jnt.getParent()
+        for tok2, par in dct.items():
+            if par == parent:
+                parents[tok] = tok2
+    for childTok, parentTok in parents.items():
+        result[childTok].setParent(result[parentTok])
+    fixInverseScale(result.values())
+    return result
+
 def makeJntChain(char, widgetName, side, namePosList):
     '''
     Make a joint chain.  Positions are given in world space

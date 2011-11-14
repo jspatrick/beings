@@ -4,10 +4,7 @@ A class that will track node creation
 import logging
 import maya.OpenMaya as OM
 import pymel.core as PM
-
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-logging.basicConfig(level=logging.DEBUG)
 
 def pathFromMObj(mObj):
     """

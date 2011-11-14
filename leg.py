@@ -380,7 +380,10 @@ class LegLayout(object):
         Return built or unbuilt
         """
         if self.getNodes():
-            return "built"
+            for ctl in self._layoutControls.values():
+                if ctl.xformNode().exists():
+                    return "built"
+            return "rigged"
         else:
             return "unbuilt"
 
@@ -475,13 +478,16 @@ class LegLayout(object):
                          worldUpType='object',
                          worldUpObject = legCtls['knee'])
 
-    @BuildCheck('built')
+    @BuildCheck('built', 'rigged')
     def delete(self, cache=True):
         """
         Delete the layout
         """
         if cache:
-            self.cacheDiffs()
+            if self.state() == 'rigged':
+                _logger.debug('deleting a rig - skipping caching')
+            else:
+                self.cacheDiffs()
         for node in self.getNodes():
             if pm.objExists(node):
                 pm.delete(node)
@@ -536,7 +542,9 @@ class LegLayout(object):
             finally:
                 self._nodes = nt.getObjects()
                 self._namer.setTokens(c=origName, n=origNum, side='cn')
+                
         return result
+    
     def setSide(self, side):
         self._options['side'] = side
     def getSide(self):
@@ -555,7 +563,7 @@ class LegLayout(object):
             if tok == 'toetip':
                 continue
             ctl = control.Control(jnt, shape='cube', scaleToChild=True, scale=[.25, .25, .25],
-                                  color='green')
+                                  color='yellow')
             fkCtls[tok] = ctl
         pm.delete(fkJnts['toetip'])
         fkJnts.pop('toetip')        

@@ -7,9 +7,7 @@ RITag_tagType: "key^value~key^value"
 import logging, copy
 import pymel.core as pm
 from throttle.utils.Exceptions import * #@UnusedWildImport
-
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 #constants
 TAG_PREFIX = 'tag_'
@@ -43,7 +41,7 @@ class DctNodeTag(object):
             try:
                 assert(isinstance(node, pm.nt.Transform))
             except AssertionError:
-                logger.warning('Tagger is tagging a non-transform node, "%s"' % node.name())
+                logger.debug('Tagger is tagging a non-transform node, "%s"' % node.name())
 
             node.addAttr(tag, dt='string')
             self.nodeAttr = pm.Attribute(node.name() + "." + tag)

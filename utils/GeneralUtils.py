@@ -5,9 +5,7 @@ utilities, it should be defined here.
 import logging, inspect, sys, re, string
 import pymel.core as pm
 from Exceptions import * #@UnusedWildImport
-
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 ##################################################
@@ -689,7 +687,7 @@ def fixInverseScale(jointList):
             #check if there's a connection
             if len(jnt.inverseScale.inputs()) != 1 or jnt.inverseScale.inputs(plugs=True)[0] != parent.scale:
                 parent.scale >> jnt.inverseScale
-                logger.info("connected %s's scale to %s's inverse scale" % (parent.name(), jnt.name()))
+                logger.debug("connected %s's scale to %s's inverse scale" % (parent.name(), jnt.name()))
 
 
 def getJointDict(jointList):
@@ -824,7 +822,7 @@ def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curA
         #no child joint
         jointChild = False
         if curAimAxis == None:
-            msg = "Warning - orienting childless joint %s, and no current aim axis provided." % joint
+            msg = "Orienting childless joint %s, and no current aim axis provided." % joint
             msg += "\n...orienting to 'None'"
             logger.debug(msg)
             pm.joint(joint, e=1, oj="none", zso=True)

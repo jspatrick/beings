@@ -10,7 +10,6 @@ import pymel.core as pm
 
 import PyUtils, MathUtils
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 ATTTR_MAP = {'translateX': ['translateX', 'tx'],
                   'translateY': ['translateY', 'ty'],

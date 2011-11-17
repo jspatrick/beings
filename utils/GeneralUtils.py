@@ -48,64 +48,6 @@ decreases the temptation to write code that operates based on node names. Instea
 a more robust tagging and connection system will be used to keep track of nodes.
 """
 
-def getNameGroups(obj):
-    """
-    return groups if the node is 'well named', else return empty list.
-    
-    This should match the following:
-    mycharacter_cn_hi_arm_
-    mycharacter_arm_ik_stretch_mdn_a
-    
-    """
-    obj = str(obj)
-    pattern = r"""
-    ([a-z])_    #match character name
-    (rt|lf|cn)_        #match side
-    (([a-z]+_)+)       #match resolution, description, etc
-    ([a-z]+)           #match the last token
-    (Shape)?$          #some nodes might have 'Shape' at the end
-    """
-    nameRE = re.compile(pattern, re.VERBOSE)
-    match = nameRE.match(obj)
-    if match:
-        return match.groups()
-    else:
-        return []
-
-def isValidCharName(charName):
-    """
-    @return: True/False
-    """
-    if re.match(r'^[a-z]+[0-9]*$', charName):
-        return True
-    return False
-
-def isValidWidgetName(widgetName):
-    """
-    @return: True/False
-    """
-    if re.match(r'^[a-z]+[a-z_]*[a-z]+$' , widgetName):
-        return True
-    return False
-
-def isValidSide(widgetSide):
-    """
-    @return True/False
-    """
-    if widgetSide == "lf" or widgetSide == "rt" or widgetSide == "cn":
-        return True
-    return False
-
-def isValidIterator(iterator):
-    """
-    @return True/False
-    """
-    #for now, we'll say that an iterator shouldn't be more than 2-characters in length
-    #since we probably won't ever need 600 of a certain node
-    if re.match(r'^[a-z]{1,2}$', iterator):
-        return True
-    return False
-
 def replaceInName(node, oldPart, newPart):
     """replace the oldPart from an object's name with newPart.  OldPart is
     a regular expression.
@@ -124,87 +66,27 @@ def replaceInNames(nodeList, oldPart, newPart):
         result.append(replaceInName(node, oldPart, newPart))
     return result
 
-def getNextIterator(iterator):
-    """
-    get the next letter iterator after iterator.  For example:
-    >>>getNextIterator('a')
-    >>>'b'
-    >>>getNexIterator('ab')
-    >>>'ac'
-    @return: string
-    """
-    if not isValidIterator(iterator):
-        raise ThrottleError("%s is not a valid iterator" % iterator)
-    i = string.lowercase.index(iterator[-1])
-    if i == 25:
-        return iterator + "a"
-    else:
-        return iterator[:-1] + string.lowercase[i + 1]
-
-def getPreviousIterator(iterator):
-    """
-    get the previous letter iterator before iterator.  For example:
-    >>>getPreviousIterator('a')
-    >>>''
-    >>>getPreviousIterator('ab')
-    >>>'aa'
-    @return: string
-    """
-    if not isValidIterator(iterator):
-        raise ThrottleError("%s is not a valid iterator" % iterator)
-
-    i = string.lowercase.index(iterator[-1])
-    if i == 0 and len(iterator) == 1:
-        return ""
-
-    elif i == 0 and len (iterator) >= 1:
-        return iterator[:-2]
-
-    else:
-        return iterator[:-1] + string.lowercase[i - 1]
-
-def getNextName(node):
-    """
-    Get the next available version of a node name, based on what's
-    currently in the scene.
-    no objects with this name in the scene
-    >>> getNextName('bob_lf_arm_jnt')
-    >>> 'bob_lf_arm_jnt_a'
-    >>> getNextName('bob_lf_leg_jnt')
-    >>> 'bob_lf_leg_jnt_c'
-    >>> getNextName('bob_lf_spine_jnt_c')
-    """
-
-    if isinstance(node, pm.PyNode):
-        node = node.name()
-
-    #go throgh a series of steps to determine whether the last node is an iterator
-    nodeParts = node.split("_")
-    #if it's a, go ahead and return b
-    if nodeParts[-1] == 'a':
-        nodeParts[-1] = 'b'
-        return "_".join(nodeParts)
-
-    #if it's something other than a, see if a previous version is in the scene.
-    if isValidIterator(nodeParts[-1]):
-        prev = getPreviousIterator(nodeParts[-1])
-        if pm.objExists("_".join(nodeParts[:-2].append(prev))):
-            nodeParts[-1] = getNextIterator(nodeParts[1])
-            return "_".join(nodeParts)
-
-    #if this isn't true, assume that we don't actually have an iterator
-    #we need to append an iterator and keep upping it until a version doesn't exist
-    nodeParts.append('a')
-    while pm.objExists("_".join(nodeParts)):
-        nodeParts[-1] = getNextIterator(nodeParts[-1])
-
-    return "_".join(nodeParts)
-
 #===============================================================================
 # misc utils
 #===============================================================================
 #def isChildOf(child, parent):
 #    return true if child is an immediate or distant child of parent 
+def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
+    """
+    Create a stretch
+    """
+    if not namer.getToken('part'):
+        _logger.warning('You should really give the namer a part...')
+    dist = pm.createNode('distanceBetween', n=namer.name(d='stretch', x='dst'))
+    pm.select(dist)
+    distNode1.worldMatrix.connect(dist.inMatrix1)
+    distNode2.worldMatrix.connect(dist.inMatrix2)
+    staticDist = dist.distance.get()
+    mdn  = pm.createNode('multiplyDivide', n=namer.name(d='stretch', x='mdn'))
+    dist.distance.connect(mdn.input1X)
+    mdn.input2X.set(staticDist)
+    mdn.operation.set(2) #divide
+    mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
 
 def freeze(*args):
     """
@@ -946,18 +828,6 @@ def setNodeAxisVectors(node, oldA1="posY", oldA2="posX", newA1="posY", newA2="po
         node.joz.set(node.joz.get() + node.rotateZ.get())
         node.rotate.set([0, 0, 0])
 
-def modifyOrientation(joint, curAim, curUp, newAim, newUp):
-    """
-    given a current set of joint aim, up, and weak axes and a new set of these axes, 
-    modify the joint's orientation.
-    """
-    #TODO: This needs to be modified to not just re-orient joints, but to re-orient
-    #a single joint by aiming it down it's current aim axis
-    worldUpV = g_vectorMap[curUp]
-    aimV = g_vectorMap[newAim]
-    upV = g_vectorMap[newUp]
-
-    orientJnt(joint, worldUpV, aimV, upV)
 
 def splitJnts(parentJnt, num):
     """

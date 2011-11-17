@@ -135,23 +135,6 @@ class Differ(object):
             if diffs:
                 ctl.setShape(**diffs)
 
-def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
-    """
-    Create a stretch
-    """
-    if not namer.getToken('part'):
-        _logger.warning('You should really give the namer a part...')
-    dist = pm.createNode('distanceBetween', n=namer.name(d='stretch', x='dst'))
-    pm.select(dist)
-    distNode1.worldMatrix.connect(dist.inMatrix1)
-    distNode2.worldMatrix.connect(dist.inMatrix2)
-    staticDist = dist.distance.get()
-    mdn  = pm.createNode('multiplyDivide', n=namer.name(d='stretch', x='mdn'))
-    dist.distance.connect(mdn.input1X)
-    mdn.input2X.set(staticDist)
-    mdn.operation.set(2) #divide
-    mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
-
 class Namer(object):
     """
     Store name information, and help name nodes.
@@ -168,8 +151,8 @@ class Namer(object):
                        'x': 'suffix',
                     'e': 'extras'}
 
-    def __init__(self, characterName, **toks):
-        self.__namedTokens = {'character': characterName,
+    def __init__(self, **toks):
+        self.__namedTokens = {'character': '',
                               'characterNum': '',
                               'resolution': '',
                               'side': '',
@@ -224,6 +207,7 @@ class Namer(object):
         name = '_'.join([tok for tok in name.split('_') if tok])
         return name
 
+    #TODO:  get prefix toks from pattern
     def stripPrefix(self, name, errorOnFailure=False, replaceWith=''):
         """Strip prefix from a name."""
         prefix = '%s%s_' % (self.getToken('c'), self.getToken('n'))
@@ -271,36 +255,114 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
-class Layout(object):
-    '''Lay out a rig'''
-
+class OptionError(utils.ThrottleError): pass
+class OptionCollection(object):
+    def __init__(self):
+        '''
+        A collection of options
+        '''
+        
+        self.__options = {}
+        self.__presets = {}
+        self.__rules = {}
+        self.__optPresets = {}
+    
+    def addOpt(self, optName, defaultVal, optType=str, **kwargs):
+        self.__options[optName] = optType(defaultVal)
+        self.__rules[optName] = {'optType': optType}
+        presets = kwargs.get('presets')
+        if presets:
+            self.setPresets(optName, *presets)
+        
+    def _checkName(self, optName):
+        if optName not in self.__options:
+            raise utils.ThrottleError("Invalid option %s") % optName
+    
+    def setPresets(self, optName, *args, **kwargs):
+        self._checkName(optName)
+        replace = kwargs.get('replace', False)        
+        if replace:
+            self.__presets[optName] = set(args)
+        else:
+            presets = self.__presets.get(optName, set([]))
+            presets = presets.union(args)
+            self.__presets[optName] = presets
+            
+    def getPresets(self, optName):
+        self._checkName(optName)
+        return sorted(list(self.__presets[optName]))
+    
+    def getOpt(self, optName):
+        self._checkName(optName)
+        return self.__options[optName]
+    
+    def setOpt(self, optName, val):
+        self._checkName(optName)
+        self.__options[optName] = val
+        
+    def getAllOpts(self):
+        return copy.deepcopy(self.__options)
+    def setAllOpts(self, optDct):
+        for optName, optVal in optDct.items():
+            self.setOpt(optName, optVal)
+            
 class LegLayout(object):
     layoutObjs = set([])
-    def __init__(self, num=1, **kwargs):
-        self._namer = Namer('leg', n=num)
+    def __init__(self, part='leg', useNextAvailablePart=True, **kwargs):
+        self._namer = Namer(part=part)
 
-        #keep weakrefs to objects
-        for ref in self.layoutObjs:
-            obj = ref()
-            if obj and obj._namer.getToken('n') == str(num):
-                _logger.warning("Warning! %s has already been used" % str(num))
-        self.storeRef(self)
+        #Get a unique part name.  This ensures all node names are unique
+        #when multiple widgets are built.
+        if useNextAvailablePart:
+            usedNums = []
+            for obj in self.getObjects():
+                otherPart = obj.options.getOpt('part')
+                try:
+                    num = int(otherPart.split(part)[1])                
+                except IndexError, ValueError:
+                    continue
+                usedNums.append(num)
+            if usedNums:
+                part ='%s%i' % (part, (sorted(usedNums)[-1] + 1))
+            else:
+                part = '%s1' % part
+        
+        #set up options    
+        self.options = OptionCollection()
+        self.options.addOpt('part', part)
+        self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
+        self.options.addOpt('char', 'defaultchar')
         self._nodes = []
         self._bindJoints = {}
         self._layoutControls = {}
         self._rigControls = {}
         self.differ = Differ()
         self._cachedDiffs = {}
-        self._options = {'side': 'cn',
-                         'charName': 'mychar'}
         #todo: validate options
         for k, v in kwargs.items():
-            if k in self._options:
-                self._options[k] = v
-
+            try:
+                self.options.setOpt(k, v)
+            except OptionError:
+                pass
+                
+        #keep reference to this object so we can get unique names        
+        self.storeRef(self)
+    
     def name(self):
         return self._namer.getToken('c') + self._namer.getToken('n')
 
+    @classmethod
+    def getObjects(cls):
+        ''' get all referenced objects'''
+        result = []
+        for ref in cls.layoutObjs:
+            obj = ref()
+            if obj:
+                result.append(obj)
+            else:
+                cls.layoutObjs.remove(ref)
+        return result
+        
     @classmethod
     def storeRef(cls, obj):
         """Store weak reference to the object"""

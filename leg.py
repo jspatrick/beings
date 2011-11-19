@@ -349,7 +349,9 @@ class LegLayout(object):
         self.storeRef(self)
     
     def name(self):
-        return self._namer.getToken('c') + self._namer.getToken('n')
+        part = self.options.getOpt('part')
+        side = self.options.getOpt('side')
+        return '%s_%s' % (part, side)
 
     @classmethod
     def getObjects(cls):
@@ -378,7 +380,41 @@ class LegLayout(object):
         """
         Duplicate the bind joints.  Give a new prefix
         """
-        #use tmp prefix when duplicating so nodes aren't renamed by Maya
+        #check that all parents are also joints in the dict
+        parentToks = {} # map of the orinal parent joint to the dup joint tok
+        dupJnts = [j[0] for j in self._bindJoints.values()]
+        for dupJnt, parentJnt in self._bindJoints.values():
+            
+            if not parentJnt:
+                parentToks[dupJnt] = None
+                continue
+            found=False
+            for tok, jntPair in self._bindJoints.items():
+                if parentJnt == jntPair[0]:
+                    parentToks[parentJnt] = tok
+                    found=True
+                    break
+            if not found:
+                raise utils.ThrottleError("joint parent %s is not a registered joint" % parentJnt.name())
+            
+        result = {}
+        for key, jntPair in self._bindJoints.items():
+            jnt = jntPair[0]
+            name = jnt.nodeName()
+            result[key] = pm.duplicate(jnt, po=True)[0]
+            result[key].setParent(world=True)
+            result[key].rename(name) # try and name it back to the original name
+        #do parenting
+        for key, jntPair in self._bindJoints.items():
+            parentJnt = jntPair[1]
+            if not parentJnt:
+                continue
+            parentJointTok = parentToks[parentJnt]
+            result[key].setParent(result[parentJointTok])
+        return result
+    
+    @BuildCheck('built')
+    def __duplicateBindJoints(self, oriented=True):
         prefix = 'TMP'
         result = {}
         newJnts = []
@@ -458,20 +494,18 @@ class LegLayout(object):
                 jntName = jnt.name()
             else:
                 jntName = jnt
-            if not jntName.startswith(self.name()):
-                raise utils.ThrottleError("Joint name must start with the rig prefix('%s')" % self.name())
             if '|' in jntName or not pm.objExists(jntName):
                 raise utils.ThrottleError('One and only one object may exist called %s' % jntName)
-            return jntName
-        jnt = checkName(jnt.name())
+            return pm.PyNode(jnt)
+        jnt = checkName(jnt)
         if jntParent:
-            jntParent = checkName(jntParent.name())
+            jntParent = checkName(jntParent)
         self._bindJoints[name] = (jnt, jntParent)
 
-    def registerControl(self, control, ctlType ='layout'):
+    def registerControl(self, name, control, ctlType ='layout'):
         """Register a control that should be cached"""
         ctlDct = getattr(self, '_%sControls' % ctlType)
-        controlName = self._namer.stripPrefix(control.xformNode().name())
+        controlName = name
         if controlName in ctlDct.keys():
             _logger.warning("Warning!  %s already exists - overriding." % controlName)
         else:
@@ -479,7 +513,9 @@ class LegLayout(object):
 
     @BuildCheck('unbuilt')
     def build(self, useCachedDiffs=True):
-        self._namer.setTokens(side='cn')
+        side = self.options.getOpt('side')
+        part = self.options.getOpt('part')
+        self._namer.setTokens(side=side, part=part)
         self._bindJoints = {}
         self._layoutControls = {}
         self._rigControls = {}
@@ -514,7 +550,7 @@ class LegLayout(object):
         for i, tok in enumerate(toks):
             legJoints[tok] = pm.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
             legCtls[tok] = control.Control(name = namer.name(x='ctl', d=tok), shape='sphere')
-            self.registerControl(legCtls[tok])
+            self.registerControl(tok, legCtls[tok])
             legCtls[tok].setShape(scale=[0.3, 0.3, 0.3])
             utils.snap(legJoints[tok], legCtls[tok].xformNode(), orient=False)
             pm.select(legJoints[tok])
@@ -594,7 +630,10 @@ class LegLayout(object):
             origName = self._namer.getToken('c')
             origNum = self._namer.getToken('n')
             try:
-                self._namer.setTokens(c=self._options['charName'], n='', side=self._options['side'])
+                self._namer.setTokens(c=self.options.getOpt('char'),
+                                      n='',
+                                      side=self.options.getOpt('side'),
+                                      part=self.options.getOpt('part'))
                 grps = {}
                 grps['top'] = pm.createNode('transform', n='%s_rig' % self.name())
                 for tok in ['dnt', 'ik', 'fk']:
@@ -607,11 +646,6 @@ class LegLayout(object):
                 
         return result
     
-    def setSide(self, side):
-        self._options['side'] = side
-    def getSide(self):
-        return self._options['side']
-
     def _makeRig(self, bndJnts, grps):
         bndJnts['hip'].setParent(grps['top'])
         o = utils.Orientation()

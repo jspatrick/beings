@@ -1,9 +1,10 @@
 """
-import throttle.control as C
-reload(C)
-import throttle.leg as L
 import pymel.core as pm
-import throttle.utils
+import throttle.control as C
+import throttle.leg as L
+import throttle.utils as U
+reload(U)
+reload(C)
 reload(L)
 pm.newFile(force=1)
 ll = L.LegLayout()
@@ -308,8 +309,8 @@ class OptionCollection(object):
             
 class LegLayout(object):
     layoutObjs = set([])
+    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'directChild']
     def __init__(self, part='leg', useNextAvailablePart=True, **kwargs):
-
 
         #Get a unique part name.  This ensures all node names are unique
         #when multiple widgets are built.
@@ -327,26 +328,57 @@ class LegLayout(object):
             else:
                 part = '%s1' % part
         
+       
+        self._nodes = [] #stores all nodes        
+        self._bindJoints = {} #stores registered bind joints
+        self._layoutControls = {}
+        self._rigControls = {}
+        self.differ = Differ()
+        self._cachedDiffs = {}
+        self._nodeCategories = {}
+        self._parentNodes = {}
+        for categoy in self.VALID_NODE_CATEGORIES:
+            self._nodeCategories[categoy] = []
+
         #set up options    
         self.options = OptionCollection()
         self.options.addOpt('part', part)
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
-        self._nodes = []
-        self._bindJoints = {}
-        self._layoutControls = {}
-        self._rigControls = {}
-        self.differ = Differ()
-        self._cachedDiffs = {}
         #todo: validate options
         for k, v in kwargs.items():
             try:
                 self.options.setOpt(k, v)
             except OptionError:
                 pass
-                
+        #add parentable Nodes
+        self.addParentNodeName('bnd_hip')
+        self.addParentNodeName('bnd_knee')
+        self.addParentNodeName('bnd_ankle')
+        
         #keep reference to this object so we can get unique names        
         self.storeRef(self)
+        
+    def addParentNodeName(self, nodeName):
+        '''Add the 'key' name of a node'''
+        if nodeName in self._parentNodes.keys():
+            _logger.warning("%s already is a parent node" % nodeName)
+            return
+        self._parentNodes[nodeName] = None
+        
+    def setParentNode(self, nodeName, node):
+        '''Set the actual node of a nodeName'''
+        if nodeName not in self._parentNodes.keys():
+            raise utils.ThrottleError("Invalid parent node name '%s'" % nodeName)
+        self._parentNodes[nodeName] = node
+        
+    def getParentNode(self, nodeName):
+        if nodeName not in self._parentNodes.keys():
+            raise utils.ThrottleError("Invalid parent node name '%s'" % nodeName)
+        return self._parentNodes[nodeName]
+    
+    def listParentNodes(self):
+        return self._parentNodes.keys()
     
     def name(self):
         part = self.options.getOpt('part')
@@ -411,6 +443,15 @@ class LegLayout(object):
                 continue
             parentJointTok = parentToks[parentJnt]
             result[key].setParent(result[parentJointTok])
+            
+        #rename
+        char = self.options.getOpt('char')
+        side = self.options.getOpt('side')
+        part = self.options.getOpt('part')        
+        
+        namer = Namer(c=char, s=side, p=part, r='bnd')
+        for tok, jnt in result.items():
+            jnt.rename(namer.name(d=tok))
         self._orientBindJoints(result)            
         return result
 
@@ -424,12 +465,30 @@ class LegLayout(object):
         for tok in ['ankle', 'ball', 'toe', 'toetip']:
             utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
 
-    def getNodes(self):
+    def getNodes(self, category=None):
         nodes = []
+        if category is not None:
+            if category not in self._nodeCategories.keys():
+                raise utils.ThrottleError("Invalid category %s" % category)
+            #return a copy of the list
+            nodes = [n for n in self._nodeCategories[category]]
+            if category == 'directChild':
+                otherCategoryNodes = set([])
+                for grp in self._nodeCategories.values():
+                    otherCategoryNodes.update(grp)
+                
+                for n in self.getNodes():
+                    if isinstance(n, pm.nt.DagNode) and not n.getParent():
+                        if n not in otherCategoryNodes:
+                            _logger.warning("Directly parenting uncategoried top-level node '%s'" % n.name())
+                            nodes.append(n)                                
+            return nodes
+        
         for node in self._nodes:
             if pm.objExists(node):
                 nodes.append(node)
         self._nodes = nodes
+        
         return nodes
 
     def state(self):
@@ -471,7 +530,7 @@ class LegLayout(object):
             ctlDct[controlName] = control
 
     @BuildCheck('unbuilt')
-    def build(self, useCachedDiffs=True):
+    def buildLayout(self, useCachedDiffs=True):
         side = self.options.getOpt('side')
         part = self.options.getOpt('part')
         namer = Namer()
@@ -539,15 +598,20 @@ class LegLayout(object):
     def delete(self, cache=True):
         """
         Delete the layout
-        """
+        """        
         if cache:
             if self.state() == 'rigged':
                 _logger.debug('deleting a rig - skipping caching')
             else:
                 self.cacheDiffs()
+        #silence the pymel logger or it's pretty noisy about missing nodes
+        pmLogger = logging.getLogger('pymel.core.nodetypes')
+        propagate = pmLogger.propagate
+        pmLogger.propagate = 0
         for node in self.getNodes():
             if pm.objExists(node):
                 pm.delete(node)
+        pmLogger.propagate = propagate
         self._nodes = []
 
     @BuildCheck('built')
@@ -576,14 +640,31 @@ class LegLayout(object):
         """
         self.differ.applyDiffs(diffDict)
 
+    
+    def setNodeCateogry(self, node, category):
+        '''
+        Add a node to a category.  This is used by the parenting
+        system to determine where to place a node in the hierarchy
+        of the character
+        '''
+        if category not in self._nodeCategories.keys():
+            raise utils.ThrottleError("invalid category %s" % category)
+        self._nodeCategories[category].append(node)
 
+        
+    @BuildCheck('built', 'unbuilt')
     def buildRig(self):
         """build the rig"""
         if self.state() != "built":
-            self.build()
+            self.buildLayout()
         pm.refresh()
         jntDct = self.duplicateBindJoints()
         self.delete()
+        for jnt in jntDct.values():
+            #strip numbers from making duplicates
+            name = jnt.nodeName()
+            newName = re.sub('\d$', '', name)
+            jnt.rename(newName)
         result = {}
         with utils.NodeTracker() as nt:
             try:
@@ -601,10 +682,16 @@ class LegLayout(object):
             finally:
                 self._nodes = nt.getObjects()
                 
+        for key, node in self._parentNodes.items():
+            if node == None:
+                _logger.warning("The '%s' parentNodeName was not assigned a a node" % key)
         return result
     
+    #TODO:  Add nodes to categories
     def _makeRig(self, namer, bndJnts, grps):
         bndJnts['hip'].setParent(grps['top'])
+        for tok in ['hip', 'knee', 'ankle']:
+            self.setParentNode('bnd_%s' % tok, bndJnts[tok])
         o = utils.Orientation()
         side = self.options.getOpt('side')
         if side == 'rt':
@@ -635,3 +722,39 @@ class LegLayout(object):
             fkIkRev.outputX.connect(j.v)
         return locals()
         #setup blend
+
+class Rig(object):
+    '''
+    A character tracks widgets, organizes the build, etc
+    '''
+    def __init__(self, charName, rigType='core'):
+        self.__widgets = {}
+        self.__parents = {}
+        self.__charNodes = {}
+        self.__rigType = 'core'
+        self.namer = utils.Namer(charName)
+        
+    def charName(self): return self.namer.getToken('character')
+    
+    def addWidget(self, widget, parentName=None, parentNode=None):
+        name = widget.name() 
+        if name in self.__widgets.keys():
+            raise utils.ThrottleError("Rig already has a widget called '%s'" % name)
+        self.__widgets[name] = widget
+        self.__parents[name] = (parentName, parentNode)
+        
+    
+    def _getChildWidgets(self, parent=None):
+        '''Get widgets that are children of parent.'''
+        result = []
+        for wdgName, parentTup in self.__parents.items():
+            if parentTup[0] == parent:
+                result.append(wdgName)
+        return result
+
+    def _buildMainHierarhcy(self):
+        '''
+        build the main group structure
+        '''
+        pass
+        

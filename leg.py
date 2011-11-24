@@ -670,38 +670,38 @@ class LegLayout(object):
         if self.state() != "built":
             self.buildLayout()
         pm.refresh()
-        jntDct = self.duplicateBindJoints()
+        namer = Namer()
+        namer.setTokens(c=self.options.getOpt('char'),
+                        n='',
+                        side=self.options.getOpt('side'),
+                        part=self.options.getOpt('part'))
+        bndJntNodes = []
+        with utils.NodeTracker() as nt:
+            jntDct = self.duplicateBindJoints()
+            bndJntNodes = nt.getObjects()
+        
         self.delete()
-        for jnt in jntDct.values():
-            #strip numbers from making duplicates
-            name = jnt.nodeName()
-            newName = re.sub('\d$', '', name)
-            jnt.rename(newName)
-        result = {}
+        
+        for tok, jnt in jntDct.items():
+            jnt.rename(namer.name(d=tok, r='bnd'))
         with utils.NodeTracker() as nt:
             try:
-                namer = Namer()
-                namer.setTokens(c=self.options.getOpt('char'),
-                                n='',
-                                side=self.options.getOpt('side'),
-                                part=self.options.getOpt('part'))
-                grps = {}
-                grps['top'] = pm.createNode('transform', n=namer.name(d='rig'))
-                for tok in ['dnt', 'ik', 'fk']:
-                    grps[tok] = pm.createNode('transform', n='%s_%s_grp' % (self.name(), tok))
-                    grps[tok].setParent(grps['top'])
-                result.update(self._makeRig(namer, jntDct, grps))
+                self._makeRig(namer, jntDct)
+            except:
+                return False
             finally:
-                self._nodes = nt.getObjects()
+                nodes = nt.getObjects()
+                nodes.extend(bndJntNodes)
+                self._nodes = nodes
                 
         for key, node in self._parentNodes.items():
             if node == None:
                 _logger.warning("The '%s' parentNodeName was not assigned a a node" % key)
-        return result
+        return True
     
     #TODO:  Add nodes to categories
-    def _makeRig(self, namer, bndJnts, grps):
-        bndJnts['hip'].setParent(grps['top'])
+    def _makeRig(self, namer, bndJnts):
+
         for tok in ['hip', 'knee', 'ankle']:
             self.setParentNode('bnd_%s' % tok, bndJnts[tok])
         o = utils.Orientation()
@@ -768,13 +768,12 @@ class Rig(object):
         self.options.addOpt('char', 'defaultcharname')
         self.options.setOpt('char', charName)
         self.options.addOpt('rigType', 'core')
-        
-    def charName(self): return self.namer.getToken('character')
     
     def addWidget(self, widget, parentName=None, parentNode=None):
         name = widget.name(id=True) 
         if name in self._widgets.keys():
             raise utils.BeingsError("Rig already has a widget called '%s'" % name)
+        widget.options.setOpt('char', self.options.getOpt('char'))
         self._widgets[name] = widget
         self._parents[name] = (parentName, parentNode)
         

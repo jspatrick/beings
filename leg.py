@@ -1,8 +1,8 @@
 """
 import pymel.core as pm
-import throttle.control as C
-import throttle.leg as L
-import throttle.utils as U
+import beings.control as C
+import beings.leg as L
+import beings.utils as U
 reload(U)
 reload(C)
 reload(L)
@@ -309,7 +309,7 @@ class OptionCollection(object):
             
 class LegLayout(object):
     layoutObjs = set([])
-    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'directChild']
+    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'fk', 'ik']
     def __init__(self, part='leg', useNextAvailablePart=True, **kwargs):
 
         #Get a unique part name.  This ensures all node names are unique
@@ -472,7 +472,7 @@ class LegLayout(object):
                 raise utils.BeingsError("Invalid category %s" % category)
             #return a copy of the list
             nodes = [n for n in self._nodeCategories[category]]
-            if category == 'directChild':
+            if category == 'fk':
                 otherCategoryNodes = set([])
                 for grp in self._nodeCategories.values():
                     otherCategoryNodes.update(grp)
@@ -687,7 +687,7 @@ class LegLayout(object):
                 _logger.warning("The '%s' parentNodeName was not assigned a a node" % key)
         return result
     
-    #TODO:  Add nodes to categories
+    
     def _makeRig(self, namer, bndJnts, grps):
         bndJnts['hip'].setParent(grps['top'])
         for tok in ['hip', 'knee', 'ankle']:
@@ -711,6 +711,7 @@ class LegLayout(object):
         namer.setTokens(r='ik')
         ikJnts = utils.dupJntDct(bndJnts, '_bnd_', '_ik_')
         ikCtl = control.Control(name=namer.name(), shape='sphere', color='lite blue').xformNode()
+        self.setNodeCateogry(ikCtl, 'ik')
         utils.snap(bndJnts['ankle'], ikCtl, orient=False)
         ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'], ee=ikJnts['ankle'], solver='ikRPsolver',
                                       n=namer.name(s='ikh'))

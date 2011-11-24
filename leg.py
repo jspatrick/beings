@@ -1,8 +1,8 @@
 """
 import pymel.core as pm
-import beings.control as C
-import beings.leg as L
-import beings.utils as U
+import throttle.control as C
+import throttle.leg as L
+import throttle.utils as U
 reload(U)
 reload(C)
 reload(L)
@@ -309,7 +309,7 @@ class OptionCollection(object):
             
 class LegLayout(object):
     layoutObjs = set([])
-    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'fk', 'ik']
+    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'ik', 'fk']
     def __init__(self, part='leg', useNextAvailablePart=True, **kwargs):
 
         #Get a unique part name.  This ensures all node names are unique
@@ -328,7 +328,7 @@ class LegLayout(object):
             else:
                 part = '%s1' % part
         
-       
+        self._partID = part
         self._nodes = [] #stores all nodes        
         self._bindJoints = {} #stores registered bind joints
         self._layoutControls = {}
@@ -363,7 +363,6 @@ class LegLayout(object):
         '''Add the 'key' name of a node'''
         if nodeName in self._parentNodes.keys():
             _logger.warning("%s already is a parent node" % nodeName)
-            return
         self._parentNodes[nodeName] = None
         
     def setParentNode(self, nodeName, node):
@@ -380,11 +379,24 @@ class LegLayout(object):
     def listParentNodes(self):
         return self._parentNodes.keys()
     
-    def name(self):
+    def name(self, id=False):
+        """ Return a name of the object.
+        partID should always be unique.  This can be used as a key
+        in dictionaries referring to multiple instances"""
+        if id:
+            return self._partID
         part = self.options.getOpt('part')
         side = self.options.getOpt('side')
         return '%s_%s' % (part, side)
 
+    def __repr__(self):
+        return "%s(part='%s', useNextAvailablePart=False)" % \
+               (self.__class__.__name__, self.name(id=True))
+
+    def __str__(self):
+        return "%s(part= '%s', useNextAvailablePart=False)" % \
+               (self.__class__.__name__, self.name(id=True))
+    
     @classmethod
     def getObjects(cls):
         ''' get all referenced objects'''
@@ -687,7 +699,7 @@ class LegLayout(object):
                 _logger.warning("The '%s' parentNodeName was not assigned a a node" % key)
         return result
     
-    
+    #TODO:  Add nodes to categories
     def _makeRig(self, namer, bndJnts, grps):
         bndJnts['hip'].setParent(grps['top'])
         for tok in ['hip', 'knee', 'ankle']:
@@ -716,7 +728,7 @@ class LegLayout(object):
         ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'], ee=ikJnts['ankle'], solver='ikRPsolver',
                                       n=namer.name(s='ikh'))
         ikHandle.setParent(ikCtl)
-        ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)
+        ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)        
         fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', s='rev'))
         ikCtl.fkIk.connect(fkIkRev.inputX)
         for j in fkJnts.values():
@@ -727,35 +739,107 @@ class LegLayout(object):
 class Rig(object):
     '''
     A character tracks widgets, organizes the build, etc
+    import pymel.core as pm
+    import beings.control as C
+    import beings.leg as L
+    import beings.utils as U
+    reload(U)
+    reload(C)
+    reload(L)
+    pm.newFile(force=1)
+
+    ll = L.LegLayout()
+    ll2 = L.LegLayout(side='rt')
+
+    rig = L.Rig('mycharacter')
+    rig.addWidget(ll)
+    rig.addWidget(ll2)
+    rig.setParent(ll, ll2, 'bnd_hip')
+    rig.buildRig()
+
     '''
     def __init__(self, charName, rigType='core'):
-        self.__widgets = {}
-        self.__parents = {}
-        self.__charNodes = {}
-        self.__rigType = 'core'
-        self.namer = utils.Namer(charName)
+        self._widgets = {}
+        self._parents = {}
+        self._charNodes = {}
+        self._rigType = 'core'
+        self._coreNodes = {}
+        self.options = OptionCollection()
+        self.options.addOpt('char', 'defaultcharname')
+        self.options.setOpt('char', charName)
+        self.options.addOpt('rigType', 'core')
         
     def charName(self): return self.namer.getToken('character')
     
     def addWidget(self, widget, parentName=None, parentNode=None):
-        name = widget.name() 
-        if name in self.__widgets.keys():
+        name = widget.name(id=True) 
+        if name in self._widgets.keys():
             raise utils.BeingsError("Rig already has a widget called '%s'" % name)
-        self.__widgets[name] = widget
-        self.__parents[name] = (parentName, parentNode)
+        self._widgets[name] = widget
+        self._parents[name] = (parentName, parentNode)
         
-    
+    def setParent(self, widget, parentWidget, parentNode):
+        for wdg in [parentWidget, widget]:
+            if wdg not in self._widgets.values():
+                _logger.error("widget not part of rig" % parentWidget.name())
+                return
+        if parentNode not in parentWidget.listParentNodes():
+            _logger.error("Invalid parent node %s" % parentNode)
+            return
+
+        parentID = parentWidget.name(id=True)
+        widgetID = widget.name(id=True)
+        self._parents[widgetID] = (parentID, parentNode)
+        
+    def buildRig(self):
+        self._buildMainHierarhcy()
+        for wdg in self._widgets.values():            
+            wdg.buildRig()
+        self._doParenting()
+        
     def _getChildWidgets(self, parent=None):
         '''Get widgets that are children of parent.'''
         result = []
-        for wdgName, parentTup in self.__parents.items():
+        for wdgName, parentTup in self._parents.items():
             if parentTup[0] == parent:
                 result.append(wdgName)
         return result
-
+    
+    def _doParenting(self):
+        '''
+        Parent rigs to each other
+        '''
+        for widgetID in self._parents.keys():
+            widget = self._widgets[widgetID]
+            parentID, parentNode = self._parents[widgetID]
+            if parentID is None:
+                _logger.warning("%s has no parent!" % widget.name())
+                continue
+            
+            parentWidget = self._widgets[parentID]            
+            for node in widget.getNodes('dnt'):
+                node.setParent(self._coreNodes['dnt'])
+            #TODO: !! replace this with 'master' once the COG widget is finished
+            for node in widget.getNodes('ik'):
+                node.setParent(self._coreNodes['top'])
+                
+            #resolve the node string to the actual node
+            parentNode = parentWidget.getParentNode(parentNode)
+            for node in widget.getNodes('fk'):
+                node.setParent(parentNode)
+                
     def _buildMainHierarhcy(self):
         '''
         build the main group structure
         '''
-        pass
-        
+        rigType = '_%s' % self.options.getOpt('rigType')
+        char = self.options.getOpt('char')
+        top = pm.createNode('transform', name='%s%s_rig' % (char, rigType))
+        self._coreNodes['top'] = top
+        dnt = pm.createNode('transform', name='%s%s_dnt' % (char, rigType))
+        dnt.setParent(top)
+        self._coreNodes['dnt'] = dnt
+        model = pm.createNode('transform', name='%s%s_model' % (char, rigType))
+        model.setParent(dnt)
+        self._coreNodes['model'] = model
+                                

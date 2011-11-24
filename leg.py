@@ -25,8 +25,8 @@ d.applyDiffs(diffs)
 import logging, re, copy, weakref
 import json
 import pymel.core as pm
-import throttle.control as control
-import throttle.utils as utils
+import beings.control as control
+import beings.utils as utils
 
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -86,7 +86,7 @@ class Differ(object):
         Get diffs for all nodes
         """
         if not self.__initialState:
-            raise utils.ThrottleError("Initial state was never set")
+            raise utils.BeingsError("Initial state was never set")
         allDiffs = {}
         for k, ctlPair in self.__controls.items():
             control = ctlPair[0]
@@ -219,7 +219,7 @@ class Namer(object):
         else:
             msg = 'Cannot strip %s from %s; parts[0] == %s' % (prefix, name, parts[0])
             if errorOnFailure:
-                raise utils.ThrottleError(msg)
+                raise utils.BeingsError(msg)
             else:
                 _logger.warning(msg)
                 newName = name
@@ -245,7 +245,7 @@ class BuildCheck(object):
                 msg = "Not in one of these states: %s" \
                     % ", ".join(self.__acceptableStates)
                 if self.__raiseException:
-                    raise utils.ThrottleError(msg)
+                    raise utils.BeingsError(msg)
                 else:
                     _logger.warning(msg)
                     return
@@ -256,7 +256,7 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
-class OptionError(utils.ThrottleError): pass
+class OptionError(utils.BeingsError): pass
 class OptionCollection(object):
     def __init__(self):
         '''
@@ -277,7 +277,7 @@ class OptionCollection(object):
         
     def _checkName(self, optName):
         if optName not in self.__options:
-            raise utils.ThrottleError("Invalid option %s") % optName
+            raise utils.BeingsError("Invalid option %s") % optName
     
     def setPresets(self, optName, *args, **kwargs):
         self._checkName(optName)
@@ -369,12 +369,12 @@ class LegLayout(object):
     def setParentNode(self, nodeName, node):
         '''Set the actual node of a nodeName'''
         if nodeName not in self._parentNodes.keys():
-            raise utils.ThrottleError("Invalid parent node name '%s'" % nodeName)
+            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
         self._parentNodes[nodeName] = node
         
     def getParentNode(self, nodeName):
         if nodeName not in self._parentNodes.keys():
-            raise utils.ThrottleError("Invalid parent node name '%s'" % nodeName)
+            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
         return self._parentNodes[nodeName]
     
     def listParentNodes(self):
@@ -427,7 +427,7 @@ class LegLayout(object):
                     found=True
                     break
             if not found:
-                raise utils.ThrottleError("joint parent %s is not a registered joint" % parentJnt.name())
+                raise utils.BeingsError("joint parent %s is not a registered joint" % parentJnt.name())
             
         result = {}
         for key, jntPair in self._bindJoints.items():
@@ -469,7 +469,7 @@ class LegLayout(object):
         nodes = []
         if category is not None:
             if category not in self._nodeCategories.keys():
-                raise utils.ThrottleError("Invalid category %s" % category)
+                raise utils.BeingsError("Invalid category %s" % category)
             #return a copy of the list
             nodes = [n for n in self._nodeCategories[category]]
             if category == 'directChild':
@@ -513,7 +513,7 @@ class LegLayout(object):
             else:
                 jntName = jnt
             if '|' in jntName or not pm.objExists(jntName):
-                raise utils.ThrottleError('One and only one object may exist called %s' % jntName)
+                raise utils.BeingsError('One and only one object may exist called %s' % jntName)
             return pm.PyNode(jnt)
         jnt = checkName(jnt)
         if jntParent:
@@ -631,7 +631,7 @@ class LegLayout(object):
         elif self.state() == 'built':
             return self.differ.getDiffs()
         else:
-            raise utils.ThrottleError("If not built, must get cached tweaks")
+            raise utils.BeingsError("If not built, must get cached tweaks")
 
     @BuildCheck('built')
     def applyDiffs(self, diffDict):
@@ -648,7 +648,7 @@ class LegLayout(object):
         of the character
         '''
         if category not in self._nodeCategories.keys():
-            raise utils.ThrottleError("invalid category %s" % category)
+            raise utils.BeingsError("invalid category %s" % category)
         self._nodeCategories[category].append(node)
 
         
@@ -739,7 +739,7 @@ class Rig(object):
     def addWidget(self, widget, parentName=None, parentNode=None):
         name = widget.name() 
         if name in self.__widgets.keys():
-            raise utils.ThrottleError("Rig already has a widget called '%s'" % name)
+            raise utils.BeingsError("Rig already has a widget called '%s'" % name)
         self.__widgets[name] = widget
         self.__parents[name] = (parentName, parentNode)
         

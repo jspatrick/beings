@@ -4,7 +4,7 @@ utilities, it should be defined here.
 '''
 import logging, inspect, sys, re, string
 import pymel.core as pm
-from Exceptions import * #@UnusedWildImport
+from beings.utils.Exceptions import * #@UnusedWildImport
 logger = logging.getLogger(__name__)
 
 
@@ -363,7 +363,7 @@ def getHierarhcyChildren(start, end, ignoreGeoShapes=False):
     #ensure end is actually a descendednt of start
     allCh = start.listRelatives(ad=True)
     if end not in allCh:
-        raise ThrottleError("%s is not a descendent of %s" % (end, start))
+        raise BeingsError("%s is not a descendent of %s" % (end, start))
 
     #now we're good to go.  Start walking up the tree from the bottom
     result = {}
@@ -410,7 +410,7 @@ def getNodeBranch(start, end, errorIfNotSingle=True, ignoreGeoShapes=True):
             "Geometry shape nodes %s being evaluated as part of the"
             "hierarchy" % ignoreGeoShapes and "*are not*" or "*are*"
 
-            raise ThrottleError(msg)
+            raise BeingsError(msg)
     start = pm.PyNode(start)
     end = pm.PyNode(end)
 
@@ -506,7 +506,7 @@ def snap(master, slave, point=True, orient=True, scale=False):
 def snapMany(master, slaveList, point=True, orient=True, scale=False):
     """snap a list of slvaes to a master's rotate pivot"""
     if type(slaveList) != type([]) or type(slaveList) != type(()):
-        raise ThrottleError("snapMany accepts a list of objects")
+        raise BeingsError("snapMany accepts a list of objects")
     for slave in slaveList:
         snap(master, slave, point=point, orient=orient, scale=scale)
 
@@ -613,7 +613,7 @@ def createJointsFromDict(jointDict, deleteExisting=False):
             if deleteExisting == True:
                 pm.delete(jnt)
             else:
-                raise ThrottleError('%s already exists. Joints must not already exist')
+                raise BeingsError('%s already exists. Joints must not already exist')
     result = []
     jntParents = []
     for jntName, catDict in jointDict.items():

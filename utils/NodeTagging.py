@@ -6,7 +6,7 @@ RITag_tagType: "key^value~key^value"
 '''
 import logging, copy
 import pymel.core as pm
-from throttle.utils.Exceptions import * #@UnusedWildImport
+from beings.utils.Exceptions import * #@UnusedWildImport
 logger = logging.getLogger(__name__)
 
 #constants

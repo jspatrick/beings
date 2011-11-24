@@ -5,7 +5,7 @@ import logging, sys, copy, json
 import pymel.core as pm
 import maya.mel as mm
 
-import throttle.utils as utils
+import beings.utils as utils
 reload(utils)
 
 logging.basicConfig(level=logging.DEBUG)
@@ -82,7 +82,7 @@ class Control(object):
     @classmethod
     def fromNode(cls, node):
         '''Get a control object from an existing node'''
-        info = json.loads(node.throttleControlInfo.get(), object_hook=utils.decodeDict)
+        info = json.loads(node.beingsControlInfo.get(), object_hook=utils.decodeDict)
         c = cls(xformNode = node, skipBuild=True, **info)
         return c
     
@@ -100,8 +100,8 @@ class Control(object):
                            'pos': [0,0,0]}
 
         #check if the node is already a control
-        if self._xform.hasAttr('throttleControlInfo'):
-            info = json.loads(self._xform.throttleControlInfo.get(), object_hook=utils.decodeDict)
+        if self._xform.hasAttr('beingsControlInfo'):
+            info = json.loads(self._xform.beingsControlInfo.get(), object_hook=utils.decodeDict)
             for k, v in info.items():
                 if k in self._shapeData:
                     self._shapeData[k] = v
@@ -128,10 +128,10 @@ class Control(object):
         Add an attribute to the node with the control info
         '''
         node = self.xformNode()
-        if not node.hasAttr('throttleControlInfo'):
-            node.addAttr('throttleControlInfo', dt='string')
+        if not node.hasAttr('beingsControlInfo'):
+            node.addAttr('beingsControlInfo', dt='string')
         infoStr = json.dumps(self.getHandleInfo())
-        node.throttleControlInfo.set(infoStr)
+        node.beingsControlInfo.set(infoStr)
             
     def scaleToChild(self, setData=False, skipBuild=False, keepPos=True, keepScale=True):
         xf = self.xformNode()

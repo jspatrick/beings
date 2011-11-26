@@ -4,6 +4,7 @@ Try a different approach.
 import logging, sys, copy, json
 import pymel.core as pm
 import maya.mel as mm
+import maya.cmds as mc
 
 import beings.utils as utils
 reload(utils)
@@ -92,6 +93,10 @@ class Control(object):
             self._xform = pm.createNode(xformType, n=name)
         else:
             self._xform = pm.PyNode(xformNode)
+            
+        self.__xformType=xformType
+        self.__xformName = name
+        
         self._shapeData = {'color': 'null',
                            'shape': 'sphere',
                            'shapeType': 'crv',
@@ -113,9 +118,17 @@ class Control(object):
             if k not in dataKeys:
                 _logger.debug("Invalid param '%s'" % k)
             self._shapeData[k] = v
-
+            
+        scaleToChild = kwargs.get('scaleToChild', None)
         if not skipBuild:
-            self.setShape(**kwargs)
+            self.setShape(scaleToChild=scaleToChild)
+
+    def build(self, **kwargs):
+        handleInfo = self.getHandleInfo()
+        handleInfo.update(kwargs)
+        handleInfo['xformType'] = handleInfo.get('xformType', self.__xformType)
+        handleInfo['name'] = handleInfo.get('name', self.__xformName)
+        self.__init__(**handleInfo)
         
     def __str__(self):
         return self.xformNode().name()
@@ -226,7 +239,7 @@ class Control(object):
 
         utils.parentShapes(tmpXform, xforms)
         bbScale(tmpXform)
-        bbCenter(tmpXform)
+        #bbCenter(tmpXform)
         utils.snap(self._xform, tmpXform)
         #apply transformations
         pm.xform(tmpXform, ro=self._shapeData['rot'], r=1)
@@ -290,7 +303,7 @@ def shape_sphere_crv():
     c3 = pm.circle(nr=[0, 0, 1], sw=360, r=1, d=3, s=12)[0]
 
 
-def shape_cross_crv():
+def shape_fatCross_crv():
 
     pm.curve(d=1,
             p=[(1, 0, -1), (2, 0, -1), (2, 0, 1), (1, 0, 1), (1, 0, 2), (-1, 0, 2), (-1, 0, 1),
@@ -357,6 +370,10 @@ def shape_arrow_crv():
     crv.rz.set(-90)
     return crv
 
+def shape_jack_crv():
+    shape_doublePin_crv()
+    shape_doublePin_crv().ry.set(90)
+    shape_doublePin_crv().rx.set(90)
 def shape_text_crv(text="text", font="Arial_Bold"):
 
     """Make a cuve from text.
@@ -390,7 +407,35 @@ def shape_square_crv():
 
 def shape_circle_crv():
     return pm.circle(nr=[0, 1, 0], sw=360, d=3, s=12)[0]
+def shape_triangle_crv():
+    return mm.eval('curve -d 1 -p 0 0 1 -p -0.866 0 -0.5 -p 0.866 0 -.5 -p 0 0 1  -k 0 -k 1 -k 2 -k 3 ;')
 
+def shape_cross_crv():
+    crv = pm.PyNode(mm.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
+    
+def shape_cross3d_crv():
+    crv = pm.PyNode(mm.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
+    crv.s.set([0.2,0.2,0.2])
+    dup = pm.duplicate(crv)[0]
+    dup.rx.set(90)
+    dup = pm.duplicate(crv)[0]
+    dup.rx.set(90)
+    dup.ry.set(90)
+    
+def shape_jack_crv():
+    shape_doublePin_crv()
+    shape_doublePin_crv().ry.set(90)
+    shape_doublePin_crv().rx.set(0)
+
+def shape_layoutGlobals_crv():
+    pm.circle(normal=[0,1,0], r=2)
+    mm.eval('curve -d 3 -p -1.169488 0 0.463526 -p -0.958738 0 0.971248 -p -0.421459 0 1.196944 -p 0.271129 0 1.255888 -p 0.994735 0 1.004275 -p 1.168226 0 0.417207 -k 0 -k 0 -k 0 -k 1 -k 2 -k 3 -k 3 -k 3 ;')
+    crv = mm.eval('curve -d 3 -p 0.81419 0 -1.322437 -p 1.084855 0 -1.105855 -p 1.19143 0 -0.932901 -p 1.321428 0 -0.734364 -k 0 -k 0 -k 0 -k 1 -k 1 -k 1 ;')
+    pm.duplicate(crv)[0].sx.set(-1)
+    crv = pm.circle(normal=[0,1,0], r=.25, cx=-.77, cz=-.66)[0]
+    pm.duplicate(crv)[0].sx.set(-1)
+
+            
 #############################################
 ## surface shapes
 #############################################
@@ -447,3 +492,25 @@ def getAllShapes():
     Return a dictionary of {'shapeName': ShapeFunc}
     """
     return all_shapes
+
+def layoutGlobalsNode():
+    '''Create a layout globals node'''
+    tmp = pm.ls('being_control')
+    if tmp:
+        return tmp[0]
+    
+    ctl = Control(shape='layoutGlobals', xformType='transform', name='being_control', color='salmon')
+    node = ctl.xformNode()
+    for attr in node.listAttr(keyable=1):
+        try:
+            attr.setLocked(True)
+            attr.setKeyable(False)
+        except:
+            pass
+    node.addAttr('layoutControlVis', at='bool', k=0, dv=1)    
+    node.layoutControlVis.set(cb=1)
+    node.addAttr('rigControlVis', at='bool', k=0, dv=0)
+    node.rigControlVis.set(cb=1)
+    return node
+    
+    

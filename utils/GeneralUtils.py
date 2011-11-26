@@ -7,70 +7,7 @@ import pymel.core as pm
 from beings.utils.Exceptions import * #@UnusedWildImport
 logger = logging.getLogger(__name__)
 
-
-##################################################
-## Name Utils
-##################################################
-
-"""
-The naming convention of all nodes should be strictly enforced by calling these
-naming utils on names provided by users.
-The naming convention for all nodes in a character should be as follows:
-
-character_side_resolution_part_description_alphaincrementor
-
-All names should be lowercase.  The only place where uppercase is acceptable is
-in automatically-renamed shape nodes, as maya tends to force a 'Shape' suffix.
-Numbers should be avoided, as numbered objects typically signify duplicates.
-The only place where numbers are acceptable is if they are appended to character,
-as this is a way to differentiate between multiple duplicate characters in a scene.
-
-charater: the current character ('ironman')
-
-resolution:  this is somewhat arbitrary, and is dependent upon the data being named.
-geometry should generally be 'hi', 'md', 'lo', 'px' (proxy), etc.  Some nodes may
-omit this - for example, a multiplyDivide node.  However, joints can also use 
-this to differentiate between different layers.  Examples might be:
-'ik': joints for ik controls
-'fk': joints for fk controls
-'bs': 'bind skeleton' joints.  This is the main hierarchy that's bound to the geo.
-'ut': 'utility' joints
-
-part_description: a description of the node, separated by underscores, of arbitrary
-                    length.'
-                    length is arbitrary ('upper_arm')
-
-The main difference between this naming convention and the previous 4-token, 
-mixed-case system I previously used is that it sacrifices ease of parsing for
-readability.  A major reason for avoiding the parse-ability of nodes by name
-is that it is unreliable, as object names in maya are volitle.  It also
-decreases the temptation to write code that operates based on node names. Instead,
-a more robust tagging and connection system will be used to keep track of nodes.
-"""
-
-def replaceInName(node, oldPart, newPart):
-    """replace the oldPart from an object's name with newPart.  OldPart is
-    a regular expression.
-
-    @return: a PyNode of the object"""
-    obj = pm.PyNode(node)
-    newName = re.sub(oldPart, newPart, obj.name())
-    obj.rename(newName)
-    return obj
-
-def replaceInNames(nodeList, oldPart, newPart):
-    """replace the oldPart from the name of a list of objects with newPart.
-    @return: A String of the new object name"""
-    result = []
-    for node in nodeList:
-        result.append(replaceInName(node, oldPart, newPart))
-    return result
-
-#===============================================================================
-# misc utils
-#===============================================================================
-#def isChildOf(child, parent):
-#    return true if child is an immediate or distant child of parent 
+    
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
     Create a stretch
@@ -109,14 +46,6 @@ def mirrorX(item):
     newPos = pm.xform(item, t=[oldPos[0] * -1, oldPos[1], oldPos[2]])
     newRot = pm.xform(item, rotation=[oldRot[0], oldRot[1] * -1, oldRot[2]])
 
-def nodeLock(obj, hierarchy=False, unlock=False):
-    """
-    Lock or unlock a node or node hierarch.  This does not lock 
-    the individual attributes, just the node.
-    @return: a List of nodes operated upon
-    """
-    pass
-
 def makeUnkeyableAttr(obj, attr):
     """Create an unkeyable attribute on a node.  This is useful for separating
     attributes"""
@@ -127,6 +56,17 @@ def makeUnkeyableAttr(obj, attr):
     newAttr.showInChannelBox(True)
     return newAttr
 
+def insertNodeAbove(node, nodeType='joint', name=None, suffix='_zero'):
+    '''Insert a node above node'''
+    if name:
+        if pm.objectExists(name):
+            _logger.warning("Node called '%s' already exists' % name")
+    #if this is a joint, add it's orients to the rotations of the zero node.    
+    new = pm.createNode(nodeType, name='%s%s' % (n.name(), suffix))
+    new.setParent(node.getParent())
+    utils.snap(node, new, ignoreOrient=True)
+    node.setParent(new)
+    return new
 
 #===============================================================================
 # shape utils
@@ -195,7 +135,7 @@ def getShapePos(*nodes, **kwargs):
     vertObjs, crvObjs, surfObjs = filterShapes(*nodes)
     result = {}
 
-    for obj in vertObjs:
+    for obj in vertObjs:        
         assert isinstance(obj, pm.nodetypes.Mesh)
         result[obj] = obj.getPoints(space=space)
 
@@ -255,13 +195,20 @@ def parentShape(parent, child, deleteChildXform=True):
     Parent the shape nodes of the children to the transform of the parent.  
     Return all shapes of the new parent
     """
-    #freeze the child under the parent then unparent
-    pm.parent(child, parent)
-    pm.makeIdentity(child, apply=True, t=1, r=1, s=1, n=0)
-    pm.parent(child, w=1)
+    #snap a temp
     shapes = [shape for shape in child.listRelatives(children=True) if isinstance(shape, pm.nodetypes.GeometryShape)]
+    tmp = pm.createNode('transform', n='TMP')
+    snap(child, tmp, scale=True)
+    for shape in shapes:
+        pm.parent(shape, tmp, r=True, s=True)
+    
+    pm.parent(tmp, parent)
+    pm.makeIdentity(tmp, apply=True, t=1, r=1, s=1, n=0)
+    pm.parent(tmp, w=1)
+    
     for shape in shapes:
         pm.parent(shape, parent, r=True, s=True)
+    pm.delete(tmp)
     if deleteChildXform:
         pm.delete(child)
     return parent
@@ -322,8 +269,6 @@ def changeCrvColors(ctlList, colorNum):
             shape.overrideEnabled.set(1)
             shape.overrideColor.set(colorNum)
 
-
-
 #def createLineBetweenObjs(ctl, jnt, extrasGrp, extrasVisGrp, ctlsGrp):
     #"""Create a 1-degree CV curve that connects obj1 to obj2 for display purposes"""
     #nms = ctl.name().split("_")
@@ -344,111 +289,6 @@ def changeCrvColors(ctlList, colorNum):
     #crv.overrideDisplayType.set(2)
     #return crv
 
-#======================================================================
-# hierarchy utilities
-#======================================================================
-
-def getHierarhcyChildren(start, end, ignoreGeoShapes=False):
-    """
-    Traverse the hierarchy from top(start) to bottom(end) and return a dictionary of
-    {parent: (parentChild1, parentChild2), ...}
-    
-    If ignoreGeoShapes is true, mesh shape nodes will not be included in the dict
-    
-    If end is not a child of start, raise an exception
-    """
-    start = pm.PyNode(start)
-    end = pm.PyNode(end)
-
-    #ensure end is actually a descendednt of start
-    allCh = start.listRelatives(ad=True)
-    if end not in allCh:
-        raise BeingsError("%s is not a descendent of %s" % (end, start))
-
-    #now we're good to go.  Start walking up the tree from the bottom
-    result = {}
-    lastNode = end
-    while lastNode != start:
-        lastNode = lastNode.getParent()
-        if ignoreGeoShapes:
-            result[lastNode] = [c for c in lastNode.getChildren()
-                                if not isinstance(c, pm.nodetypes.GeometryShape)]
-            continue
-        result[lastNode] = lastNode.getChildren()
-
-    return result
-
-def isSingleBranch(start, end, ignoreGeoShapes=True):
-    """
-    Validate that the hierarchy is a single branch from top to bottom - i.e., that all
-    parents in the hierarchy contain a single child.
-    
-    If ignoreShapes is true, shape nodes that are children of transforms will not cause
-    the function to fail
-    
-    Return True or False
-    """
-
-    h = getHierarhcyChildren(start, end, ignoreGeoShapes=ignoreGeoShapes)
-
-    for nodeList in h.values():
-        if len(nodeList) > 1:
-            return False
-    return True
-
-def getNodeBranch(start, end, errorIfNotSingle=True, ignoreGeoShapes=True):
-    """
-    Return a list of nodes from top to bottom that represents the hierarchy of
-    the branch.
-    """
-    #run the isSingleBranch function to test that end descends from start
-    isSingleTest = isSingleBranch(start, end, ignoreGeoShapes)
-    if errorIfNotSingle:
-        if not isSingleTest:
-            msg = "The hierarchy from %s to %s is not a single branch."
-            "\n" % (str(start), str(end))
-            "Geometry shape nodes %s being evaluated as part of the"
-            "hierarchy" % ignoreGeoShapes and "*are not*" or "*are*"
-
-            raise BeingsError(msg)
-    start = pm.PyNode(start)
-    end = pm.PyNode(end)
-
-    result = [end]
-    last = end
-    while last != start:
-        last = last.getParent()
-        result.append(last)
-
-    return result
-
-def getNodeTree(topNode, nodeType=None):
-    """
-    Get a node treed
-    if nodeType is provided, ignore intermediate nodes of other types
-    
-    Return a dictionary of a node branch.  The topNode branch has a key of topNode;
-    other nodes have a key of their branch parent.
-    """
-
-    topNode = pm.PyNode(topNode)
-    result = {}
-    if nodeType:
-        children = topNode.listRelatives(children=True, type=nodeType)
-    else:
-        children = topNode.listRelatives(children=True)
-
-    #if we have a node with children, add it to the dictionary
-    if children:
-        result[topNode] = children
-
-    #if there aren't any children, this will get skipped
-    for child in children:
-        #recurse
-        nodeTree = getNodeTree(child, nodeType=nodeType)
-        result.update(nodeTree)
-
-    return result
 
 def makeDuplicatesAndHierarchy(nodes, toReplace=None, replaceWith=None):
     """Duplicate the pymel objects in the list, and return them as a hierarchy in the order of the list.
@@ -494,15 +334,31 @@ def unparentNodesFromTree(tree):
             if child.getParent() != None:
                 child.setParent(world=True)
 
-def snap(master, slave, point=True, orient=True, scale=False):
-    """snap the slave to the position and orientation of the master's rotate pivot"""
+
+def snap(master, slave, point=True, orient=True, scale=False, ignoreOrient=False):
+    """snap the slave to the position and orientation of the master's rotate pivot
+    @param master: the driver
+    @param slave: the node being moved
+    @param point=True: snap position
+    @param orient=True: snap rotations
+    @param scale=True: match scale
+    @param ignoreOrient: if the master is a joint, add the inverse of its orientation to the
+      slave's rotations"""
+    
     if point:
-        slave.setTranslation(master.getTranslation(ws=1), space='world')
+        pm.delete(pm.pointConstraint(master, slave, mo=False))
     if orient:
-        slave.setRotation(master.getRotation(ws=1), space='world')
+        pm.delete(pm.orientConstraint(master, slave, mo=False))
     if scale:
         slave.setScale(master.getScale())
 
+    if ignoreOrient:
+        if isinstance(master, pm.nt.Joint):
+            addlRot = master.jo.get()
+            slave.rx.set(slave.rx.get() + -1*(addlRot[0]))
+            slave.ry.set(slave.ry.get() + -1*(addlRot[1]))
+            slave.rz.set(slave.rz.get() + -1*(addlRot[2]))
+            
 def snapMany(master, slaveList, point=True, orient=True, scale=False):
     """snap a list of slvaes to a master's rotate pivot"""
     if type(slaveList) != type([]) or type(slaveList) != type(()):

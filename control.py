@@ -280,7 +280,17 @@ class Control(object):
         self._shapeData['color'] = color
         for shape in self.shapeNodes():
             shape.overrideEnabled.set(1)
-            shape.overrideColor.set(COLOR_MAP[self._shapeData['color']])        
+            shape.overrideColor.set(COLOR_MAP[self._shapeData['color']])
+            
+    def snap(self, node, scaleTo1=True):
+        '''Snap the xform but retain the shape'''
+        shapes = self.shapeNodes() 
+        tmpXform = pm.createNode('transform', n='TMP')
+        utils.parentShape(tmpXform, self._xform, deleteChildXform=False)
+        if scaleTo1:
+            self._xform.scale.set([1,1,1])
+        utils.snap(node, self._xform)
+        utils.parentShape(self._xform, tmpXform)
         
 #####################################################
 ## curve shapes

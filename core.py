@@ -556,7 +556,8 @@ class Widget(object):
                 globalNode.rigControlVis.connect(shape.overrideVisibility)
 
     @BuildCheck('unbuilt')
-    def buildLayout(self, useCachedDiffs=True):
+    def buildLayout(self, useCachedDiffs=True, altDiffs=None):
+        
         side = self.options.getOpt('side')
         part = self.options.getOpt('part')
         namer = Namer()
@@ -576,9 +577,11 @@ class Widget(object):
         self._differs['rig'].addObjs(self._rigControls, space='both')
         for diffType, differ in self._differs.items():
             differ.setInitialState()
-            if useCachedDiffs:
+            if altDiffs:
+                self.applyDiffs(altDiffs)
+            elif useCachedDiffs:
                 self.applyDiffs(self._cachedDiffs)
-                
+            
     def _makeLayout(self, namer):
         """
         build the layout
@@ -652,12 +655,17 @@ class Widget(object):
 
         
     @BuildCheck('built', 'unbuilt')
-    def buildRig(self):
-        """build the rig"""
+    def buildRig(self, altDiffs=None):
+        """build the rig
+        @param altDiffs=None: Use the provided diff dict instead of the internal diffs"""
         if self.state() != "built":
-            self.buildLayout()
+            self.buildLayout(altDiffs=altDiffs)
         else:
-            self.cacheDiffs()
+            if altDiffs:
+                self.delete()
+                self.buildLayout(altDiffs=altDiffs)
+            else:
+                self.cacheDiffs()
         pm.refresh()
         
         namer = Namer()
@@ -677,15 +685,16 @@ class Widget(object):
         with utils.NodeTracker() as nt:
             
             #re-create the rig controls
+            diffs = altDiffs if altDiffs else self._cachedDiffs
             rigCtls = {}
             differ = Differ()
             differ.addObjs(self._rigControls)
             for ctlName, ctlObj in self._rigControls.items():
                 name = namer.name(d=ctlName, r='ctl')
                 ctlObj.build(name=name)
-            differ.applyDiffs(self._cachedDiffs['rig'], skipLocalXforms=True)            
+            differ.applyDiffs(diffs['rig'], skipLocalXforms=True)            
 
-            self._makeRig(namer, jntDct, copy.copy(self._rigControls))
+            result = self._makeRig(namer, jntDct, copy.copy(self._rigControls))
             
             nodes = nt.getObjects()
             nodes.extend(bndJntNodes)
@@ -694,7 +703,7 @@ class Widget(object):
         for key, node in self._parentNodes.items():
             if node == None:
                 _logger.warning("The '%s' parentNodeName was not assigned a a node" % key)
-        return True
+        return result
     
     def _makeRig(self, namer, bndJnts, rigCtls):
         raise NotImplementedError
@@ -859,8 +868,33 @@ class CenterOfGravity(Widget):
         self.registerControl('cog', cogCtl, ctlType='rig')
         
     def _makeRig(self, namer, bndJnts, rigCtls):
-        pass
-    
+        #set up the positions of the controls
+        
+        ctlToks = rigCtls.keys()
+
+        bndJnts['cog'].setParent(None)
+        pm.delete(bndJnts['master'])
+        for tok in ['body', 'pivot', 'cog']:
+            #snap the nodes to the cog but keep the shape positions
+            rigCtls[tok].snap(bndJnts['cog'])
+            
+        #we no longer need the control objects.  replace them with the xform nodes    
+        for tok, ctl in rigCtls.items():
+            rigCtls[tok] = ctl.xformNode()
+        
+        rigCtls['body'].setParent(rigCtls['master'])
+        rigCtls['pivot'].setParent(rigCtls['body'])
+        rigCtls['cog'].setParent(rigCtls['pivot'])
+        
+        bndJnts['cog'].setParent(rigCtls['master'])
+        pm.pointConstraint(rigCtls['cog'], bndJnts['cog'])
+        pm.orientConstraint(rigCtls['cog'], bndJnts['cog'])
+
+        #assign the nodes:
+        for tok in ctlToks:
+            self.setParentNode('%s_ctl' % tok, rigCtls[tok])
+        self.setParentNode('cog_bnd', bndJnts['cog'])
+        
 class Rig(object):
     '''
     A character tracks widgets, organizes the build, etc

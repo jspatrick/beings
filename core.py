@@ -28,7 +28,7 @@ import pymel.core as pm
 import beings.control as control
 import beings.utils as utils
 import maya.OpenMaya as OM
-
+import utils.NodeTagging as NT
 import maya.cmds as MC
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -375,12 +375,15 @@ class Widget(object):
     def getObjects(cls):
         ''' get all referenced objects'''
         result = []
+        toRemove = []
         for ref in cls.layoutObjs:
             obj = ref()
             if obj:
-                result.append(obj)
+                result.append(obj)                
             else:
-                cls.layoutObjs.remove(ref)
+                toRemove.append(ref)
+        for rmv in toRemove:
+            cls.layoutObjs.remove(rmv)
         return result
         
     @classmethod
@@ -909,6 +912,11 @@ class CenterOfGravity(Widget):
         for tok in ctlToks:
             self.setParentNode('%s_ctl' % tok, rigCtls[tok])
         self.setParentNode('cog_bnd', bndJnts['cog'])
+
+        #tag controls
+        for ctl in rigCtls.values():
+            NT.tagControl(ctl, uk=['tx', 'ty', 'tz', 'rx', 'ry', 'rz'])
+        NT.tagControl(rigCtls['master'], uk=['uniformScale'])
         #setup info for parenting
         self.setNodeCateogry(rigCtls['master'], 'fk')
         
@@ -936,7 +944,7 @@ class Rig(object):
     rig.buildRig()
 
     '''
-    def __init__(self, charName='defaultcharname', rigType='core', buildStyle='standard'):
+    def __init__(self, charName, rigType='core', buildStyle='standard'):
         self._widgets = {}
         self._parents = {}
         self._charNodes = {}
@@ -949,11 +957,19 @@ class Rig(object):
         self.options.setOpt('rigType', rigType)
         self.options.addOpt('buildStyle', 'standard')
         self.options.setOpt('buildStyle', buildStyle)
-    
+        
+        self.cog = CenterOfGravity()
+        self.cog.options.setOpt('char', self.options.getOpt('char'))        
+        self.addWidget(self.cog)
+        
+    def getWidget(self, id): return self._widgets[id]
     def addWidget(self, widget, parentName=None, parentNode=None):
         name = widget.name(id=True) 
         if name in self._widgets.keys():
             raise utils.BeingsError("Rig already has a widget called '%s'" % name)
+        if parentName is not None and parentName not in self._widgets.keys():
+            raise utils.BeingsError("No parent widget called '%s'" % parentName)
+
         widget.options.setOpt('char', self.options.getOpt('char'))
         self._widgets[name] = widget
         self._parents[name] = (parentName, parentNode)
@@ -971,12 +987,21 @@ class Rig(object):
         widgetID = widget.name(id=True)
         self._parents[widgetID] = (parentID, parentNode)
         
-    def buildRig(self):
+    def buildLayout(self):
+        for wdg in self._widgets.values():
+            if wdg.state() == 'rigged':
+                wdg.delete()
+            wdg.buildLayout()
+            
+    def buildRig(self, lock=True):
         self._buildMainHierarhcy()
         for wdg in self._widgets.values():            
             wdg.buildRig()
+
         self._doParenting()
-        
+        if lock:
+            NT.lockHierarchy(self._coreNodes['top'])
+            
     def _getChildWidgets(self, parent=None):
         '''Get widgets that are children of parent.'''
         result = []
@@ -993,15 +1018,20 @@ class Rig(object):
             widget = self._widgets[widgetID]
             parentID, parentNode = self._parents[widgetID]
             if parentID is None:
-                _logger.warning("%s has no parent!" % widget.name())
+                for node in widget.getNodes('fk'):
+                    node.setParent(self._coreNodes['top'])
+                for node in widget.getNodes('ik'):
+                    node.setParent(self._coreNodes['top'])
+                if widget != self.cog:
+                    _logger.warning("%s has no parent!" % widget.name())
                 continue
             
             parentWidget = self._widgets[parentID]            
             for node in widget.getNodes('dnt'):
                 node.setParent(self._coreNodes['dnt'])
-            #TODO: !! replace this with 'master' once the COG widget is finished
+
             for node in widget.getNodes('ik'):
-                node.setParent(self._coreNodes['top'])
+                node.setParent(self.cog.getParentNode('cog_bnd'))
                 
             #resolve the node string to the actual node
             parentNode = parentWidget.getParentNode(parentNode)

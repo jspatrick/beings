@@ -7,191 +7,177 @@ RITag_tagType: "key^value~key^value"
 import logging, copy
 import pymel.core as pm
 from beings.utils.Exceptions import * #@UnusedWildImport
-logger = logging.getLogger(__name__)
-
+_logger = logging.getLogger(__name__)
+_logger.setLevel(logging.DEBUG)
 #constants
-TAG_PREFIX = 'tag_'
+TAG = 'beings_'
 
-#tag types
-UNLOCKED_TAG = 'unlockedAttrs'
+def _strToDict(str_):
+    return eval(str_)
+    # #it should either be empty or have at least one element
+    # if not str_:
+    #     return {}
+    # kpList = str_.split('~')
+    # #pop off an empty item at the end, if there was a hanging tilde
+    # if kpList[-1] == "":
+    #     kpList.pop()
+    # l = [item.split('^') for item in kpList]
+    # d = {}
+    # for k, v in l:
+    #     v = eval(v)
+    #     d[k] = v
+    # return d
 
+def _dictToStr(dct):
+    """Set the attribute to be an encoded string of dct"""
+    return repr(dct)
+    # result = ''
+    # for k, v in dct.items():
+    #     strv = repr(v)
+    #     if "^" or "~" in strv:
+    #         _logger.error('Cannot have an attr key containing ~ or ^')
+    #     result += '%s^%s~' % (k, strv)        
+    # return result
 
-g_allTags = (UNLOCKED_TAG,)
-
-class DctNodeTag(object):
+class NodeTag(dict):
     """
     A dictionary-like object for tagging nodes
     """
-
-    def __init__(self, node, tag, dct=None):
+    @classmethod
+    def tagName(self, tag):
+        if not tag.startswith(TAG_PREFIX):
+            tag = TAG_PREFIX + tag
+        return tag
+    
+    def __init__(self, tag, node=None, dct=None):
         """
         Store an attribute of an object internally
-        """
-        tag = TAG_PREFIX + tag
-        node = pm.PyNode(node)
-        self.node = node
+        """    
+        self._tag = self.tagName(tag)
 
-        try:
-            self.nodeAttr = pm.Attribute(node.name() + "." + tag)
+        dict.__init__(self)
+        if node:
+            node = pm.PyNode(node)            
+            if node.hasAttr(self._tag):                
+                tagStr =getattr(node, self._tag).get()
+                self.update(_strToDict(tagStr))            
+        
+    def _addTag(self, nodes):
+        for node in nodes:
+            if not node.hasAttr(self._tag):
+                node.addAttr(self._tag, dt='string')
+                
+    def setTag(self, *nodes):
+        nodes = [pm.PyNode(n) for n in nodes]
+        self._addTag(nodes)
+        for node in nodes:
+            getattr(node, self._tag).set(_dictToStr(self))
 
-        except:
-            #create the node tag if not already created
-            #self._enforceTags(tag.strip(TAG_PREFIX))
-
-            try:
-                assert(isinstance(node, pm.nt.Transform))
-            except AssertionError:
-                logger.debug('Tagger is tagging a non-transform node, "%s"' % node.name())
-
-            node.addAttr(tag, dt='string')
-            self.nodeAttr = pm.Attribute(node.name() + "." + tag)
-
-        if dct is not None:
-            self.nodeAttr.set(self._dictToAttr(dct))
-
-    def _attrToDict(self):
-        str_ = self.nodeAttr.get()
-        #it should either be empty or have at least one element
-        if not str_:
-            return {}
-        kpList = str_.split('~')
-        #pop off an empty item at the end, if there was a hanging tilde
-        if kpList[-1] == "":
-            kpList.pop()
-        l = [item.split('^') for item in kpList]
-        d = {}
-        for k, v in l:
-            #try to cast the string as some basic data types
-            if v == 'True':
-                v = True
-            elif v == 'False':
-                v = False
-            elif v == 'None':
-                v = None
-            else:
-                try:
-                    v = int(v)
-                except ValueError:
-                    try:
-                        v = float(v)
-                    except ValueError:
-                        pass
-            d[k] = v
-        return d
-
-    def _dictToAttr(self, dct):
-        """Set the attribute to be an encoded string of dct"""
-
-        result = ''
-        for k, v in dct.items():
-            result += '%s^%s~' % (k, v)
-        self.nodeAttr.set(result)
-        return result[:-1]
-
-#    @staticmethod
-#    def _enforceTags(tag):
-#        if tag not in g_allTags:
-#            raise RIError('%s is not a valid tag.  Valid tags include: %s' \
-#                          % (tag, ", ".join(g_allTags)))
-            
-    def clear(self):
-        """Reset the node tag"""
-        self._dictToAttr({})
-
-    def __delitem__(self, k):
-        d = self._attrToDict()
-        del d[k]
-        self._dictToAttr(d)
+class ControlTag(NodeTag):
+    """
+    Tag rig controls
+    """
+    LOCK_ATTRS = ['lockedKeyable', 'unlockedKeyable', 'unlockedUnkeyable']
+    CONTROL_TAG = 'control'
+    @classmethod
+    def getControls(cls, root):
+        '''Get all nodes under root that are controls'''        
+        all = set(pm.ls("*.%s" % cls.tagName(cls.CONTROL_TAG), o=1))
+        all.intersection_update(pm.listRelatives(root, ad=1, pa=1) + [root])
+        return list(all)
+    
+    def __init__(self, node=None, dct=None):
+        NodeTag.__init__(self, 'control', node=node, dct=dct)
+        for attr in self.LOCK_ATTRS:
+            self[attr] = self.get(attr, [])
 
     def __setitem__(self, k, v):
-        d = self._attrToDict()
-        d[k] = v
-        self._dictToAttr(d)
+        if k not in self.LOCK_ATTRS:
+            _logger.warning("Invalid parameter %s, not setting" % k)
+            return
+        if not self._checkInput(v):
+            return
+        NodeTag.__setitem__(self, k, v)
+        
+    def _checkInput(self, v):
+        if not isinstance(v, list):
+            _logger.warning("Invalid parameter %r - must be a list" % v)
+            return False
+        for item in v:
+            if not isinstance(item, basestring):
+                _logger.warning("Invalid attr %r - not a string" % item)
+                return False
+        return True        
 
-    def __getitem__(self, k):
-        d = self._attrToDict()
-        return d[k]
-
-    def __contains__(self, x):
-        d = self._attrToDict()
-        return x in d
-
-    def keys(self):
-        d = self._attrToDict()
-        return d.keys()
-
-    def values(self):
-        d = self._attrToDict()
-        return d.values()
-
-    def items(self):
-        d = self._attrToDict()
-        return d.items()
-
-    def __str__(self):
-        d = self._attrToDict()
-        return str(d)
-
-
-
-class LockNodeTag(DctNodeTag):
-    """
-    A Node Tag subclass for working with a Node Lock tag
-    """
-    def __init__(self, node, dct=None):
-        super(LockNodeTag, self).__init__(node, UNLOCKED_TAG, dct)
-        self.state = 'unlocked'
-
-    def addUnlocked(self, *attrs):
-        msg = ""
-        for attr in attrs:
-            try:
-                attr = self.node.attr(attr)
-                self.__setitem__(attr.name(includeNode=False), True)
-            except pm.MayaAttributeError:
-                msg += "%s is not a valid attribute on %s\n" % (attr, self.node.name())
-        if msg:
-            raise RIError(msg)
-
-    def getUnlocked(self):
-        """
-        Return attrs that will be excluded from locking
-        """
-        return [k for k, v in self.items() if v == True]
-
-    def getLocked(self):
-        """
-        Return attributes that have been locked by the NodeLock
-        """
-        return [k for k, v in self.items() if v == False]
-
-    def lock(self):
-        """
-        lock all untagged, keyable attributes of node    
-        """
-        unlocked = self.getUnlocked()
-        for attr in self.node.listAttr(keyable=True):
-            if attr.name(includeNode=False) in unlocked:
-                continue
-            attr.lock()
-            attr.set(keyable=False)
-            attr.set(channelBox=False)
-            #set the attr as False in the dict so we know it's been locked here
-            self.__setitem__(attr.name(includeNode=False), False)
-
-    def unlock(self):
-        """
-        unlock attrs that were locked
-        """
-        locked = self.getLocked()
-        for attr in locked:
-            attr = self.node.attr(attr)
-            attr.unlock()
-            attr.set(channelBox=True)
-            attr.set(keyable=True)
-            self.__delitem__(attr.name(includeNode=False))
-
-
+    @classmethod
+    def setLocks(cls, *nodes):
+        """Set attribute locks on nodes"""
+        for node in nodes:
+            notSet =['message', 'translate', 'rotate', 'scale', 'rotatePivot', 'scalePivot', 'rotateAxis',
+                     'selectHandle']
+            for a in pm.listAttr(node):
+                if a in notSet:
+                    continue
+                a = pm.PyNode('%s.%s' % (node.name(), a))
+                try:
+                    a.setLocked(True)
+                    a.setKeyable(False)
+                except:
+                    _logger.debug('Cannot lock %s.%s' % (node.name(), a))
+                    pass            
+            tag = cls(node=node)
+            
+            for attrName in tag['unlockedUnkeyable']:
+                _logger.debug('setting locks on %s' % attrName)
+                attr = getattr(node, attrName)
+                attr.setKeyable(False)
+                attr.setLocked(False)
+            for attrName in tag['lockedKeyable']:
+                _logger.debug('setting locks on %s' % attrName)
+                attr = getattr(node, attrName)
+                attr.setKeyable(False)
+                attr.setLocked(True)
+            for attrName in tag['unlockedKeyable']:
+                _logger.debug('setting locks on %s' % attrName)
+                attr = getattr(node, attrName)
+                attr.setKeyable(True)
+                attr.setLocked(False)
+    @classmethod
+    def unlock(cls, *nodes, **kwargs):        
+        if kwargs.get('all', None):
+            for node in nodes:
+                for a in pm.listAttr(node):
+                    a = pm.PyNode('%s.%s' % (node.name(), a))
+                    try:
+                        a.setLocked(False)
+                    except:
+                        pass
+    def _setAction(self, attr, vals, action):
+        if isinstance(vals, basestring):
+            vals = [vals]
+        current = set(self[attr])
+        getattr(current, action)(vals)
+        self[attr] = list(current)
+        
+    def add(self, attr, valList): self._setAction(attr, valList, 'update')
+    def remove(self, attr, valList): self._setAction(attr, valList, 'difference_update')
+    
+def lockHierarchy(root):
+    '''Lock all nodes in a hierarhcy'''
+    allNodes = root.listRelatives(ad=1) + [root]
+    ControlTag.setLocks(*allNodes)
+    
+def tagControl(control, uk=[], lk=[], uu=[], replace=False):
+    act = 'add'
+    if replace:
+        act='__setitem__'    
+    tag = ControlTag(control)
+    actFunc = getattr(tag, act)
+    actFunc('unlockedKeyable', uk)
+    actFunc('unlockedUnkeyable', uu)
+    actFunc('lockedKeyable', lk)
+    tag.setTag(control)
+    return tag
 def getTaggedNodesTags(nodeList, tag, getChildren=True):
     """
     Return a {node:NodeTag} dict of all nodes tagged with tag
@@ -225,7 +211,7 @@ def tagUnlocked(node, *args):
     Currently this doesn't support tagging shape nodes
     """
     #check for valid node and attrs on that node
-    node = pm.PyNode(node)
+    node = pm.pPyNode(node)
     if isinstance(node, pm.nt.GeometryShape):
         return None
 

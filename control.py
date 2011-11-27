@@ -234,8 +234,9 @@ class Control(object):
             _logger.debug('Xforms: %s' % xforms)
         for i, shapeNode in enumerate(shapes):
             shapeNode.rename("%sShape" % (self._xform.name()))
-            tag = utils.DctNodeTag(shapeNode, SHAPE_ORDER_TAG)
+            tag = utils.NodeTag(SHAPE_ORDER_TAG)
             tag['order'] = i
+            tag.setTag(shapeNode)
 
         utils.parentShapes(tmpXform, xforms)
         bbScale(tmpXform)
@@ -266,7 +267,7 @@ class Control(object):
         nodes = self._xform.listRelatives(shapes=1)
         sortedNodes = {}
         for node in nodes:
-            i = int(utils.DctNodeTag(node, SHAPE_ORDER_TAG)['order'])
+            i = int(utils.NodeTag(SHAPE_ORDER_TAG, node=node)['order'])
             sortedNodes[i] = node
         sortedKeys = sortedNodes.keys()
         sortedKeys.sort()

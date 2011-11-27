@@ -885,15 +885,34 @@ class CenterOfGravity(Widget):
         rigCtls['body'].setParent(rigCtls['master'])
         rigCtls['pivot'].setParent(rigCtls['body'])
         rigCtls['cog'].setParent(rigCtls['pivot'])
+        utils.insertNodeAbove(rigCtls['body'])
         
+        #create the inverted pivot
+        name = namer.name(d='pivot_inverse')
+        pivInv = utils.insertNodeAbove(rigCtls['cog'], name=name)        
+        mdn = pm.createNode('multiplyDivide', n=namer.name(d='piv_inverse', s='mdn'))
+        mdn.input2.set([-1,-1,-1])
+        rigCtls['pivot'].t.connect(mdn.input1)
+        mdn.output.connect(pivInv.t)        
+        
+        #constrain the cog jnt to the cog ctl
         bndJnts['cog'].setParent(rigCtls['master'])
         pm.pointConstraint(rigCtls['cog'], bndJnts['cog'])
         pm.orientConstraint(rigCtls['cog'], bndJnts['cog'])
 
+        #add master attrs
+        rigCtls['master'].addAttr('uniformScale', min=0.001, dv=1, k=1)
+        for channel in ['sx', 'sy', 'sz']:
+            rigCtls['master'].uniformScale.connect(getattr(rigCtls['master'], channel))
+            
         #assign the nodes:
         for tok in ctlToks:
             self.setParentNode('%s_ctl' % tok, rigCtls[tok])
         self.setParentNode('cog_bnd', bndJnts['cog'])
+        #setup info for parenting
+        self.setNodeCateogry(rigCtls['master'], 'fk')
+        
+        
         
 class Rig(object):
     '''
@@ -917,7 +936,7 @@ class Rig(object):
     rig.buildRig()
 
     '''
-    def __init__(self, charName, rigType='core', buildStyle='standard'):
+    def __init__(self, charName='defaultcharname', rigType='core', buildStyle='standard'):
         self._widgets = {}
         self._parents = {}
         self._charNodes = {}

@@ -56,15 +56,26 @@ def makeUnkeyableAttr(obj, attr):
     newAttr.showInChannelBox(True)
     return newAttr
 
-def insertNodeAbove(node, nodeType='joint', name=None, suffix='_zero'):
-    '''Insert a node above node'''
-    if name:
-        if pm.objectExists(name):
-            _logger.warning("Node called '%s' already exists' % name")
-    #if this is a joint, add it's orients to the rotations of the zero node.    
-    new = pm.createNode(nodeType, name='%s%s' % (n.name(), suffix))
+def insertNodeAbove(node, nodeType=None, name=None, suffix='_zero'):
+    '''Insert a node above node
+    @param nodeType=None: make this type of node.  Defaults to the type that node is
+    @param name=None: name of the new node.  Defaults to node name + suffix
+    @param suffix='_zero': the name suffix
+    '''
+    if name is None:
+        name = '%s%s' % (node.name(), suffix)
+        
+    if pm.objExists(name):
+        _logger.warning("Node called '%s' already exists' % name")
+    if isinstance(node, pm.nt.Joint):
+        nodeType='joint'
+    else:
+        nodeType='transform'
+    #if this is a joint, add it's orients to the rotations of the zero node.
+    
+    new = pm.createNode(nodeType, name=name)
     new.setParent(node.getParent())
-    utils.snap(node, new, ignoreOrient=True)
+    snap(node, new, ignoreOrient=True)
     node.setParent(new)
     return new
 

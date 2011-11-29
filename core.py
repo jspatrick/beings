@@ -972,7 +972,9 @@ class Rig(object):
             parentName = parent.name(id=True)
             if parentName not in self._widgets.keys():
                 raise utils.BeingsError("No parent widget called '%s'" % parentName)
-
+        else:
+            parentName = None
+            
         widget.options.setOpt('char', self.options.getOpt('char'))
         self._widgets[name] = widget
         self._parents[name] = (parentName, parentNode)

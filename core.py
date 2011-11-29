@@ -961,19 +961,32 @@ class Rig(object):
         self.cog = CenterOfGravity()
         self.cog.options.setOpt('char', self.options.getOpt('char'))        
         self.addWidget(self.cog)
-        
+    
+    def listWidgets(self): return self._widgets.keys()
     def getWidget(self, id): return self._widgets[id]
-    def addWidget(self, widget, parentName=None, parentNode=None):
+    def addWidget(self, widget, parent=None, parentNode=None):
         name = widget.name(id=True) 
         if name in self._widgets.keys():
             raise utils.BeingsError("Rig already has a widget called '%s'" % name)
-        if parentName is not None and parentName not in self._widgets.keys():
-            raise utils.BeingsError("No parent widget called '%s'" % parentName)
+        if parent is not None:
+            parentName = parent.name(id=True)
+            if parentName not in self._widgets.keys():
+                raise utils.BeingsError("No parent widget called '%s'" % parentName)
 
         widget.options.setOpt('char', self.options.getOpt('char'))
         self._widgets[name] = widget
         self._parents[name] = (parentName, parentNode)
+
+    def parentWidget(self, widget):
+        parentID = self._parents[widget.name(id=True)][0]
+        if parentID is None:
+            return None
+        else:
+            return self.getWidget(parentID)
         
+    def parentNode(self, widget):
+        return self._parents[widget.name(id=True)][1]
+    
     def setParent(self, widget, parentWidget, parentNode):
         for wdg in [parentWidget, widget]:
             if wdg not in self._widgets.values():

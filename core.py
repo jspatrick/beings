@@ -962,8 +962,8 @@ class Rig(object):
         self.cog.options.setOpt('char', self.options.getOpt('char'))        
         self.addWidget(self.cog)
     
-    def listWidgets(self): return self._widgets.keys()
-    def getWidget(self, id): return self._widgets[id]
+    def allWidgets(self): return self._widgets.values()
+    def widgetFromId(self, id): return self._widgets[id]
     def addWidget(self, widget, parent=None, parentNode=None):
         name = widget.name(id=True) 
         if name in self._widgets.keys():
@@ -978,13 +978,28 @@ class Rig(object):
         widget.options.setOpt('char', self.options.getOpt('char'))
         self._widgets[name] = widget
         self._parents[name] = (parentName, parentNode)
-
+    
+    def topWidgets(self):
+        '''Get widgets without parents'''
+        result = []
+        for widget in self._widgets.values():
+            if self.parentWidget(widget) == None:
+                result.append(widget)
+        return result
+    def childWidgets(self, parentWidget):
+        result = []
+        name = parentWidget.name(id=True)
+        for widgetID, parentPair in self._parents.items():
+            if parentPair[0] == name:
+                result.append(self.widgetFromId(widgetID))
+        return result
+    
     def parentWidget(self, widget):
         parentID = self._parents[widget.name(id=True)][0]
         if parentID is None:
             return None
         else:
-            return self.getWidget(parentID)
+            return self.widgetFromId(parentID)
         
     def parentNode(self, widget):
         return self._parents[widget.name(id=True)][1]

@@ -13,45 +13,48 @@ class CharDataModel(QAbstractTableModel):
         self.char = core.Rig(charName)
         self.columns = ['part', 'side', 'parent node', 'class']        
         
-    class TOP(object): pass
-    
+    class TOP(object): pass    
     def widgetFromIndex(self, index):
-        _logger.debug("Getting widget index, internalpointer=%r" % index.internalPointer())
-        obj = index.internalPointer()
-        if obj:
-            return obj
+        if index.isValid():            
+            return index.internalPointer()
         else:
             return self.TOP
-    
+
     def index(self, row, col, parent):
-        parent = parent.internalPointer()        
-        if not parent:
+        parent = self.widgetFromIndex(parent)
+        assert parent is not None
+        children = []
+        if parent is not self.TOP:
             #top level
-            children = self.char.topWidgets()
-        else:
             children = self.char.childWidgets(parent)
+        elif parent is self.TOP:
+            children = self.char.topWidgets()
+            
         _logger.debug("Creating index, row=%r, col=%r, parent=%r, children=%r" % (row, col, parent, children))
-        assert( 0 <= row < len(children))
-        return self.createIndex(row, col, children[row])
         
+        #assert( 0 <= row < len(children))
+        return self.createIndex(row, col, children[row])
+    
     def rowCount(self, parent):
-        parent = parent.internalPointer()        
-        if not parent:
+        parent = self.widgetFromIndex(parent)
+        if parent is None:
+            return 0
+        if parent is self.TOP:
             return len(self.char.topWidgets())
         else:
             return len(self.char.childWidgets(parent))
-    
-    def columnCount(self,  parentIndex=QModelIndex()):
+
+    def columnCount(self,  parent):
         return len(self.columns)
     
     def parent(self, child):
-        child = child.internalPointer()
-        if not child:
-            return QModelIndex()        
-        parent = self.char.parentWidget(child)        
+        child = self.widgetFromIndex(child)
+        if child is None or child is self.TOP:
+            return QModelIndex()
+        parent = self.char.parentWidget(child)
         if parent is None:
             return QModelIndex()
-        
+
         parentID = parent.name(id=True)
         grandParent = self.char.parentWidget(parent)        
         if grandParent is None:            
@@ -60,23 +63,34 @@ class CharDataModel(QAbstractTableModel):
             childNames = [w.name(id=True) for w in self.char.childWidgets(grandParent)]
         _logger.debug("siblings of %s are: %s" % (parentID, childNames))
         row = bisect.bisect_left(childNames, parentID)
+        assert childNames[row] == parentID
+            
         return self.createIndex(row, 0, parent)
         
     def data(self, index, role=Qt.DisplayRole):
-        widget = index.internalPointer()        
-        if not widget:
-            return QVariant()        
-        widgetColName = self.columns[index.column()]
+        if role != Qt.DisplayRole:            
+            return QVariant()
         
-        if role == Qt.DisplayRole:
-            if widgetColName == 'part':
-                return QVariant(widget.options.getOpt('part'))
-            elif widgetColName == 'side':
-                return QVariant(widget.options.getOpt('side'))
-            elif widgetColName == 'parent node':
-                return QVariant(self.char.parentNode(widget) or '')
-            elif widgetColName == 'class':
-                return QVariant(widget.__class__.__name__)
+        widgetColName = self.columns[index.column()]
+        widget = self.widgetFromIndex(index)
+        assert widget is not None
+        if widget is self.TOP:
+            return QVariant(QString(""))
+        if widgetColName == 'part':
+            return QVariant(widget.options.getOpt('part'))
+        elif widgetColName == 'side':
+            return QVariant(widget.options.getOpt('side'))
+        elif widgetColName == 'parent node':
+            return QVariant(self.char.parentNode(widget) or '')
+        elif widgetColName == 'class':
+            return QVariant(widget.__class__.__name__)
+        return QVariant()
+
+    def headerData(self, section, orientation, role):
+        if orientation == Qt.Horizontal and \
+           role == Qt.DisplayRole:
+            assert 0 <= section <= len(self.columns)
+            return QVariant(self.columns[section])
         return QVariant()
     
     # def headerData(self, section, orientation, role=Qt.DisplayRole):
@@ -100,4 +114,18 @@ class CharWidget(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(self.treeView)
         self.setLayout(layout)
-        
+    
+
+def _test():
+    global g_uiInstance
+    g_uiInstance = CharWidget()
+    cog = g_uiInstance.model.char.topWidgets()[0]
+    bl = core.BasicLeg()
+    bl.options.setOpt('side', 'rt')
+    bl2 = core.BasicLeg()
+    g_uiInstance.model.char.addWidget(bl)
+    g_uiInstance.model.char.addWidget(bl2)
+    g_uiInstance.model.char.setParent(bl, cog, 'cog_bnd')
+    g_uiInstance.model.char.setParent(bl2, cog, 'cog_bnd')
+    g_uiInstance.show()
+    g_uiInstance.model.reset()

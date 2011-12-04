@@ -711,10 +711,6 @@ class Widget(object):
     def _makeRig(self, namer, bndJnts, rigCtls):
         raise NotImplementedError
 
-class RigRoot(Widget):
-    '''A dummy class used for parenting'''
-    def __init__(self, part='__ROOT__', **kwargs):
-        super(BasicLeg, self).__init__(part=part, **kwargs)
         
 class BasicLeg(Widget):
     def __init__(self, part='basicleg', **kwargs):
@@ -925,7 +921,6 @@ class CenterOfGravity(Widget):
         self.setNodeCateogry(rigCtls['master'], 'fk')
         
 
-        
 class Rig(object):
     '''
     A character tracks widgets, organizes the build, etc
@@ -949,8 +944,6 @@ class Rig(object):
 
     '''
     #a dummy object used as the 'root' of the rig
-    class Root(Widget): 
-        def name(id=False): return "__ROOT__"
         
     def __init__(self, charName, rigType='core', buildStyle='standard'):
         self._widgets = {}
@@ -988,12 +981,13 @@ class Rig(object):
         self._parents[name] = (parentName, parentNode)
     
     def topWidgets(self):
-        '''Get widgets without parents'''
+        '''Get widgets without parents'''        
         result = []
         for widget in self._widgets.values():
             if self.parentWidget(widget) == None:
                 result.append(widget)
         return result
+    
     def childWidgets(self, parentWidget):
         result = []
         name = parentWidget.name(id=True)
@@ -1013,16 +1007,13 @@ class Rig(object):
         return self._parents[widget.name(id=True)][1]
     
     def setParent(self, widget, parentWidget, parentNode):
-        if parentWidget == None:
-            parentID = "__ROOT__"
-        else:
-            for wdg in [parentWidget, widget]:                
-                if wdg not in self._widgets.values():
-                    _logger.error("widget not part of rig" % parentWidget.name())
-                    return
-            if parentNode not in parentWidget.listParentNodes():
-                _logger.error("Invalid parent node %s" % parentNode)
+        for wdg in [parentWidget, widget]:                
+            if wdg not in self._widgets.values():
+                _logger.error("widget not part of rig" % parentWidget.name())
                 return
+        if parentNode not in parentWidget.listParentNodes():
+            _logger.error("Invalid parent node %s" % parentNode)
+            return
 
         parentID = parentWidget.name(id=True)
         widgetID = widget.name(id=True)

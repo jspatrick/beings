@@ -711,7 +711,11 @@ class Widget(object):
     def _makeRig(self, namer, bndJnts, rigCtls):
         raise NotImplementedError
 
-
+class RigRoot(Widget):
+    '''A dummy class used for parenting'''
+    def __init__(self, part='__ROOT__', **kwargs):
+        super(BasicLeg, self).__init__(part=part, **kwargs)
+        
 class BasicLeg(Widget):
     def __init__(self, part='basicleg', **kwargs):
         super(BasicLeg, self).__init__(part=part, **kwargs)
@@ -920,7 +924,7 @@ class CenterOfGravity(Widget):
         #setup info for parenting
         self.setNodeCateogry(rigCtls['master'], 'fk')
         
-        
+
         
 class Rig(object):
     '''
@@ -944,6 +948,10 @@ class Rig(object):
     rig.buildRig()
 
     '''
+    #a dummy object used as the 'root' of the rig
+    class Root(Widget): 
+        def name(id=False): return "__ROOT__"
+        
     def __init__(self, charName, rigType='core', buildStyle='standard'):
         self._widgets = {}
         self._parents = {}
@@ -1005,13 +1013,16 @@ class Rig(object):
         return self._parents[widget.name(id=True)][1]
     
     def setParent(self, widget, parentWidget, parentNode):
-        for wdg in [parentWidget, widget]:
-            if wdg not in self._widgets.values():
-                _logger.error("widget not part of rig" % parentWidget.name())
+        if parentWidget == None:
+            parentID = "__ROOT__"
+        else:
+            for wdg in [parentWidget, widget]:                
+                if wdg not in self._widgets.values():
+                    _logger.error("widget not part of rig" % parentWidget.name())
+                    return
+            if parentNode not in parentWidget.listParentNodes():
+                _logger.error("Invalid parent node %s" % parentNode)
                 return
-        if parentNode not in parentWidget.listParentNodes():
-            _logger.error("Invalid parent node %s" % parentNode)
-            return
 
         parentID = parentWidget.name(id=True)
         widgetID = widget.name(id=True)

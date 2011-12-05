@@ -1,9 +1,10 @@
 '''
 Utility Objects
 '''
-import bisect, copy
+import bisect, copy, logging
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
+_logger = logging.getLogger(__name__)
 
 # Backport of OrderedDict() class that runs on Python 2.4, 2.5, 2.6, 2.7 and pypy.
 # Passes Python2.7's test suite and incorporates all the latest updates.
@@ -85,7 +86,7 @@ class WidgetTreeItem(object):
         self.parent = None
         self.children = []            
         self.numColumns = 5
-        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
+        
         self._parentNodes = {}
         
         #set up options    
@@ -93,7 +94,7 @@ class WidgetTreeItem(object):
         self.options.addOpt('part', part)
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
-        
+    
     def childWidgets(self, recursive=True):
         result = []
         for child in self.children:
@@ -203,33 +204,59 @@ class TreeModel(QAbstractItemModel):
         super(TreeModel, self).__init__(parent)
         self.root = WidgetTreeItem("", isRoot=True)
         self.columns = self.root.numColumns
-        self.headers = copy.copy(self.root.headers)
+        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
+
+    def flags(self, index):
+        widget = self.widgetFromIndex(index)
+        if not widget or widget == self.root:
+            return Qt.ItemIsEnabled
+
+        flags = Qt.ItemIsSelectable | Qt.ItemIsEditable | Qt.ItemIsDragEnabled \
+                | Qt.ItemIsDropEnabled | Qt.ItemIsEnabled
+        return flags
     
-    def nodeFromIndex(self, index):
+    def widgetFromIndex(self, index):
         return index.internalPointer() \
             if index.isValid() else self.root
     
     def rowCount(self, parent):
-        node = self.nodeFromIndex(parent)
-        if node is None:
+        widget = self.widgetFromIndex(parent)
+        if widget is None:
             return 0
         else:
-            return node.numChildren()        
+            return widget.numChildren()        
 
     def columnCount(self, parent):
         return self.columns
     
     def index(self, row, column, parent):
         assert self.root
-        node = self.nodeFromIndex(parent)
-        assert node is not None
+        widget = self.widgetFromIndex(parent)
+        assert widget is not None
         return self.createIndex(row, column,
-                                node.childAtRow(row))
+                                widget.childAtRow(row))
+    def setData(self, index, value, role=Qt.EditRole):
+        widget = self.widgetFromIndex(index)
+        if widget is None or widget is self.root:
+            return False
+        header = self.headers[index.column()]
+        value = str(value.toString())
+        if header == 'Part':
+            widget.options.setOpt('part', value)
+        if header == 'Side':
+            
+            if value not in ['cn', 'lf', 'rt']:
+                _logger.warning('invalid side "%s"' % value)
+            else:
+                widget.options.setOpt('side', value)
+        self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
+        return True
+    
     def parent(self, child):
-        node = self.nodeFromIndex(child)
-        if node is None:
+        widget = self.widgetFromIndex(child)
+        if widget is None:
             return QModelIndex()
-        parent = node.parent
+        parent = widget.parent
         if parent is None:
             return QModelIndex()
         grandparent = parent.parent
@@ -244,9 +271,9 @@ class TreeModel(QAbstractItemModel):
             return QVariant(int(Qt.AlignTop|Qt.AlignLeft))
         if role != Qt.DisplayRole:
             return QVariant()
-        node = self.nodeFromIndex(index)
-        assert node is not None
-        return node.getData(index.column())
+        widget = self.widgetFromIndex(index)
+        assert widget is not None
+        return widget.getData(index.column())
     
     def headerData(self, section, orientation, role):
         if orientation == Qt.Horizontal and \

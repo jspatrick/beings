@@ -324,7 +324,10 @@ class Widget(utils.Types.WidgetTreeItem):
         
         #keep reference to this object so we can get unique names        
         self.storeRef(self)
-        
+    def _resetNodeCategories(self):
+        for categoy in self.VALID_NODE_CATEGORIES:
+            self._nodeCategories[categoy] = []
+            
     @classmethod
     def getObjects(cls):
         ''' get all referenced objects'''
@@ -422,28 +425,32 @@ class Widget(utils.Types.WidgetTreeItem):
 
     def getNodes(self, category=None):
         nodes = []
-        if category is not None:
-            if category not in self._nodeCategories.keys():
-                raise utils.BeingsError("Invalid category %s" % category)
-            #return a copy of the list
-            nodes = [n for n in self._nodeCategories[category]]
-            if category == 'fk':
-                otherCategoryNodes = set([])
-                for grp in self._nodeCategories.values():
-                    otherCategoryNodes.update(grp)
-                
-                for n in self.getNodes():
-                    if isinstance(n, pm.nt.DagNode) and not n.getParent():
-                        if n not in otherCategoryNodes:
-                            _logger.warning("Directly parenting uncategoried top-level node '%s'" % n.name())
-                            nodes.append(n)                                
-            return nodes
-        
-        for node in self._nodes:
-            if pm.objExists(node):
-                nodes.append(node)
-        self._nodes = nodes
-        
+        #don't warn about non-existing nodes
+        with utils.SilencePymelLogger():
+            if category is not None:
+                if category not in self._nodeCategories.keys():
+                    raise utils.BeingsError("Invalid category %s" % category)
+                #return a copy of the list
+                nodes = [n for n in self._nodeCategories[category] if pm.objExists(n)]
+                self._nodeCategories[category] = copy.copy(nodes) # set it to the existing objs
+
+                if category == 'fk':
+                    otherCategoryNodes = set([])
+                    for grp in self._nodeCategories.values():
+                        otherCategoryNodes.update(grp)
+
+                    for n in self.getNodes():
+                        if isinstance(n, pm.nt.DagNode) and not n.getParent():
+                            if n not in otherCategoryNodes:
+                                _logger.warning("Directly parenting uncategoried top-level node '%s'"\
+                                                % n.name())
+                                nodes.append(n)                                
+
+            else:
+                nodes = self._nodes
+                nodes = [n for n in nodes if pm.objExists(n)]
+                self._nodes = copy.copy(nodes)
+            
         return nodes
 
     def state(self):
@@ -536,15 +543,12 @@ class Widget(utils.Types.WidgetTreeItem):
             else:
                 self.cacheDiffs()
         #silence the pymel logger or it's pretty noisy about missing nodes
-        pmLogger = logging.getLogger('pymel.core.nodetypes')
-        propagate = pmLogger.propagate
-        pmLogger.propagate = 0
-        for node in self.getNodes():
-            if pm.objExists(node):
-                pm.delete(node)
-        pmLogger.propagate = propagate
+        with utils.SilencePymelLogger():
+            for node in self.getNodes():
+                if pm.objExists(node):
+                    pm.delete(node)
         self._nodes = []
-
+        self._resetNodeCategories()
     @BuildCheck('built')
     def cacheDiffs(self):
         """
@@ -635,7 +639,7 @@ class Widget(utils.Types.WidgetTreeItem):
             
             nodes = nt.getObjects()
             nodes.extend(bndJntNodes)
-            self._nodes = nodes
+            self._nodes = [n for n in nodes if pm.objExists(n)]
                 
         for key, node in self._parentNodes.items():
             if node == None:
@@ -885,7 +889,8 @@ class Rig(utils.Types.TreeModel):
         self._charNodes = {}
         self._rigType = 'core'
         self._coreNodes = {}
-        
+        self._nodes = []
+        self._stateFlag = 'unbuilt'
         self.options = utils.Types.OptionCollection()
         self.options.addOpt('char', 'defaultcharname')
         self.options.setOpt('char', charName)
@@ -906,13 +911,21 @@ class Rig(utils.Types.TreeModel):
         widget.options.setOpt('char', self.options.getOpt('char'))        
         
     def buildLayout(self):
+        self._stateFlag = 'built'
         for wdg in self.root.childWidgets():
             if wdg.state() == 'rigged':
                 wdg.delete()
             wdg.buildLayout()
-            
+    
+    def state(self):
+        return self._stateFlag
+                
     def buildRig(self, lock=False):
-        self._buildMainHierarhcy()
+        self._stateFlag = 'rigged'
+        with utils.NodeTracker() as nt:            
+            self._buildMainHierarchy()                 
+            self._nodes = nt.getObjects()
+            
         for wdg in self.root.childWidgets():            
             wdg.buildRig()
 
@@ -920,6 +933,16 @@ class Rig(utils.Types.TreeModel):
         if lock:
             NT.lockHierarchy(self._coreNodes['top'])
             
+    def delete(self):
+        for wdg in self.root.childWidgets():
+            wdg.delete()
+        with utils.SilencePymelLogger():
+            for node in self._nodes:
+                if pm.objExists(node):
+                    pm.delete(node)
+        self._nodes = []
+        self._stateFlag = 'unbuilt'
+        
     def _getChildWidgets(self, parent=None):
         '''Get widgets that are children of parent.'''
         result = []
@@ -952,7 +975,7 @@ class Rig(utils.Types.TreeModel):
                 for node in child.getNodes('fk'):
                     node.setParent(parentNode)
                 
-    def _buildMainHierarhcy(self):
+    def _buildMainHierarchy(self):
         '''
         build the main group structure
         '''

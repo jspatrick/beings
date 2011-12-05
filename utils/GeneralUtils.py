@@ -7,7 +7,20 @@ import pymel.core as pm
 from beings.utils.Exceptions import * #@UnusedWildImport
 logger = logging.getLogger(__name__)
 
-    
+class SilencePymelLogger(object):
+    def __init__(self):
+        self.level = 10
+        self.pmLogger = logging.getLogger('pymel.core.nodetypes')
+    def __enter__(self):
+        self.pmLogger.propagate = 0
+        self.level = self.pmLogger.level
+        self.pmLogger.setLevel(50)
+        return self
+
+    def __exit__(self, exctype, excval, exctb):
+        self.pmLogger.propagate = 1
+        self.pmLogger.setLevel(self.level)
+        
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
     Create a stretch

@@ -10,7 +10,7 @@ from beings.utils.Exceptions import * #@UnusedWildImport
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
 #constants
-TAG = 'beings_'
+TAG_PREFIX = 'beings_'
 
 def _strToDict(str_):
     return eval(str_)

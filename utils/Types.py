@@ -19,12 +19,12 @@ except ImportError:
     pass
 
 
-class OptionCollection(object):
-    def __init__(self):
+class OptionCollection(QObject):
+    def __init__(self, parent=None):
         '''
         A collection of options
         '''
-        
+        super(OptionCollection, self).__init__(parent)
         self.__options = {}
         self.__presets = {}
         self.__rules = {}
@@ -36,6 +36,7 @@ class OptionCollection(object):
         presets = kwargs.get('presets')
         if presets:
             self.setPresets(optName, *presets)
+        self.emit(SIGNAL('optionAdded'), optName)
         
     def _checkName(self, optName):
         if optName not in self.__options:
@@ -61,7 +62,13 @@ class OptionCollection(object):
     
     def setOpt(self, optName, val):
         self._checkName(optName)
-        self.__options[optName] = val
+        changed=False
+        if val != self.__options[optName]:
+            changed = True
+        self.__options[optName] = val        
+        self.emit(SIGNAL('optSet'), optName, val)
+        if changed:
+            self.emit(SIGNAL('optChanged'), optName)
         
     def getAllOpts(self):
         return copy.deepcopy(self.__options)
@@ -70,30 +77,44 @@ class OptionCollection(object):
             self.setOpt(optName, optVal)
 
 
-class AbstractTreeItem(object):
-    KEY_INDEX, NODE_INDEX = range(2)
-    
-    def __init__(self, isRoot=False):
+class WidgetTreeItem(object):
+    KEY_INDEX, WIDGET_INDEX, CHILD_PART_INDEX = range(3)
+
+    def __init__(self, part, isRoot=False):
         self._isRoot = isRoot
-        self.numColumns = 1
         self.parent = None
-        self.children = []
+        self.children = []            
+        self.numColumns = 5
+        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
+        self._parentNodes = {}
         
-    def getData(self, col):
-        raise NotImplementedError
+        #set up options    
+        self.options = OptionCollection()
+        self.options.addOpt('part', part)
+        self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
+        self.options.addOpt('char', 'defaultchar')
         
+    def childWidgets(self, recursive=True):
+        result = []
+        for child in self.children:
+            childWidget = child[self.WIDGET_INDEX]
+            if recursive:
+                result.extend(childWidget.childWidgets())
+            result.append(childWidget)
+        return result
+    
     def numChildren(self):
         return len(self.children)
     
     def childAtRow(self, row, returnIndex=None):
         if returnIndex is None:
-            returnIndex = self.NODE_INDEX
+            returnIndex = self.WIDGET_INDEX
         assert 0 <= row < len(self.children)
         return self.children[row][returnIndex]
     
     def rowOfChild(self, child):
         for i, item in enumerate(self.children):
-            if item[self.NODE_INDEX] == child:
+            if item[self.WIDGET_INDEX] == child:
                 return i
         return -1
     
@@ -104,42 +125,34 @@ class AbstractTreeItem(object):
         if i < 0 or i >= len(self.children):
             return None
         if self.children[i][self.KEY_INDEX] == key:
-            return self.children[i][self.NODE_INDEX]
+            return self.children[i][self.WIDGET_INDEX]
         return None
-    
-    def orderKey(self):
-        raise NotImplementedError
-    
-    def insertChild(self, child, *args):
-        if child._isRoot:
-            raise TypeError("Cannot parent root nodes")
-        child.parent = self
-        childList = [child.orderKey(), child]
-        childList.extend(args)
-        
-        bisect.insort(self.children, tuple(childList))
 
-class WidgetTreeItem(AbstractTreeItem):
-    CHILD_NODE_INDEX=2
-    def __init__(self, part, isRoot=False):
-        super(WidgetTreeItem, self).__init__(isRoot=isRoot)
-        self.numColumns = 5
-        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
-        self._parentNodes = {}
+    def removeChild(self, child):
+        row = self.rowOfChild(child)
+        if row == -1:
+            _logger.warning("%r is not a child of %r" % (child, self))
+        self.children.pop(i)
         
-        #set up options    
-        self.options = OptionCollection()
-        self.options.addOpt('part', part)
-        self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
-        self.options.addOpt('char', 'defaultchar')
-
-    def insertChild(self, child, parentToPart="", force=False):
+    def insertChild(self, child, parentToPart=""):
         if self._isRoot:
             if parentToPart != "":
                 raise KeyError("Children of a root node cannot have a parent to part")
-        elif parentToPart not in self.listParentNodes():
+        elif parentToPart not in self.listParentParts():
             raise KeyError("Invalid parent to part '%s'" % parentToPart)
-        super(WidgetTreeItem, self).insertChild(child, parentToPart)
+
+        if child._isRoot:
+            raise TypeError("Cannot parent root nodes")
+        #order keys must be unique
+        for currentChild in self.children:
+            if currentChild[self.KEY_INDEX] == child.orderKey():
+                _logger.warning("Widget with ID '%s' already is a child"\
+                                % child.orderKey())
+                return
+
+        child.parent = self
+        childList = (child.orderKey(), child, parentToPart)
+        bisect.insort(self.children, childList)
         
     def getClassName(self):
         return self.__class__.__name__
@@ -153,7 +166,7 @@ class WidgetTreeItem(AbstractTreeItem):
         elif col == 2:
             if self.parent:
                 row = self.parent.rowOfChild(self)
-                child = self.parent.children[row][self.CHILD_NODE_INDEX]
+                child = self.parent.children[row][self.CHILD_PART_INDEX]
                 return QVariant(QString(child))
             else:
                 return QVariant(QString(""))
@@ -161,28 +174,28 @@ class WidgetTreeItem(AbstractTreeItem):
             return QVariant(QString(self.getClassName()))
         elif col == 4:
             return self.orderKey()
-        
+
     def orderKey(self): return "%s_%s" % \
         (self.options.getOpt('part'), self.options.getOpt('side'))
-    
-    def addParentNode(self, nodeName):
+
+    def addParentPart(self, nodeName):
         '''Add the 'key' name of a node'''
         if nodeName in self._parentNodes.keys():
             _logger.warning("%s already is a parent node" % nodeName)
         self._parentNodes[nodeName] = None
-        
+
     def setParentNode(self, nodeName, node):
         '''Set the actual node of a nodeName'''
         if nodeName not in self._parentNodes.keys():
             raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
         self._parentNodes[nodeName] = node
-        
+
     def getParentNode(self, nodeName):
         if nodeName not in self._parentNodes.keys():
             raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
         return self._parentNodes[nodeName]
-    
-    def listParentNodes(self):
+
+    def listParentParts(self):
         return self._parentNodes.keys()
         
 class TreeModel(QAbstractItemModel):
@@ -234,20 +247,14 @@ class TreeModel(QAbstractItemModel):
         node = self.nodeFromIndex(index)
         assert node is not None
         return node.getData(index.column())
+    
+    def headerData(self, section, orientation, role):
+        if orientation == Qt.Horizontal and \
+           role == Qt.DisplayRole:
+            assert 0 <= section <= len(self.headers)
+            return QVariant(self.headers[section])
+        return QVariant()
 
-class TreeTest(QTreeView):
-    def __init__(self, parent=None):
-        super(TreeTest, self).__init__(parent)
-        self.model = TreeModel()
-        self.model.root.insertChild(WidgetTreeItem('test1'))
-        self.model.root.insertChild(WidgetTreeItem('test2'))
-        t3 = WidgetTreeItem('test3')
-        self.model.root.insertChild(t3)
-        t3.addParentNode('myNode')
-        t3.insertChild(WidgetTreeItem('test4'), 'myNode')
-        t3.insertChild(WidgetTreeItem('test5'), 'myNode')
-        self.model.reset()
-        self.setModel(self.model)
 
 class OrderedDict(dict):
     'Dictionary that remembers insertion order'

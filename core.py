@@ -650,9 +650,9 @@ class BasicLeg(Widget):
     def __init__(self, part='basicleg', **kwargs):
         super(BasicLeg, self).__init__(part=part, **kwargs)
         #add parentable Nodes
-        self.addParentNode('bnd_hip')
-        self.addParentNode('bnd_knee')
-        self.addParentNode('bnd_ankle')
+        self.addParentPart('bnd_hip')
+        self.addParentPart('bnd_knee')
+        self.addParentPart('bnd_ankle')
         
     def _orientBindJoints(self, jntDct):
         '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
@@ -755,19 +755,19 @@ class CenterOfGravity(Widget):
     def __init__(self, part='cog', **kwargs):
         super(CenterOfGravity, self).__init__(part=part, **kwargs)
         self.options.setPresets('side', 'cn')
-        self.addParentNode('cog_bnd')
-        self.addParentNode('cog_ctl')
-        self.addParentNode('master_ctl')
-        self.addParentNode('body_ctl')
-        self.addParentNode('pivot_ctl')
+        self.addParentPart('cog_bnd')
+        self.addParentPart('cog_ctl')
+        self.addParentPart('master_ctl')
+        self.addParentPart('body_ctl')
+        self.addParentPart('pivot_ctl')
         
     def _makeLayout(self, namer):
         #make the
         masterLayoutCtl = control.Control(shape='circle', color='red', scale=[4.5, 4.5, 4.5],
-                                          name=namer.name(d='master_layout', s='ctl'))
+                                          name=namer.name(d='master_layout', s='ctl'), xformType='transform')
         self.registerControl('master', masterLayoutCtl)
         cogLayoutCtl = control.Control(shape='circle', color='yellow', scale=[4, 4, 4],
-                                      name=namer.name(d='cog_layout', s='ctl'))
+                                      name=namer.name(d='cog_layout', s='ctl'), xformType='transform')
         cogLayoutCtl.xformNode().ty.set(5)
         self.registerControl('cog', cogLayoutCtl)  
         cogLayoutCtl.xformNode().setParent(masterLayoutCtl.xformNode())  
@@ -881,8 +881,7 @@ class Rig(utils.Types.TreeModel):
         
     def __init__(self, charName, rigType='core', buildStyle='standard'):
         super(Rig, self).__init__()
-        
-        self._widgets = {}
+
         self._charNodes = {}
         self._rigType = 'core'
         self._coreNodes = {}
@@ -899,33 +898,22 @@ class Rig(utils.Types.TreeModel):
         self.cog.options.setOpt('char', self.options.getOpt('char'))        
         self.addWidget(self.cog)
     
-    def allWidgets(self): return self._widgets.values()
-    def widgetFromId(self, id): return self._widgets[id]
-    def addWidget(self, widget, parent=None, parentNode=None):
-        name = widget.name(id=True)
-        if name in self._widgets.keys():
-            raise utils.BeingsError("Rig already has a widget called '%s'" % name)
-        if parent is not None:
-            parentName = parent.name(id=True)
-            if parentName not in self._widgets.keys():
-                raise utils.BeingsError("No parent widget called '%s'" % parentName)
-        else:
+    def addWidget(self, widget, parent=None, parentNode=None):        
+        if parent is None:
             parent = self.root
             parentNode = ""
         parent.insertChild(widget, parentNode)
-        widget.options.setOpt('char', self.options.getOpt('char'))
-        self._widgets[name] = widget
-        
+        widget.options.setOpt('char', self.options.getOpt('char'))        
         
     def buildLayout(self):
-        for wdg in self._widgets.values():
+        for wdg in self.root.childWidgets():
             if wdg.state() == 'rigged':
                 wdg.delete()
             wdg.buildLayout()
             
-    def buildRig(self, lock=True):
+    def buildRig(self, lock=False):
         self._buildMainHierarhcy()
-        for wdg in self._widgets.values():            
+        for wdg in self.root.childWidgets():            
             wdg.buildRig()
 
         self._doParenting()
@@ -944,29 +932,25 @@ class Rig(utils.Types.TreeModel):
         '''
         Parent rigs to each other
         '''
-        for widgetID in self._parents.keys():
-            widget = self._widgets[widgetID]
-            parentID, parentNode = self._parents[widgetID]
-            if parentID is None:
-                for node in widget.getNodes('fk'):
+        for child in self.root.childWidgets(recursive=True):
+            parent = child.parent
+            if parent == self.root:
+                for node in child.getNodes('fk'):
                     node.setParent(self._coreNodes['top'])
-                for node in widget.getNodes('ik'):
+                for node in child.getNodes('ik'):
                     node.setParent(self._coreNodes['top'])
-                if widget != self.cog:
-                    _logger.warning("%s has no parent!" % widget.name())
-                continue
-            
-            parentWidget = self._widgets[parentID]            
-            for node in widget.getNodes('dnt'):
-                node.setParent(self._coreNodes['dnt'])
-
-            for node in widget.getNodes('ik'):
-                node.setParent(self.cog.getParentNode('cog_bnd'))
                 
-            #resolve the node string to the actual node
-            parentNode = parentWidget.getParentNode(parentNode)
-            for node in widget.getNodes('fk'):
-                node.setParent(parentNode)
+            else:
+                for node in child.getNodes('dnt'):
+                    node.setParent(self._coreNodes['dnt'])
+                for node in child.getNodes('ik'):
+                    node.setParent(self.cog.getParentNode('master_ctl'))
+                
+                row = parent.rowOfChild(child)
+                parentPart = parent.childAtRow(row, returnIndex=child.CHILD_PART_INDEX)
+                parentNode = parent.getParentNode(parentPart)
+                for node in child.getNodes('fk'):
+                    node.setParent(parentNode)
                 
     def _buildMainHierarhcy(self):
         '''
@@ -995,6 +979,8 @@ def treeTest():
             self.rig.addWidget(leg, self.rig.cog, 'cog_bnd')
             self.rig.addWidget(leg2, self.rig.cog, 'cog_bnd')            
             self.rig.reset()
+            self.setAnimated(True)
+            
     global _testInst
     _testInst = TreeTest()
     _testInst.show()

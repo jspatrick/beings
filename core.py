@@ -30,6 +30,8 @@ import beings.utils as utils
 import maya.OpenMaya as OM
 import utils.NodeTagging as NT
 import maya.cmds as MC
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -270,65 +272,27 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
-class OptionError(utils.BeingsError): pass
-class OptionCollection(object):
-    def __init__(self):
-        '''
-        A collection of options
-        '''
-        
-        self.__options = {}
-        self.__presets = {}
-        self.__rules = {}
-        self.__optPresets = {}
-    
-    def addOpt(self, optName, defaultVal, optType=str, **kwargs):
-        self.__options[optName] = optType(defaultVal)
-        self.__rules[optName] = {'optType': optType}
-        presets = kwargs.get('presets')
-        if presets:
-            self.setPresets(optName, *presets)
-        
-    def _checkName(self, optName):
-        if optName not in self.__options:
-            raise utils.BeingsError("Invalid option %s") % optName
-    
-    def setPresets(self, optName, *args, **kwargs):
-        self._checkName(optName)
-        replace = kwargs.get('replace', False)        
-        if replace:
-            self.__presets[optName] = set(args)
-        else:
-            presets = self.__presets.get(optName, set([]))
-            presets = presets.union(args)
-            self.__presets[optName] = presets
-            
-    def getPresets(self, optName):
-        self._checkName(optName)
-        return sorted(list(self.__presets[optName]))
-    
-    def getOpt(self, optName):
-        self._checkName(optName)
-        return self.__options[optName]
-    
-    def setOpt(self, optName, val):
-        self._checkName(optName)
-        self.__options[optName] = val
-        
-    def getAllOpts(self):
-        return copy.deepcopy(self.__options)
-    def setAllOpts(self, optDct):
-        for optName, optVal in optDct.items():
-            self.setOpt(optName, optVal)
 
-
-class Widget(object):
+class Widget(utils.Types.WidgetTreeItem):
+    
     layoutObjs = set([])
     VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'ik', 'fk']
+    
+    #Tree item reimplementations
+    def getData(self, col):
+        if col == 4: return self.name(id=True)
+        else:
+            return super(Widget, self).getData(col)
+        
     def __init__(self, part='widget', useNextAvailablePart=True, **kwargs):
 
         #Get a unique part name.  This ensures all node names are unique
         #when multiple widgets are built.
+        
+        
+        self.ref = self
+        self.numColumns = 5
+        
         if useNextAvailablePart:
             usedNums = []
             for obj in self.getObjects():
@@ -342,7 +306,9 @@ class Widget(object):
                 part ='%s%i' % (part, (sorted(usedNums)[-1] + 1))
             else:
                 part = '%s1' % part
-        
+                
+        super(Widget, self).__init__(part)
+        assert(self.options)
         self._partID = part
         self._nodes = [] #stores all nodes        
         self._bindJoints = {} #stores registered bind joints
@@ -355,18 +321,6 @@ class Widget(object):
         for categoy in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[categoy] = []
 
-        #set up options    
-        self.options = OptionCollection()
-        self.options.addOpt('part', part)
-        self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
-        self.options.addOpt('char', 'defaultchar')
-        #todo: validate options
-        for k, v in kwargs.items():
-            try:
-                self.options.setOpt(k, v)
-            except OptionError:
-                pass
-        
         
         #keep reference to this object so we can get unique names        
         self.storeRef(self)
@@ -394,27 +348,7 @@ class Widget(object):
         for ref in cls.layoutObjs:
             if not ref():
                 oldRefs.add(ref)
-        cls.layoutObjs.difference_update(oldRefs)
-        
-    def addParentNode(self, nodeName):
-        '''Add the 'key' name of a node'''
-        if nodeName in self._parentNodes.keys():
-            _logger.warning("%s already is a parent node" % nodeName)
-        self._parentNodes[nodeName] = None
-        
-    def setParentNode(self, nodeName, node):
-        '''Set the actual node of a nodeName'''
-        if nodeName not in self._parentNodes.keys():
-            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
-        self._parentNodes[nodeName] = node
-        
-    def getParentNode(self, nodeName):
-        if nodeName not in self._parentNodes.keys():
-            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
-        return self._parentNodes[nodeName]
-    
-    def listParentNodes(self):
-        return self._parentNodes.keys()
+        cls.layoutObjs.difference_update(oldRefs)                
     
     def name(self, id=False):
         """ Return a name of the object.
@@ -921,7 +855,7 @@ class CenterOfGravity(Widget):
         self.setNodeCateogry(rigCtls['master'], 'fk')
         
 
-class Rig(object):
+class Rig(utils.Types.TreeModel):
     '''
     A character tracks widgets, organizes the build, etc
     import pymel.core as pm
@@ -946,12 +880,14 @@ class Rig(object):
     #a dummy object used as the 'root' of the rig
         
     def __init__(self, charName, rigType='core', buildStyle='standard'):
+        super(Rig, self).__init__()
+        
         self._widgets = {}
-        self._parents = {}
         self._charNodes = {}
         self._rigType = 'core'
         self._coreNodes = {}
-        self.options = OptionCollection()
+        
+        self.options = utils.Types.OptionCollection()
         self.options.addOpt('char', 'defaultcharname')
         self.options.setOpt('char', charName)
         self.options.addOpt('rigType', 'core')
@@ -966,7 +902,7 @@ class Rig(object):
     def allWidgets(self): return self._widgets.values()
     def widgetFromId(self, id): return self._widgets[id]
     def addWidget(self, widget, parent=None, parentNode=None):
-        name = widget.name(id=True) 
+        name = widget.name(id=True)
         if name in self._widgets.keys():
             raise utils.BeingsError("Rig already has a widget called '%s'" % name)
         if parent is not None:
@@ -974,50 +910,12 @@ class Rig(object):
             if parentName not in self._widgets.keys():
                 raise utils.BeingsError("No parent widget called '%s'" % parentName)
         else:
-            parentName = None
-            
+            parent = self.root
+            parentNode = ""
+        parent.insertChild(widget, parentNode)
         widget.options.setOpt('char', self.options.getOpt('char'))
         self._widgets[name] = widget
-        self._parents[name] = (parentName, parentNode)
-    
-    def topWidgets(self):
-        '''Get widgets without parents'''        
-        result = []
-        for widget in self._widgets.values():
-            if self.parentWidget(widget) == None:
-                result.append(widget)
-        return result
-    
-    def childWidgets(self, parentWidget):
-        result = []
-        name = parentWidget.name(id=True)
-        for widgetID, parentPair in self._parents.items():
-            if parentPair[0] == name:
-                result.append(self.widgetFromId(widgetID))
-        return result
-    
-    def parentWidget(self, widget):
-        parentID = self._parents[widget.name(id=True)][0]
-        if parentID is None:
-            return None
-        else:
-            return self.widgetFromId(parentID)
         
-    def parentNode(self, widget):
-        return self._parents[widget.name(id=True)][1]
-    
-    def setParent(self, widget, parentWidget, parentNode):
-        for wdg in [parentWidget, widget]:                
-            if wdg not in self._widgets.values():
-                _logger.error("widget not part of rig" % parentWidget.name())
-                return
-        if parentNode not in parentWidget.listParentNodes():
-            _logger.error("Invalid parent node %s" % parentNode)
-            return
-
-        parentID = parentWidget.name(id=True)
-        widgetID = widget.name(id=True)
-        self._parents[widgetID] = (parentID, parentNode)
         
     def buildLayout(self):
         for wdg in self._widgets.values():
@@ -1084,4 +982,20 @@ class Rig(object):
         model = pm.createNode('transform', name='%s%s_model' % (char, rigType))
         model.setParent(dnt)
         self._coreNodes['model'] = model
-                                
+
+_testInst = None
+def treeTest():
+    class TreeTest(QTreeView):
+        def __init__(self, parent=None):
+            super(TreeTest, self).__init__(parent)
+            self.rig = Rig('mychar')
+            self.setModel(self.rig)
+            leg = BasicLeg()
+            leg2 = BasicLeg()
+            self.rig.addWidget(leg, self.rig.cog, 'cog_bnd')
+            self.rig.addWidget(leg2, self.rig.cog, 'cog_bnd')            
+            self.rig.reset()
+    global _testInst
+    _testInst = TreeTest()
+    _testInst.show()
+

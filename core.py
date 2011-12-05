@@ -179,9 +179,21 @@ class Namer(object):
                               'suffix': ''}
 
         self._pattern = "$c$n_$r_$s_$p_$d_$e_$x"
+        self._lockedToks = []
         if toks:
             self.setTokens(**toks)
-
+    def lockToks(self, *toks):
+        """Do not allow overriding tokens"""
+        for tok in toks:
+            self._lockedToks.append(self._fullToken(tok))
+    def unlockToks(self, *toks):
+        for tok in toks:
+            tok = self._fullToken(tok)
+            try:
+                index = self._lockedToks.index(tok)
+                self._lockedToks.pop(index)
+            except ValueError:
+                _logger.debug("%s is not locked" % tok)
     def _fullToken(self, token):
         if token in self.tokenSymbols.values():
             return token
@@ -217,7 +229,12 @@ class Namer(object):
         nameParts = copy.copy(self.__namedTokens)
         for tok, val in kwargs.items():
             fullTok = self._fullToken(tok)
-            nameParts[fullTok] = val
+            #check if locked
+            if fullTok in self._lockedToks:
+                _logger.warning("Token '%s' is locked, cannot override with '%s'" \
+                                % (fullTok, val))
+            else:
+                nameParts[fullTok] = val
         name = self._pattern
         for shortTok, longTok in self.tokenSymbols.items():
             name = re.sub('\$%s' % shortTok, nameParts[longTok], name)
@@ -614,6 +631,7 @@ class Widget(utils.Types.WidgetTreeItem):
                         n='',
                         side=self.options.getOpt('side'),
                         part=self.options.getOpt('part'))
+        namer.lockToks('c', 'n', 's', 'p')
         bndJntNodes = []
         with utils.NodeTracker() as nt:
             jntDct = self.duplicateBindJoints()
@@ -747,10 +765,10 @@ class BasicLeg(Widget):
         self.setNodeCateogry(ikCtl, 'ik')
         utils.snap(bndJnts['ankle'], ikCtl, orient=False)
         ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'], ee=ikJnts['ankle'], solver='ikRPsolver',
-                                      n=namer.name(s='ikh'))
+                                      n=namer.name(x='ikh'))
         ikHandle.setParent(ikCtl)
         ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)        
-        fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', s='rev'))
+        fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
         ikCtl.fkIk.connect(fkIkRev.inputX)
         for j in fkJnts.values():
             fkIkRev.outputX.connect(j.v)
@@ -831,7 +849,7 @@ class CenterOfGravity(Widget):
         #create the inverted pivot
         name = namer.name(d='pivot_inverse')
         pivInv = utils.insertNodeAbove(rigCtls['cog'], name=name)        
-        mdn = pm.createNode('multiplyDivide', n=namer.name(d='piv_inverse', s='mdn'))
+        mdn = pm.createNode('multiplyDivide', n=namer.name(d='piv_inverse', x='mdn'))
         mdn.input2.set([-1,-1,-1])
         rigCtls['pivot'].t.connect(mdn.input1)
         mdn.output.connect(pivInv.t)        

@@ -22,8 +22,7 @@ ll.delete()
 d.applyDiffs(diffs)
 """
 
-import logging, re, copy, weakref
-import json
+import logging, re, copy, weakref, bisect, json
 import pymel.core as pm
 import beings.control as control
 import beings.utils as utils
@@ -45,6 +44,25 @@ def _getStateDct(obj):
     result['localMatrix'] = pm.xform(obj, q=1, m=1)
     result['worldMatrix'] = pm.xform(obj, q=1, m=1, ws=1)
     return result
+
+_registeredWidgets = {}
+CLASS_INDEX, DESCRIPTION_INDEX = range(2)
+def registerWidget(class_, niceName=None, description=None):
+    global _registeredWidgets
+    if niceName is None:
+        niceName = class_.__name__
+    if description is None:
+        description = 'No description provided'
+    if niceName in _registeredWidgets.keys() or \
+       class_ in _registeredWidgets.values():
+        _logger.debug("%s is already registered" % niceName)
+    _registeredWidgets[niceName] = (class_, description)
+def listWidgets():
+    return _registeredWidgets.keys()
+def getWidgetInstance(widgetName):
+    return _registeredWidgets[widgetName][CLASS_INDEX]()
+def getWidgetDescription(widgetName):
+    return _registeredWidgets[widgetName][DESCRIPTION_INDEX]()
 
 class Differ(object):
     """
@@ -289,8 +307,356 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
+class OptionCollection(QObject):
+    def __init__(self, parent=None):
+        '''
+        A collection of options
+        '''
+        super(OptionCollection, self).__init__(parent)
+        self.__options = {}
+        self.__presets = {}
+        self.__rules = {}
+        self.__optPresets = {}
 
-class Widget(utils.Types.WidgetTreeItem):
+    def addOpt(self, optName, defaultVal, optType=str, **kwargs):
+        self.__options[optName] = optType(defaultVal)
+        self.__rules[optName] = {'optType': optType}
+        presets = kwargs.get('presets')
+        if presets:
+            self.setPresets(optName, *presets)
+        self.emit(SIGNAL('optionAdded'), optName)
+        
+    def _checkName(self, optName):
+        if optName not in self.__options:
+            raise utils.BeingsError("Invalid option %s") % optName
+    
+    def setPresets(self, optName, *args, **kwargs):
+        self._checkName(optName)
+        replace = kwargs.get('replace', False)        
+        if replace:
+            self.__presets[optName] = set(args)
+        else:
+            presets = self.__presets.get(optName, set([]))
+            presets = presets.union(args)
+            self.__presets[optName] = presets
+            
+    def getPresets(self, optName):
+        self._checkName(optName)
+        return sorted(list(self.__presets[optName]))
+    
+    def getOpt(self, optName):
+        self._checkName(optName)
+        return self.__options[optName]
+    
+    def setOpt(self, optName, val):
+        self._checkName(optName)
+        changed=False
+        if val != self.__options[optName]:
+            changed = True
+        self.__options[optName] = val        
+        self.emit(SIGNAL('optSet'), optName, val)
+        if changed:
+            self.emit(SIGNAL('optChanged'), optName)
+        
+    def getAllOpts(self):
+        return copy.deepcopy(self.__options)
+    def setAllOpts(self, optDct):
+        for optName, optVal in optDct.items():
+            self.setOpt(optName, optVal)
+
+g_widgetList = []
+def getWidgetMimeData(widget):
+    global g_widgetList
+    if widget not in g_widgetList:
+        g_widgetList.append(widget)
+    widgetIndex = g_widgetList.index(widget)
+    
+    data = QByteArray()
+    stream = QDataStream(data, QIODevice.WriteOnly)
+    stream << QString(str(widgetIndex))
+    mimeData = QMimeData()
+    mimeData.setData("application/x-widget", data)
+    return mimeData
+    
+def widgetFromMimeData(mimeData):    
+    if mimeData.hasFormat("application/x-widget"):
+        data = mimeData.data("application/x-widget")
+        stream = QDataStream(data, QIODevice.ReadOnly)
+        index = QString()
+        stream >> index
+        index = int(str(index))
+        return g_widgetList[index]
+    
+class WidgetTreeItem(object):
+    KEY_INDEX, WIDGET_INDEX, CHILD_PART_INDEX = range(3)
+
+    def __init__(self, part, isRoot=False):
+        self._isRoot = isRoot
+        self.parent = None
+        self.children = []            
+        self.numColumns = 5
+        
+        self._parentNodes = {}
+        
+        #set up options    
+        self.options = OptionCollection()
+        self.options.addOpt('part', part)
+        self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
+        self.options.addOpt('char', 'defaultchar')
+    
+    def childWidgets(self, recursive=True):
+        result = []
+        for child in self.children:
+            childWidget = child[self.WIDGET_INDEX]
+            if recursive:
+                result.extend(childWidget.childWidgets())
+            result.append(childWidget)
+        return result
+    
+    def numChildren(self):
+        return len(self.children)
+    
+    def childAtRow(self, row, returnIndex=None):
+        if returnIndex is None:
+            returnIndex = self.WIDGET_INDEX
+        assert 0 <= row < len(self.children)
+        return self.children[row][returnIndex]
+    
+    def rowOfChild(self, child):
+        for i, item in enumerate(self.children):
+            if item[self.WIDGET_INDEX] == child:
+                return i
+        return -1
+    
+    def childWithKey(self, key):
+        if not self.children:
+            return None
+        i = bisect.bisect_left(self.children, (key, None))
+        if i < 0 or i >= len(self.children):
+            return None
+        if self.children[i][self.KEY_INDEX] == key:
+            return self.children[i][self.WIDGET_INDEX]
+        return None
+
+    def removeChild(self, child):
+        row = self.rowOfChild(child)
+        if row == -1:
+            _logger.warning("%r is not a child of %r" % (child, self))
+        self.children.pop(row)
+        return child
+    
+    def insertChild(self, child, parentToPart=""):
+        if self._isRoot:
+            if parentToPart != "":
+                raise KeyError("Children of a root node cannot have a parent to part")
+        elif parentToPart not in self.listParentParts():
+            raise KeyError("Invalid parent to part '%s'" % parentToPart)
+
+        if child._isRoot:
+            raise TypeError("Cannot parent root nodes")
+        #order keys must be unique
+        for currentChild in self.children:
+            if currentChild[self.KEY_INDEX] == child.orderKey():
+                _logger.warning("Widget with ID '%s' already is a child"\
+                                % child.orderKey())
+                return
+
+        child.parent = self
+        childList = (child.orderKey(), child, parentToPart)
+        bisect.insort(self.children, childList)
+        
+    def getClassName(self):
+        return self.__class__.__name__
+    
+    def getData(self, col):
+        assert 0 <= col < self.numColumns
+        if col == 0:
+            return QVariant(QString(self.options.getOpt('part')))
+        elif col == 1:
+            return QVariant(QString(self.options.getOpt('side')))
+        elif col == 2:
+            if self.parent:
+                row = self.parent.rowOfChild(self)
+                child = self.parent.children[row][self.CHILD_PART_INDEX]
+                return QVariant(QString(child))
+            else:
+                return QVariant(QString(""))
+        elif col == 3:
+            return QVariant(QString(self.getClassName()))
+        elif col == 4:
+            return self.orderKey()
+
+    def orderKey(self): return "%s_%s" % \
+        (self.options.getOpt('part'), self.options.getOpt('side'))
+
+    def addParentPart(self, nodeName):
+        '''Add the 'key' name of a node'''
+        if nodeName in self._parentNodes.keys():
+            _logger.warning("%s already is a parent node" % nodeName)
+        self._parentNodes[nodeName] = None
+
+    def setParentNode(self, nodeName, node):
+        '''Set the actual node of a nodeName'''
+        if nodeName not in self._parentNodes.keys():
+            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
+        self._parentNodes[nodeName] = node
+
+    def getParentNode(self, nodeName):
+        if nodeName not in self._parentNodes.keys():
+            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
+        return self._parentNodes[nodeName]
+
+    def listParentParts(self):
+        return self._parentNodes.keys()
+        
+class TreeModel(QAbstractItemModel):
+    def __init__(self, parent=None):
+        super(TreeModel, self).__init__(parent)
+        self.root = WidgetTreeItem("", isRoot=True)
+        self.columns = self.root.numColumns
+        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
+
+    def supportedDropActions(self):
+        return Qt.CopyAction | Qt.MoveAction
+    
+    def flags(self, index):
+        defaultFlags = QAbstractItemModel.flags(self, index)
+        if index.isValid():
+            return Qt.ItemIsEditable | Qt.ItemIsDragEnabled | \
+                    Qt.ItemIsDropEnabled | defaultFlags
+        else:
+            return Qt.ItemIsDropEnabled | defaultFlags
+        
+    def widgetFromIndex(self, index):
+        return index.internalPointer() \
+            if index.isValid() else self.root
+    
+    def indexFromWidget(self, widget, parentIndex=QModelIndex()):
+        """Get the QModelIndex from a widget."""
+        rows = self.rowCount(parentIndex)
+        for i in range(rows):
+            index = self.index(i, 0, parentIndex)
+            if index.internalPointer() == widget:
+                return index
+            else:
+                index = self.indexFromWidget(widget, parentIndex=index)
+                if index != None:
+                    return index
+        return None        
+    
+    def rowCount(self, parent):
+        widget = self.widgetFromIndex(parent)
+        if widget is None:
+            return 0
+        else:
+            return widget.numChildren()
+        
+    def mimeTypes(self):
+        types = QStringList()
+        types.append('application/x-widget')
+        return types
+    
+    def mimeData(self, indexList):
+        index = indexList[0]
+        widget = self.widgetFromIndex(index)
+        mimeData = getWidgetMimeData(widget)
+        return mimeData
+    
+    def dropMimeData(self, mimedata, action, row, column, parentIndex):
+        if action == Qt.IgnoreAction:
+            return True
+        dragNode = widgetFromMimeData(mimedata)
+        if not dragNode:
+            return False
+        if dragNode.parent:
+            dragNode.parent.removeChild(dragNode)
+            
+        parentNode = self.widgetFromIndex(parentIndex)
+        if parentNode is self.root or parentNode is None:
+            self.root.insertChild(dragNode)
+        else:
+            parentParts = parentNode.listParentParts()
+            parentNode.insertChild(dragNode, parentParts[0])
+        self.insertRow(parentNode.numChildren()-1, parentIndex)
+        self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), parentIndex, parentIndex)
+        return True
+    
+    def insertRow(self, row, parent):
+        return self.insertRows(row, 1, parent)
+    
+    def insertRows(self, row, count, parent):
+         self.beginInsertRows(parent, row, (row + (count-1)))
+         self.endInsertRows()
+         return True
+    
+    def removeRow(self, row, parentIndex):
+         return self.removeRows(row, 1, parentIndex)
+    
+    def removeRows(self, row, count, parentIndex):
+         self.beginRemoveRows(parentIndex, row, row)    
+         self.endRemoveRows()
+         return True
+    
+    def columnCount(self, parent):
+        return self.columns
+    
+    def index(self, row, column, parent):
+        assert self.root
+        widget = self.widgetFromIndex(parent)
+        assert widget is not None
+        try:
+            return self.createIndex(row, column,
+                                    widget.childAtRow(row))
+        except AssertionError:
+            return QModelIndex()
+    def setData(self, index, value, role=Qt.EditRole):
+        widget = self.widgetFromIndex(index)
+        if widget is None or widget is self.root:
+            return False
+        header = self.headers[index.column()]
+        value = str(value.toString())
+        if header == 'Part':
+            widget.options.setOpt('part', value)
+        if header == 'Side':
+            
+            if value not in ['cn', 'lf', 'rt']:
+                _logger.warning('invalid side "%s"' % value)
+            else:
+                widget.options.setOpt('side', value)
+        self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
+        return True
+    
+    def parent(self, child):
+        widget = self.widgetFromIndex(child)
+        if widget is None:
+            return QModelIndex()
+        parent = widget.parent
+        if parent is None:
+            return QModelIndex()
+        grandparent = parent.parent
+        if grandparent is None:
+            return QModelIndex()
+        row = grandparent.rowOfChild(parent)
+        assert row != -1
+        return self.createIndex(row, 0, parent)
+
+    def data(self, index, role):
+        if role == Qt.TextAlignmentRole:
+            return QVariant(int(Qt.AlignTop|Qt.AlignLeft))
+        if role != Qt.DisplayRole:
+            return QVariant()
+        widget = self.widgetFromIndex(index)
+        assert widget is not None
+        return widget.getData(index.column())
+    
+    def headerData(self, section, orientation, role):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            assert 0 <= section <= len(self.headers)
+            return QVariant(self.headers[section])
+        return QVariant()
+    
+
+class Widget(WidgetTreeItem):
     
     layoutObjs = set([])
     VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'ik', 'fk']
@@ -666,113 +1032,7 @@ class Widget(utils.Types.WidgetTreeItem):
     
     def _makeRig(self, namer, bndJnts, rigCtls):
         raise NotImplementedError
-
-        
-class BasicLeg(Widget):
-    def __init__(self, part='basicleg', **kwargs):
-        super(BasicLeg, self).__init__(part=part, **kwargs)
-        #add parentable Nodes
-        self.addParentPart('bnd_hip')
-        self.addParentPart('bnd_knee')
-        self.addParentPart('bnd_ankle')
-        
-    def _orientBindJoints(self, jntDct):
-        '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
-        worldUpVec = utils.getXProductFromNodes(jntDct['knee'], jntDct['hip'], jntDct['ankle'])
-        for jnt in jntDct.values():
-            utils.freeze(jnt)
-        for tok in ['hip', 'knee']:
-            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=worldUpVec)
-        for tok in ['ankle', 'ball', 'toe', 'toetip']:
-            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
-            
-    def _makeLayout(self, namer):
-        """
-        build the layout
-        """
-
-        toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toetip']
-        positions = [(0,5,0),
-                     (0,2.75,1),
-                     (0,.5,0),
-                     (0,0,0.5),
-                     (0,0,1),
-                     (0,0,1.5)]
-
-        legJoints = {}
-        legCtls = {}
-        pm.select(cl=1)
-        for i, tok in enumerate(toks):
-            legJoints[tok] = pm.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
-            legCtls[tok] = control.Control(name = namer.name(x='ctl', d=tok), shape='sphere')
-            self.registerControl(tok, legCtls[tok])
-            legCtls[tok].setShape(scale=[0.3, 0.3, 0.3])
-            utils.snap(legJoints[tok], legCtls[tok].xformNode(), orient=False)
-            pm.select(legJoints[tok])
-        for i, tok in enumerate(toks):
-            utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
-            pm.parentConstraint(legCtls[tok].xformNode(), legJoints[tok])
-            parent = None
-            if i > 0:
-                parent = legJoints[toks[i-1]]
-            self.registerBindJoint(tok, legJoints[tok], parent)
-            legCtls[tok].xformNode().r.setLocked(True)
-                    
-        ankleCtl = legCtls['ankle']
-        for tok in ['ball', 'toe', 'toetip']:
-            ctl = legCtls[tok]
-            ctl.xformNode().setParent(ankleCtl.xformNode())
-            ctl.xformNode().tx.setLocked(True)
-
-        #make rig controls
-        ankleIkCtl = control.Control(name=namer.name(d='ankle', r='ik'), shape='sphere', color='blue')
-        self.registerControl('ankleIK', ankleIkCtl, ctlType='rig')
-        
-        #create up-vec locs
-        l = pm.spaceLocator(n=namer.name(d='orientor_loc'))
-        pm.pointConstraint(legCtls['hip'], legCtls['ankle'], l)
-        pm.aimConstraint(legCtls['hip'], l,
-                         aimVector=[0,1,0], upVector=[0,0,1],
-                         worldUpType='object',
-                         worldUpObject = legCtls['knee'])
-
-
-    def _makeRig(self, namer, bndJnts, rigCtls):
-        #add the parenting nodes - this is a required step
-        for tok in ['hip', 'knee', 'ankle']:
-            self.setParentNode('bnd_%s' % tok, bndJnts[tok])
-        
-        o = utils.Orientation()
-        side = self.options.getOpt('side')
-        if side == 'rt':
-            o.setAxis('aim', 'negY')
-            o.reorientJoints(bndJnts.values())
-            
-        fkJnts = utils.dupJntDct(bndJnts, '_bnd_', '_fk_')
-        fkCtls = {}
-        for tok, jnt in fkJnts.items():
-            if tok == 'toetip':
-                continue
-            ctl = control.Control(jnt, shape='cube', scaleToChild=True, scale=[.25, .25, .25],
-                                  color='yellow')
-            fkCtls[tok] = ctl
-        
-        pm.delete(fkJnts['toetip'])
-        fkJnts.pop('toetip')        
-        namer.setTokens(r='ik')
-        ikJnts = utils.dupJntDct(bndJnts, '_bnd_', '_ik_')
-        ikCtl = control.Control(name=namer.name(), shape='sphere', color='lite blue').xformNode()
-        self.setNodeCateogry(ikCtl, 'ik')
-        utils.snap(bndJnts['ankle'], ikCtl, orient=False)
-        ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'], ee=ikJnts['ankle'], solver='ikRPsolver',
-                                      n=namer.name(x='ikh'))
-        ikHandle.setParent(ikCtl)
-        ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)        
-        fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
-        ikCtl.fkIk.connect(fkIkRev.inputX)
-        for j in fkJnts.values():
-            fkIkRev.outputX.connect(j.v)
-
+    
 class CenterOfGravity(Widget):
     def __init__(self, part='cog', **kwargs):
         super(CenterOfGravity, self).__init__(part=part, **kwargs)
@@ -875,9 +1135,9 @@ class CenterOfGravity(Widget):
         NT.tagControl(rigCtls['master'], uk=['uniformScale'])
         #setup info for parenting
         self.setNodeCateogry(rigCtls['master'], 'fk')
-        
+registerWidget(CenterOfGravity, 'Center Of Gravity', 'The widget under which all others should be parented')
 
-class Rig(utils.Types.TreeModel):
+class Rig(TreeModel):
     '''
     A character tracks widgets, organizes the build, etc
     import pymel.core as pm
@@ -925,8 +1185,12 @@ class Rig(utils.Types.TreeModel):
         if parent is None:
             parent = self.root
             parentNode = ""
-        parent.insertChild(widget, parentNode)
+        parent.insertChild(widget, parentNode)        
         widget.options.setOpt('char', self.options.getOpt('char'))        
+        parentIndex = self.indexFromWidget(parent)
+        if parentIndex is None:
+            parentIndex = QModelIndex()
+        self.emit(SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
         
     def buildLayout(self):
         self._stateFlag = 'built'
@@ -1008,36 +1272,6 @@ class Rig(utils.Types.TreeModel):
         model.setParent(dnt)
         self._coreNodes['model'] = model
 
-_testInst = None
-def treeTest():
-    class TreeTest(QTreeView):
-        def __init__(self, parent=None):
-            super(TreeTest, self).__init__(parent)
-            self.rig = Rig('mychar')
-            self.setModel(self.rig)
-            leg = BasicLeg()
-            leg2 = BasicLeg()
-            self.rig.addWidget(leg, self.rig.cog, 'cog_bnd')
-            self.rig.addWidget(leg2, self.rig.cog, 'cog_bnd')            
-            self.rig.reset()
-            
-            self.setAnimated(True)
-            self.connect(self.model(), SIGNAL("dataChanged(QModelIndex,QModelIndex)"),
-                         self.change)
-            self.dragEnabled()
-            self.acceptDrops()
-            self.showDropIndicator()
-            self.setDragDropMode(QAbstractItemView.InternalMove)
-            self.expandAll()
-        def change(self, topLeftIndex, bottomRightIndex):
-            self.update(topLeftIndex)
-            self.expandAll()
-            self.expanded()
-        def expanded(self):
-            for column in range(self.model().columnCount(QModelIndex())):
-                self.resizeColumnToContents(column)
-            
-    global _testInst
-    _testInst = TreeTest()
-    _testInst.show()
 
+
+        

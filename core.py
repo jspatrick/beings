@@ -1020,7 +1020,22 @@ def treeTest():
             self.rig.addWidget(leg, self.rig.cog, 'cog_bnd')
             self.rig.addWidget(leg2, self.rig.cog, 'cog_bnd')            
             self.rig.reset()
+            
             self.setAnimated(True)
+            self.connect(self.model(), SIGNAL("dataChanged(QModelIndex,QModelIndex)"),
+                         self.change)
+            self.dragEnabled()
+            self.acceptDrops()
+            self.showDropIndicator()
+            self.setDragDropMode(QAbstractItemView.InternalMove)
+            self.expandAll()
+        def change(self, topLeftIndex, bottomRightIndex):
+            self.update(topLeftIndex)
+            self.expandAll()
+            self.expanded()
+        def expanded(self):
+            for column in range(self.model().columnCount(QModelIndex())):
+                self.resizeColumnToContents(column)
             
     global _testInst
     _testInst = TreeTest()

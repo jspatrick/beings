@@ -2,9 +2,13 @@
 Utility Objects
 '''
 import bisect, copy, logging
+from cPickle import dumps, load, loads
+from cStringIO import StringIO
+
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 _logger = logging.getLogger(__name__)
+_logger.setLevel(logging.DEBUG)
 
 # Backport of OrderedDict() class that runs on Python 2.4, 2.5, 2.6, 2.7 and pypy.
 # Passes Python2.7's test suite and incorporates all the latest updates.
@@ -30,7 +34,7 @@ class OptionCollection(QObject):
         self.__presets = {}
         self.__rules = {}
         self.__optPresets = {}
-    
+
     def addOpt(self, optName, defaultVal, optType=str, **kwargs):
         self.__options[optName] = optType(defaultVal)
         self.__rules[optName] = {'optType': optType}
@@ -77,6 +81,28 @@ class OptionCollection(QObject):
         for optName, optVal in optDct.items():
             self.setOpt(optName, optVal)
 
+g_widgetList = []
+def getWidgetMimeData(widget):
+    global g_widgetList
+    if widget not in g_widgetList:
+        g_widgetList.append(widget)
+    widgetIndex = g_widgetList.index(widget)
+    
+    data = QByteArray()
+    stream = QDataStream(data, QIODevice.WriteOnly)
+    stream << QString(str(widgetIndex))
+    mimeData = QMimeData()
+    mimeData.setData("application/x-widget", data)
+    return mimeData
+    
+def widgetFromMimeData(mimeData):    
+    if mimeData.hasFormat("application/x-widget"):
+        data = mimeData.data("application/x-widget")
+        stream = QDataStream(data, QIODevice.ReadOnly)
+        index = QString()
+        stream >> index
+        index = int(str(index))
+        return g_widgetList[index]
 
 class WidgetTreeItem(object):
     KEY_INDEX, WIDGET_INDEX, CHILD_PART_INDEX = range(3)
@@ -133,8 +159,9 @@ class WidgetTreeItem(object):
         row = self.rowOfChild(child)
         if row == -1:
             _logger.warning("%r is not a child of %r" % (child, self))
-        self.children.pop(i)
-        
+        self.children.pop(row)
+        return child
+    
     def insertChild(self, child, parentToPart=""):
         if self._isRoot:
             if parentToPart != "":
@@ -206,15 +233,17 @@ class TreeModel(QAbstractItemModel):
         self.columns = self.root.numColumns
         self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
 
-    def flags(self, index):
-        widget = self.widgetFromIndex(index)
-        if not widget or widget == self.root:
-            return Qt.ItemIsEnabled
-
-        flags = Qt.ItemIsSelectable | Qt.ItemIsEditable | Qt.ItemIsDragEnabled \
-                | Qt.ItemIsDropEnabled | Qt.ItemIsEnabled
-        return flags
+    def supportedDropActions(self):
+        return Qt.CopyAction | Qt.MoveAction
     
+    def flags(self, index):
+        defaultFlags = QAbstractItemModel.flags(self, index)
+        if index.isValid():
+            return Qt.ItemIsEditable | Qt.ItemIsDragEnabled | \
+                    Qt.ItemIsDropEnabled | defaultFlags
+        else:
+            return Qt.ItemIsDropEnabled | defaultFlags
+        
     def widgetFromIndex(self, index):
         return index.internalPointer() \
             if index.isValid() else self.root
@@ -224,8 +253,54 @@ class TreeModel(QAbstractItemModel):
         if widget is None:
             return 0
         else:
-            return widget.numChildren()        
-
+            return widget.numChildren()
+        
+    def mimeTypes(self):
+        types = QStringList()
+        types.append('application/x-widget')
+        return types
+    
+    def mimeData(self, indexList):
+        index = indexList[0]
+        widget = self.widgetFromIndex(index)
+        mimeData = getWidgetMimeData(widget)
+        return mimeData
+    
+    def dropMimeData(self, mimedata, action, row, column, parentIndex):
+        if action == Qt.IgnoreAction:
+            return True
+        dragNode = widgetFromMimeData(mimedata)
+        if not dragNode:
+            return False
+        if dragNode.parent:
+            dragNode.parent.removeChild(dragNode)
+            
+        parentNode = self.widgetFromIndex(parentIndex)
+        if parentNode is self.root or parentNode is None:
+            self.root.insertChild(dragNode)
+        else:
+            parentParts = parentNode.listParentParts()
+            parentNode.insertChild(dragNode, parentParts[0])
+        self.insertRow(parentNode.numChildren()-1, parentIndex)
+        self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), parentIndex, parentIndex)
+        return True
+    
+    def insertRow(self, row, parent):
+        return self.insertRows(row, 1, parent)
+    
+    def insertRows(self, row, count, parent):
+         self.beginInsertRows(parent, row, (row + (count-1)))
+         self.endInsertRows()
+         return True
+    
+    def removeRow(self, row, parentIndex):
+         return self.removeRows(row, 1, parentIndex)
+    
+    def removeRows(self, row, count, parentIndex):
+         self.beginRemoveRows(parentIndex, row, row)    
+         self.endRemoveRows()
+         return True
+    
     def columnCount(self, parent):
         return self.columns
     
@@ -233,8 +308,11 @@ class TreeModel(QAbstractItemModel):
         assert self.root
         widget = self.widgetFromIndex(parent)
         assert widget is not None
-        return self.createIndex(row, column,
-                                widget.childAtRow(row))
+        try:
+            return self.createIndex(row, column,
+                                    widget.childAtRow(row))
+        except AssertionError:
+            return QModelIndex()
     def setData(self, index, value, role=Qt.EditRole):
         widget = self.widgetFromIndex(index)
         if widget is None or widget is self.root:
@@ -276,12 +354,11 @@ class TreeModel(QAbstractItemModel):
         return widget.getData(index.column())
     
     def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and \
-           role == Qt.DisplayRole:
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             assert 0 <= section <= len(self.headers)
             return QVariant(self.headers[section])
         return QVariant()
-
+    
 
 class OrderedDict(dict):
     'Dictionary that remembers insertion order'

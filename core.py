@@ -1169,7 +1169,7 @@ class Rig(TreeModel):
         self._coreNodes = {}
         self._nodes = []
         self._stateFlag = 'unbuilt'
-        self.options = utils.Types.OptionCollection()
+        self.options = OptionCollection()
         self.options.addOpt('char', 'defaultcharname')
         self.options.setOpt('char', charName)
         self.options.addOpt('rigType', 'core')

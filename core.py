@@ -42,7 +42,7 @@ def _getStateDct(obj):
         result.update(obj.getHandleInfo())
         obj = obj.xformNode()
     result['localMatrix'] = pm.xform(obj, q=1, m=1)
-    result['worldMatrix'] = pm.xform(obj, q=1, m=1, ws=1)
+    result['worldMatrix'] = pm.xform(obj, q=1, m=1, ws=1)    
     return result
 
 _registeredWidgets = {}
@@ -363,7 +363,9 @@ class OptionCollection(QObject):
     def setAllOpts(self, optDct):
         for optName, optVal in optDct.items():
             self.setOpt(optName, optVal)
-
+            
+#TODO:  This is pretty ugly - there's no stopping this global list
+#from getting enormous. Can we pass these around some other way?
 g_widgetList = []
 def getWidgetMimeData(widget):
     global g_widgetList
@@ -394,16 +396,47 @@ class WidgetTreeItem(object):
         self._isRoot = isRoot
         self.parent = None
         self.children = []            
-        self.numColumns = 5
-        
+        self.numColumns = 5        
         self._parentNodes = {}
-        
+        self._idNum = 0
         #set up options    
         self.options = OptionCollection()
         self.options.addOpt('part', part)
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
+        
+    def getID(self):
+        return "%s%i" % (self.getClassName(), self._idNum)
     
+    def __setIDNum(self, num):
+        self._idNum = num
+        
+    def setNextAvailableID(self, root=None):
+        if root is None:
+            root = self.__getRoot()
+        thisClass = self.getClassName()
+        allChildren = root.childWidgets()
+        usedIDNums = set([])
+        for child in allChildren:
+            if child != self and child.getClassName() == thisClass:
+                usedIDNums.add(child._idNum)
+        i = 0
+        while (i < 1000):
+            if i not in usedIDNums:
+                break
+            else:
+                i += 1
+                continue
+        self.__setIDNum(i)
+        
+    def __getRoot(self):
+        parent=self
+        while True:
+            if parent.parent is None:
+                break
+            parent = parent.parent
+        return parent
+
     def childWidgets(self, recursive=True):
         result = []
         for child in self.children:
@@ -454,15 +487,13 @@ class WidgetTreeItem(object):
 
         if child._isRoot:
             raise TypeError("Cannot parent root nodes")
-        #order keys must be unique
-        for currentChild in self.children:
-            if currentChild[self.KEY_INDEX] == child.orderKey():
-                _logger.warning("Widget with ID '%s' already is a child"\
-                                % child.orderKey())
-                return
-
+        #if the child is new to the widget tree, assign it an ID
+        root = self.__getRoot()
+        if child not in root.childWidgets():
+            child.setNextAvailableID(root=root)
+            
         child.parent = self
-        childList = (child.orderKey(), child, parentToPart)
+        childList = (child.getID(), child, parentToPart)
         bisect.insort(self.children, childList)
         
     def getClassName(self):
@@ -484,7 +515,7 @@ class WidgetTreeItem(object):
         elif col == 3:
             return QVariant(QString(self.getClassName()))
         elif col == 4:
-            return self.orderKey()
+            return self.getID()
 
     def orderKey(self): return "%s_%s" % \
         (self.options.getOpt('part'), self.options.getOpt('side'))
@@ -515,7 +546,7 @@ class TreeModel(QAbstractItemModel):
         self.root = WidgetTreeItem("", isRoot=True)
         self.columns = self.root.numColumns
         self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
-
+        self._idNum = 0
     def supportedDropActions(self):
         return Qt.CopyAction | Qt.MoveAction
     
@@ -663,7 +694,7 @@ class Widget(WidgetTreeItem):
     
     #Tree item reimplementations
     def getData(self, col):
-        if col == 4: return self.name(id=True)
+        if col == 4: return self.getID()
         else:
             return super(Widget, self).getData(col)
         
@@ -736,23 +767,21 @@ class Widget(WidgetTreeItem):
                 oldRefs.add(ref)
         cls.layoutObjs.difference_update(oldRefs)                
     
-    def name(self, id=False):
-        """ Return a name of the object.
-        partID should always be unique.  This can be used as a key
-        in dictionaries referring to multiple instances"""
-        if id:
-            return self._partID
-        part = self.options.getOpt('part')
-        side = self.options.getOpt('side')
-        return '%s_%s' % (part, side)
+    # def name(self, id=False):
+    #     """ Return a name of the object.
+    #     partID should always be unique.  This can be used as a key
+    #     in dictionaries referring to multiple instances"""
+    #     if id:
+    #         return self._partID
+    #     part = self.options.getOpt('part')
+    #     side = self.options.getOpt('side')
+    #     return '%s_%s' % (part, side)
 
     def __repr__(self):
-        return "%s(part='%s', useNextAvailablePart=False)" % \
-               (self.__class__.__name__, self.name(id=True))
+        return "%s(%s)" % self.getID()
 
     def __str__(self):
-        return "%s(part= '%s', useNextAvailablePart=False)" % \
-               (self.__class__.__name__, self.name(id=True))
+        return (self.__repr__())
 
     @BuildCheck('built')
     def duplicateBindJoints(self, oriented=True):

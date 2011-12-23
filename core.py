@@ -64,6 +64,7 @@ def getWidgetInstance(widgetName):
 def getWidgetDescription(widgetName):
     return _registeredWidgets[widgetName][DESCRIPTION_INDEX]()
 
+#TODO: Move this to controls
 class Differ(object):
     """
     Get and set control differences
@@ -76,7 +77,7 @@ class Differ(object):
         """
         Add Control objects to the differ.
         @param objDct:  a dict of {objectKey: object}
-        @param space="local": get diffs in this space (local, world, or both)
+        @param space="local": get diffs in this space (local, world, or both).
         """
         for key, obj in objDct.items():
             if not isinstance(obj, control.Control):

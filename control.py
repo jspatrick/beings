@@ -1,6 +1,33 @@
-'''
-Try a different approach.
-'''
+"""
+This whole damn module needs a re-write.  Controls don't need to be class-based, since the handle
+data needs to be stored on the node anyways.
+
+
+Control Properties
+==================
+
+  pos: [float, float, float]
+  rot: [float, float, float]
+  scale: [float, float, float]
+  shape: string
+  color: string
+  scaleToChild: bool
+    after creating the shape, scale all nodes from a point at the xform until one reaches
+    the first child of that xform
+
+Needs
+=====
+  - Record the attributes used to initially create the shape
+  - Record attributes that have been changed
+  - Bake offsets from a control's transform to the control properties
+  - Change the xform type between joint and transform
+  
+Implementation
+==============
+  command info is stored as a json string on an attribute on controls
+  
+"""
+
 import logging, sys, copy, json
 import pymel.core as pm
 import maya.mel as mm
@@ -12,6 +39,57 @@ reload(utils)
 logging.basicConfig(level=logging.DEBUG)
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.INFO)
+
+_handleData = {'scale': [1,1,1],
+               'rot': [0,0,0],
+               'pos': [0,0,0],
+               'color': 'yellow',
+               'shape': 'cube'}
+def _argHandleData(**kwargs):
+    '''
+    Return a default handle data dict, modified by any kwards matching keys in _handleData
+    '''
+    result = copy.deepcopy(_handleData)
+    for k, newData in kwargs.items():
+        defaultData = result.get(k, None)
+        if defaultData:
+            if not utils.isSiblingInstance(newData, defaultData):
+                raise utils.BeingsError("Data type of '%s' arg != original handle data type" % k)
+            if utils.isIterable(defaultData) and (len(defaultData) != len(newData)):
+                raise utils.BeingsError("Data length of '%s' arg != original handle data type" % k)
+            else:
+                result[k] = newData
+        else:
+            _logger.debug('skipping invalid arg "%s" % k') 
+    return result
+
+def makeControl(xform=None, xformType='joint', name=None, **kwargs):
+    '''
+    Create a control object
+    '''
+    if not xform:
+        if not name:
+            #get a generic name; make sure it's unique
+            _logger.warning("Creating control with generic name!")
+            cltNames = [ctl.nodeName() for ctl in pm.ls('beings_control*')]
+            i=1
+            while name not in ctlNames:                
+                name = 'beings_control%i' % i
+                i+=1
+        xform = pm.createNode(xformType, n=name)
+    else:
+        xformType = pm.nodeType(xform)
+    
+    if not node.hasAttr('beingsControlInfo'):
+        node.addAttr('beingsControlInfo', dt='string')
+            
+    handleData = _argHandleData(**kwargs)
+
+def modifyControl(xform, **kwargs):
+    '''
+    Modify the control shapes
+    '''
+    pass
 
 COLOR_MAP = {'null':0,
            'black':1,
@@ -239,8 +317,7 @@ class Control(object):
             tag.setTag(shapeNode)
 
         utils.parentShapes(tmpXform, xforms)
-        bbScale(tmpXform)
-        #bbCenter(tmpXform)
+        bbScale(tmpXform)        
         utils.snap(self._xform, tmpXform)
         #apply transformations
         pm.xform(tmpXform, ro=self._shapeData['rot'], r=1)
@@ -297,7 +374,7 @@ class Control(object):
 ## curve shapes
 ####################################################
 
-def shape_cube_crv():
+def makeShape_cube():
 
     """A Cube Curve"""
     crv = pm.curve(d=1, p=[(-0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5), (-0.5, 0.5, 0.5),
@@ -307,35 +384,35 @@ def shape_cube_crv():
                             k=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
     
 
-def shape_sphere_crv():
+def makeShape_sphere():
 
     c1 = pm.circle(nr=[1, 0, 0], sw=360, r=1, d=3, s=12)[0]
     c2 = pm.circle(nr=[0, 1, 0], sw=360, r=1, d=3, s=12)[0]
     c3 = pm.circle(nr=[0, 0, 1], sw=360, r=1, d=3, s=12)[0]
 
 
-def shape_fatCross_crv():
+def makeShape_fatCross():
 
     pm.curve(d=1,
             p=[(1, 0, -1), (2, 0, -1), (2, 0, 1), (1, 0, 1), (1, 0, 2), (-1, 0, 2), (-1, 0, 1),
                (-2, 0, 1), (-2, 0, -1), (-1, 0, -1), (-1, 0, -2), (1, 0, -2), (1, 0, -1)],
                k=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
 
-def shape_diamond_crv():
+def makeShape_diamond():
     pm.curve(d=1,
             p=[(0, 0, -2.5), (0, 0, 2.5), (-2.5, 0, 0), (0, 2.5, 0), (2.5, 0, 0), (0, -2.5, 0), (0, 0, -2.5),
               (2.5, 0, 0), (0, 0, 2.5), (0, 2.5, 0), (0, 0, -2.5), (-2.5, 0, 0), (0, -2.5, 0), (0, 0, 2.5), ],
               k=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],)
 
 
-def shape_doublePin_crv():
+def makeShape_doublePin():
     crv = pm.curve(p=[(0, 1.375001, 0), (-0.250001, 1.625001, 0), (0, 1.875, 0), (0.25, 1.625001, 0),
                       (0, 1.375001, 0), (0, -1.374999, 0), (-0.25, -1.625, 0), (0, -1.875, 0), (0.250001, -1.625, 0), (0, -1.374999, 0)],
                    k=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], d=1)
     crv.rx.set(90)
     return crv
 
-def shape_lightbulb_crv():
+def makeShape_lightbulb():
     """A lightbulb curve"""
 
     crv = pm.curve(p=[(-0.139471, -0.798108, 0), (-0.139471, -0.798108, 0), (-0.139471, -0.798108, 0), (-0.299681, -0.672294, 0),
@@ -356,7 +433,7 @@ def shape_lightbulb_crv():
     crv.rx.set(-90)
     return crv
 
-def shape_hand_crv():
+def makeShape_hand():
 
 
     crv = pm.curve(p=[(0, 0.2, 0.3), (0, 0, 0.2), (0, 0, -0.2), (0, 0.2, -0.3), (0, 0.498495, -0.496524),
@@ -365,7 +442,7 @@ def shape_hand_crv():
                       (0, 0.2, 0.3)], k=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], d=1)
     return crv
 
-def shape_arrow_crv():
+def makeShape_arrow():
 
     crv = pm.curve(p=[(-0.671879, 1.840622, 1), (-0.671879, 1.840622, 3), (-0.671879, 1.840622, 3),
                       (-1.582662, 2.55714, 1.178396), (-2.371522, 2.815571, 0), (-2.371522, 2.815571, 0),
@@ -381,11 +458,11 @@ def shape_arrow_crv():
     crv.rz.set(-90)
     return crv
 
-def shape_jack_crv():
-    shape_doublePin_crv()
-    shape_doublePin_crv().ry.set(90)
-    shape_doublePin_crv().rx.set(90)
-def shape_text_crv(text="text", font="Arial_Bold"):
+def makeShape_jack():
+    shape_doublePin()
+    shape_doublePin().ry.set(90)
+    shape_doublePin().rx.set(90)
+def makeShape_text(text="text", font="Arial_Bold"):
 
     """Make a cuve from text.
     
@@ -409,22 +486,22 @@ def shape_text_crv(text="text", font="Arial_Bold"):
     txt.rx.set(-90)
     return txt
 
-setattr(shape_text_crv, '_kwargs', [('text', 'string'), ('font', 'string')])
+setattr(shape_text, '_kwargs', [('text', 'string'), ('font', 'string')])
 
 
-def shape_square_crv():
+def makeShape_square():
     crv = pm.curve(p=[(1, 0, 1), (-1, 0, 1), (-1, 0, -1), (1, 0, -1), (1, 0, 1)], k=[0, 1, 2, 3, 4], d=1)
     return crv
 
-def shape_circle_crv():
+def makeShape_circle():
     return pm.circle(nr=[0, 1, 0], sw=360, d=3, s=12)[0]
-def shape_triangle_crv():
+def makeShape_triangle():
     return mm.eval('curve -d 1 -p 0 0 1 -p -0.866 0 -0.5 -p 0.866 0 -.5 -p 0 0 1  -k 0 -k 1 -k 2 -k 3 ;')
 
-def shape_cross_crv():
+def makeShape_cross():
     crv = pm.PyNode(mm.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
     
-def shape_cross3d_crv():
+def makeShape_cross3d():
     crv = pm.PyNode(mm.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
     crv.s.set([0.2,0.2,0.2])
     dup = pm.duplicate(crv)[0]
@@ -433,12 +510,12 @@ def shape_cross3d_crv():
     dup.rx.set(90)
     dup.ry.set(90)
     
-def shape_jack_crv():
-    shape_doublePin_crv()
-    shape_doublePin_crv().ry.set(90)
-    shape_doublePin_crv().rx.set(0)
+def makeShape_jack():
+    shape_doublePin()
+    shape_doublePin().ry.set(90)
+    shape_doublePin().rx.set(0)
 
-def shape_layoutGlobals_crv():
+def makeShape_layoutGlobals():
     pm.circle(normal=[0,1,0], r=2)
     mm.eval('curve -d 3 -p -1.169488 0 0.463526 -p -0.958738 0 0.971248 -p -0.421459 0 1.196944 -p 0.271129 0 1.255888 -p 0.994735 0 1.004275 -p 1.168226 0 0.417207 -k 0 -k 0 -k 0 -k 1 -k 2 -k 3 -k 3 -k 3 ;')
     crv = mm.eval('curve -d 3 -p 0.81419 0 -1.322437 -p 1.084855 0 -1.105855 -p 1.19143 0 -0.932901 -p 1.321428 0 -0.734364 -k 0 -k 0 -k 0 -k 1 -k 1 -k 1 ;')
@@ -451,7 +528,7 @@ def shape_layoutGlobals_crv():
 ## surface shapes
 #############################################
 
-def shape_orbit_srf():
+def makeShape_orbit_srf():
 
     torus, tShp = pm.torus(heightRatio=0.05)
     cone1, c1Shp = pm.cone(radius=0.2, axis=[0, 0, 1])
@@ -470,11 +547,11 @@ def shape_orbit_srf():
     torus.rz.set(90)
 
 
-def shape_sphere_srf():
+def makeShape_sphere_srf():
 
     return pm.sphere()[0]
 
-def shape_cube_srf():
+def makeShape_cube_srf():
     c = pm.nurbsCube()[0]
     cb = pm.group(em=True, world=True)
     utils.parentShapes(cb, c.listRelatives(children=True, pa=True))
@@ -482,7 +559,7 @@ def shape_cube_srf():
     return cb
 
 
-def shape_arrow_srf(length=2, coneRadius=1, tailRadius=.5):
+def makeShape_arrow_srf(length=2, coneRadius=1, tailRadius=.5):
     cone = pm.cone(ax=[0, 1, 0], r=coneRadius)[0]
     mm.eval('nurbsPrimitiveCap 1 1 0')
     cone.ty.set(length + 1)

@@ -1,15 +1,11 @@
 """
 Beings - rig any kind of being!  Human beings! Amphibious beings! Mechanical beings!
 """
-import beings.ui
-import beings.core
-import beings.utils
-reload(beings.utils)
-reload(beings.core)
-reload(beings.ui)
 
 import logging, os, re, sys, __builtin__
 logging.basicConfig()
+
+__DEVMODE=True
 
 class BeingsFilter(logging.Filter):
     def __init__(self, name=''):
@@ -19,18 +15,21 @@ class BeingsFilter(logging.Filter):
         msg = '[function: %s: line: %i] : %s' % (record.funcName, record.lineno, record.msg)
         record.msg= msg
         return True
-
+    
 _beingsRootLogger = logging.getLogger('beings')
+if _beingsRootLogger.getEffectiveLevel() == 0:
+    _beingsRootLogger.setLevel(logging.INFO)
+    
 for fltr in _beingsRootLogger.filters:
-    _beingsRootLogger.removeFilter(fltr)
-_beingsRootLogger.addFilter(BeingsFilter())
+    _beingsRootLogger.removeFilter(fltr)    
+if __DEVMODE:
+    _beingsRootLogger.addFilter(BeingsFilter())
 
 
 def importAllWidgets(reloadThem=False):
-    global _widgetModules
     rootDir = os.path.dirname(sys.modules[__name__].__file__)
     widgetsDir = os.path.join(rootDir, 'widgets')
-    print widgetsDir
+    _beingsRootLogger.info("Loading widgets from %s" %  widgetsDir)
     modules = []
     for base in os.listdir(widgetsDir):
         path = os.path.join(widgetsDir, base)
@@ -45,8 +44,7 @@ def importAllWidgets(reloadThem=False):
                 _beingsRootLogger.info('Auto reloading %s' % module)
                 reload(sys.modules[module])
                 
-        __builtin__.__import__(module)        
+        __builtin__.__import__(module)
     return modules
 
-importAllWidgets(reloadThem=True)
 

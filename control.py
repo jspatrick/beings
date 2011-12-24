@@ -33,7 +33,6 @@ import maya.mel as mm
 import maya.cmds as mc
 
 import beings.utils as utils
-reload(utils)
 
 logging.basicConfig(level=logging.DEBUG)
 _logger = logging.getLogger(__name__)
@@ -110,7 +109,8 @@ def _shapeNodes(xform):
     """
     Return a list of shapes
     """
-    nodes = self._xform.listRelatives(shapes=1)
+    
+    nodes = xform.listRelatives(shapes=1)
     return nodes
     # sortedNodes = {}
     # for node in nodes:
@@ -130,7 +130,7 @@ def _setColor(xform, color):
         shape.overrideColor.set(COLOR_MAP[color])
 
 INFO_ATTR = 'beingsControlInfo'
-def setControl(xform=None, xformType='joint', name=None, force=False, **kwargs):
+def setControl(xform=None, xformType='transform', name=None, force=False, **kwargs):
     '''
     Create a control object
     @param xform=None:  use this xform instead of creating a new one
@@ -144,15 +144,16 @@ def setControl(xform=None, xformType='joint', name=None, force=False, **kwargs):
         if not name:
             #get a generic name; make sure it's unique
             _logger.warning("Creating control with generic name!")
-            cltNames = [ctl.nodeName() for ctl in pm.ls('beings_control*')]
             i=1
-            while name not in ctlNames:                
-                name = 'beings_control%i' % i
+            name = 'beings_control%i' % i
+            while len(pm.ls(name)):
                 i+=1
+                name = 'beings_control%i' % i
+                
         xform = pm.createNode(xformType, n=name)
     else:
         xformType = pm.nodeType(xform)
-
+        xform = pm.PyNode(xform)
     #delete any shapes that exist
     for shape in xform.listRelatives(type='geometryShape'):
         pm.delete(shape)
@@ -169,8 +170,8 @@ def setControl(xform=None, xformType='joint', name=None, force=False, **kwargs):
 
     #get the shape function
     shapeFunc = getattr(sys.modules[__name__],
-                        'shape_%s' % (handleData['shape']))
-    
+                        'makeShape_%s' % (handleData['shape']))
+
     #create the shape according to the handleData
     with utils.NodeTracker() as nt:
         shapeFunc()
@@ -195,7 +196,8 @@ def setControl(xform=None, xformType='joint', name=None, force=False, **kwargs):
     tmpXform.s.set(handleData['scale'])
         
     utils.parentShape(xform, tmpXform)        
-    _setColor(color, )
+    _setColor(xform, handleData['color'])
+    return xform
 
 def bbCenter(shape, freeze=True):
     """
@@ -224,13 +226,21 @@ def bbScale(shape, freeze=True):
     if freeze:
         pm.makeIdentity(shape, apply=True, r=0, s=1, t=0, n=0)
             
-def scaleShapeToChild(xf, setData=False, skipBuild=False, keepPos=True, keepScale=True):    
+def scaleDownBone(xf, child=None):
+    """
+    Move and scale a shape so that it starts at the xform pivot and
+    ends at the tip.
+    """
     children = xf.listRelatives(type='transform')
-    try:
-        child = children[0]
-    except IndexError:
-        _logger.error('no children found to scale to, returning')
-        return
+    
+    if child is not None:
+        child = pm.PyNode(child)
+    else:
+        try:
+            child = children[0]
+        except IndexError:
+            _logger.error('no children found to scale to, returning')
+            return
     
     if len(children) < 1:
         _logger.warning('multiple children found - scaling to %s' % children[0])
@@ -253,12 +263,28 @@ def scaleShapeToChild(xf, setData=False, skipBuild=False, keepPos=True, keepScal
     #get scale amount
     scale = localVector/pm.dt.Vector(2,2,2)
     scale = [abs(scale.x), abs(scale.y), abs(scale.z)]
+
+    #for axes that aren't the maximum, use the original scale values.
+    #usually we're scaling a cube right down it's axis, so the results
+    #are predictable.  Otherwise they might get weird, so warn
+    maxScale = max(scale)
+    handleData = eval(pm.getAttr('%s.%s' % (xf, INFO_ATTR)))
+    origScale = handleData['scale']
+    finalScale = []
+    for i, val in enumerate(scale):
+        if maxScale != val:
+            if scale[i] > 0.01:
+                _logger.warning("warning - performing a skewing scale.")
+            finalScale.append(origScale[i])
+        else:
+            finalScale.append(val)
+            
     pos = localVector/pm.dt.Vector(2,2,2)
     pos = [pos.x, pos.y, pos.z]
 
     #modify shapes
-    setControl(pos=pos, scale=scale)
-    return {'pos': pos, 'scale': scale}
+    setControl(xf, pos=pos, scale=finalScale)
+    return {'pos': pos, 'scale': finalScale}
     
         
 #####################################################

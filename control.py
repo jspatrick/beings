@@ -115,7 +115,7 @@ def _argHandleData(**kwargs):
             else:
                 result[k] = newData
         else:
-            _logger.debug('skipping invalid arg "%s" % k') 
+            _logger.debug('skipping invalid handle arg "%s"' % k) 
     return result
 
 def _modHandleData(xform, **kwargs):
@@ -310,9 +310,44 @@ def _getStateDct(node):
     if node.hasAttr( INFO_ATTR):
         ctlDct = eval(pm.getAttr('%s.%s' % (node, INFO_ATTR)))
         result.update(ctlDct)
-
+    
     result['localMatrix'] = pm.xform(node, q=1, m=1)
     result['worldMatrix'] = pm.xform(node, q=1, m=1, ws=1)
+    return result
+
+def getRebuildData(ctlDct):
+    '''
+    Get data to rebuild all controls in the differ in worldSpace
+    @param ctlDct: dict of {ctlName: ctlNode}    
+    '''
+    result = {}
+    for ctlName, ctl in ctlDct.items():
+        result[ctlName] = _getStateDct(ctl)
+        result[ctlName]['nodeName'] = ctl.nodeName()
+        result[ctlName]['nodeType'] = pm.objectType(ctl)
+        result[ctlName].pop('localMatrix')
+    return result
+
+def buildCtlsFromData(ctlData):
+    '''
+    Rebuild controls in world space
+    '''
+    result = {}
+    for ctlName, data in ctlData.items():
+        origNodeName = data.pop('nodeName')
+        nodeType = data.pop('nodeType')
+        worldMatrix = data.pop('worldMatrix')
+        i = 1
+        nodeName = origNodeName
+        while pm.objExists(nodeName):
+            nodeName = '%s%i' % (origNodeName, i)
+            i += 1
+        if nodeName != origNodeName:
+            _logger.warning("Warning - %s exists.  Setting name to %s" % \
+                            (origNodeName, nodeName))
+            ctl = makeControl(xformType = nodeType, name=nodeName, **ctlData)
+        pm.xform(ctl, m=worldMatrix, ws=True)
+        result[ctlName] = ctl
     return result
 
 class Differ(object):
@@ -322,7 +357,14 @@ class Differ(object):
     def __init__(self):
         self.__controls = {}
         self.__initialState = {}
-
+        
+    def getObjs(self):
+        result = {}
+        for ctlName, ctlTup in self.__controls.items():
+            result[ctlName] = ctlTup[0]
+        return result
+    def addObj(self, name, ctl, ignore=[], skip=[]):
+        return self.addObjs({name:ctl}, ignore=ignore, skip=skip)
     def addObjs(self, objDct, ignore=[], skip=[]):
         """
         Add Control objects to the differ.
@@ -381,7 +423,7 @@ class Differ(object):
                 if diff and not (set(diff.keys()).issubset(ignoreList)):                
                     allDiffs[k] = diff
         return allDiffs
-
+    
     def applyDiffs(self, diffDct, xformSpace='local'):
         """
         Apply diffs for nodes.

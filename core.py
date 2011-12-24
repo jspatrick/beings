@@ -34,7 +34,6 @@ from PyQt4.QtGui import *
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-
 _registeredWidgets = {}
 CLASS_INDEX, DESCRIPTION_INDEX = range(2)
 def registerWidget(class_, niceName=None, description=None):
@@ -552,74 +551,30 @@ class Widget(WidgetTreeItem):
         else:
             return super(Widget, self).getData(col)
         
-    def __init__(self, part='widget', useNextAvailablePart=True, **kwargs):
+    def __init__(self, part='widget', **kwargs):
 
         #Get a unique part name.  This ensures all node names are unique
         #when multiple widgets are built.
         
         
         self.ref = self
-        self.numColumns = 5
-        
-        if useNextAvailablePart:
-            usedNums = []
-            for obj in self.getObjects():
-                otherPart = obj.options.getOpt('part')
-                try:
-                    num = int(otherPart.split(part)[1])                
-                except IndexError, ValueError:
-                    continue
-                usedNums.append(num)
-            if usedNums:
-                part ='%s%i' % (part, (sorted(usedNums)[-1] + 1))
-            else:
-                part = '%s1' % part
+        self.numColumns = 5        
                 
         super(Widget, self).__init__(part)
         assert(self.options)
         self._partID = part
         self._nodes = [] #stores all nodes        
         self._bindJoints = {} #stores registered bind joints
-        self._layoutControls = {}
-        self._rigControls = {}
-        self._differs = {'rig': Differ(), 'layout': Differ()}
+        self._differs = {'rig': control.Differ(), 'layout': control.Differ()}
         self._cachedDiffs = {'rig': {}, 'layout': {}}
         self._nodeCategories = {}
         self._parentNodes = {}
         for categoy in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[categoy] = []
-
         
-        #keep reference to this object so we can get unique names        
-        self.storeRef(self)
     def _resetNodeCategories(self):
         for categoy in self.VALID_NODE_CATEGORIES:
-            self._nodeCategories[categoy] = []
-            
-    @classmethod
-    def getObjects(cls):
-        ''' get all referenced objects'''
-        result = []
-        toRemove = []
-        for ref in cls.layoutObjs:
-            obj = ref()
-            if obj:
-                result.append(obj)                
-            else:
-                toRemove.append(ref)
-        for rmv in toRemove:
-            cls.layoutObjs.remove(rmv)
-        return result
-        
-    @classmethod
-    def storeRef(cls, obj):
-        """Store weak reference to the object"""
-        cls.layoutObjs.add(weakref.ref(obj))
-        oldRefs = set([])
-        for ref in cls.layoutObjs:
-            if not ref():
-                oldRefs.add(ref)
-        cls.layoutObjs.difference_update(oldRefs)                
+            self._nodeCategories[categoy] = []            
     
     def name(self, id=False):
         """ Return a name of the object.
@@ -684,10 +639,10 @@ class Widget(WidgetTreeItem):
         namer = Namer(c=char, s=side, p=part, r='bnd')
         for tok, jnt in result.items():
             jnt.rename(namer.name(d=tok))
-        self._orientBindJoints(result)            
+        self._prepBindJoints(result)            
         return result
 
-    def _orientBindJoints(self, jntDct):
+    def _prepBindJoints(self, jntDct):
         '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
         pass
 
@@ -752,12 +707,12 @@ class Widget(WidgetTreeItem):
 
     def registerControl(self, name, ctl, ctlType ='layout'):
         """Register a control that should be cached"""        
-        ctlDct = getattr(self, '_%sControls' % ctlType)
-        controlName = name
-        if controlName in ctlDct.keys():
-            _logger.warning("Warning!  %s already exists - overriding." % controlName)
+        ctlDiffer = self._differs[ctlType]
+        if ctlType == 'layout':
+            #we don't need to keep track of layout controls world matrices
+            ctlDiffer.addObj(name, ctl, skip=['worldMatrix'])
         else:
-            ctlDct[controlName] = ctl
+            ctlDiffer.addObj(name, ctl)
         #add to display layer
         globalNode = control.layoutGlobalsNode()
         if ctlType == 'layout':
@@ -785,11 +740,9 @@ class Widget(WidgetTreeItem):
                 self._nodes = nt.getObjects()
                 
         #set up the differ
-        self._differs['layout'].addObjs(self._layoutControls)
-        self._differs['rig'].addObjs(self._rigControls, space='both')
         for diffType, differ in self._differs.items():
             differ.setInitialState()
-            if altDiffs:
+            if altDiffs is not None:
                 self.applyDiffs(altDiffs)
             elif useCachedDiffs:
                 self.applyDiffs(self._cachedDiffs)
@@ -848,7 +801,7 @@ class Widget(WidgetTreeItem):
         """
         rigDiffs = diffDict['rig']
         layoutDiffs = diffDict['layout']
-        self._differs['rig'].applyDiffs(rigDiffs, skipWorldXforms=True)
+        self._differs['rig'].applyDiffs(rigDiffs)
         self._differs['layout'].applyDiffs(layoutDiffs)
 
     
@@ -1156,7 +1109,5 @@ class Rig(TreeModel):
         model = pm.createNode('transform', name='%s%s_model' % (char, rigType))
         model.setParent(dnt)
         self._coreNodes['model'] = model
-
-
 
         

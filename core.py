@@ -35,16 +35,6 @@ _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def _getStateDct(obj):
-    """ Get a dict representing the state of the node """
-    result = {}
-    if isinstance (obj, control.Control):
-        result.update(obj.getHandleInfo())
-        obj = obj.xformNode()
-    result['localMatrix'] = pm.xform(obj, q=1, m=1)
-    result['worldMatrix'] = pm.xform(obj, q=1, m=1, ws=1)
-    return result
-
 _registeredWidgets = {}
 CLASS_INDEX, DESCRIPTION_INDEX = range(2)
 def registerWidget(class_, niceName=None, description=None):
@@ -64,112 +54,6 @@ def getWidgetInstance(widgetName):
 def getWidgetDescription(widgetName):
     return _registeredWidgets[widgetName][DESCRIPTION_INDEX]()
 
-#TODO: Move this to controls
-class Differ(object):
-    """
-    Get and set control differences
-    """
-    def __init__(self):
-        self.__controls = {}
-        self.__initialState = {}
-
-    def addObjs(self, objDct, space='local'):
-        """
-        Add Control objects to the differ.
-        @param objDct:  a dict of {objectKey: object}
-        @param space="local": get diffs in this space (local, world, or both).
-        """
-        for key, obj in objDct.items():
-            if not isinstance(obj, control.Control):
-                _logger.warning("%r is not a control; skipping" % obj)
-                continue
-            if self._nameCheck(obj):
-                self.__controls[key] = (obj, space)
-            else:
-                _logger.warning("%s is already a key in the differ; skipping" % key)
-
-    def _nameCheck(self, key):
-        """Short names for the xform nodes in controls"""
-        if key in  self.__controls.keys():
-            _logger.warning('%s is already a control in the differ' % key)
-            return False
-        else:
-            return True
-
-    def setInitialState(self):
-        """
-        Set the initial state for all nodes
-        """
-        self.__initialState = {}
-        for k, ctl in self.__controls.items():
-            self.__initialState[k] = _getStateDct(ctl[0])
-
-
-    def getDiffs(self):
-        """
-        Get diffs for all nodes
-        """
-        if not self.__initialState:
-            raise utils.BeingsError("Initial state was never set")
-        allDiffs = {}
-        for k, ctlPair in self.__controls.items():
-            control = ctlPair[0]
-            space = ctlPair[1]
-            diff = {}
-            initialState = self.__initialState[k]
-            state = _getStateDct(control)
-            for ik in initialState.keys():
-                if space == 'world' and ik == 'localMatrix':
-                    continue
-                elif space == 'local' and ik == 'worldMatrix':
-                    continue
-                if initialState[ik] != state[ik]:
-                    diff[ik] = state[ik]
-            if diff:
-                allDiffs[k] = diff
-        return allDiffs
-
-    def applyDiffs(self, diffDct, skipWorldXforms=False, skipLocalXforms=False):
-        """
-        Apply diffs for nodes.
-        @param diffDict:  a dictionary of [diffKey: diffs], gotten from getDiffs
-        @param skipWorldXforms=False: Don't apply diffs to objects added in world space
-
-        Notes
-        -----
-        Generally, when we are setting up a layout rig, we want to add all controls
-        to the differ, but rig controls are added as worldspace diffs.  When we
-        rebuild the layout rig, 
-        
-        """
-        diffDct = copy.deepcopy(diffDct)
-        if isinstance(diffDct, basestring):
-            diffDct = json.loads(diffDct, object_hook=utils.decodeDict)
-
-        for ctlKey, diffs in diffDct.items():
-            try:
-                ctl = self.__controls[ctlKey][0]
-            except ValueError:
-                _logger.warning("%s does not exist, skipping" % ctlKey)
-                continue
-
-            node = ctl.xformNode()
-            #apply and discard the matricies from the diff dict
-            matrix = diffs.get('worldMatrix', None)
-            if matrix:
-                if not skipWorldXforms:
-                    pm.xform(node, m=matrix, ws=1)
-                diffs.pop('worldMatrix')
-
-            matrix = diffs.get('localMatrix', None)
-            if matrix:
-                if not skipLocalXforms:
-                    pm.xform(node, m=matrix)
-                diffs.pop('localMatrix')
-
-            #remaining kwargs are shapes, so apply them
-            if diffs:
-                ctl.setShape(**diffs)
 
 class Namer(object):
     """

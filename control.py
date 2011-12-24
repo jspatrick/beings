@@ -23,8 +23,25 @@ Needs
   
 Implementation
 ==============
-  command info is stored as a json string on an attribute on controls
-  
+  command info is stored as an evalable string on an attribute on controls
+
+import beings.control as C
+import pymel.core as pm
+pm.newFile(force=1)
+reload(C)
+ctls = {}
+ctls['a'] = ctl = C.setControl()
+ctls['b'] = ctl2 = C.setControl()
+ctl.setParent(ctl2)
+ctl2.r.set(20,50,30)
+ctl.t.set(7,0,0)
+differ = C.Differ()
+differ.addObjs(ctls)
+differ.setInitialState()
+differ.getDiffs()
+C.makeControl(ctls['a'], color='red', scale=[2,2,4])
+ctls['a'].t.set(2,4,2)
+differ.getDiffs()
 """
 
 import logging, sys, copy, json
@@ -130,7 +147,7 @@ def _setColor(xform, color):
         shape.overrideColor.set(COLOR_MAP[color])
 
 INFO_ATTR = 'beingsControlInfo'
-def setControl(xform=None, xformType='transform', name=None, force=False, **kwargs):
+def makeControl(xform=None, xformType='transform', name=None, force=False, **kwargs):
     '''
     Create a control object
     @param xform=None:  use this xform instead of creating a new one
@@ -283,10 +300,123 @@ def scaleDownBone(xf, child=None):
     pos = [pos.x, pos.y, pos.z]
 
     #modify shapes
-    setControl(xf, pos=pos, scale=finalScale)
+    makeControl(xf, pos=pos, scale=finalScale)
     return {'pos': pos, 'scale': finalScale}
+
+def _getStateDct(node):
+    """ Get a dict representing the state of the node """
+    node = pm.PyNode(node)
+    result = {}
+    if node.hasAttr( INFO_ATTR):
+        ctlDct = eval(pm.getAttr('%s.%s' % (node, INFO_ATTR)))
+        result.update(ctlDct)
+
+    result['localMatrix'] = pm.xform(node, q=1, m=1)
+    result['worldMatrix'] = pm.xform(node, q=1, m=1, ws=1)
+    return result
+
+class Differ(object):
+    """
+    Get and set control differences
+    """
+    def __init__(self):
+        self.__controls = {}
+        self.__initialState = {}
+
+    def addObjs(self, objDct, ignore=[], skip=[]):
+        """
+        Add Control objects to the differ.
+        @param objDct:  a dict of {objectKey: object}
+        @param ignore=[]: when diffs are retrieved, if the only diffs
+            are from items in this list, the diff will not be added to the
+            returned dict.  They are not excluded, however, if other diffs
+            are also found
+        @param skip=[]:  when diffs are retrieved, ignore any differences found
+            in the list
+        """
+        for key, obj in objDct.items():
+            if not obj.hasAttr(INFO_ATTR):
+                _logger.warning("%s is not a control; skipping" % obj)
+                continue
+            if self._nameCheck(obj):
+                self.__controls[key] = (obj, ignore, skip)
+            else:
+                _logger.warning("%s is already a key in the differ; skipping" % key)
+
+    def _nameCheck(self, key):
+        """Short names for the xform nodes in controls"""
+        if key in  self.__controls.keys():
+            _logger.warning('%s is already a control in the differ' % key)
+            return False
+        else:
+            return True
+
+    def setInitialState(self):
+        """
+        Set the initial state for all nodes
+        """
+        self.__initialState = {}
+        for k, ctl in self.__controls.items():
+            self.__initialState[k] = _getStateDct(ctl[0])
+            
+    def getDiffs(self):
+        """
+        Get diffs for all nodes
+        """
+        if not self.__initialState:
+            raise utils.BeingsError("Initial state was never set")
+        allDiffs = {}
+        for k, ctlTup in self.__controls.items():
+            control = ctlTup[0]
+            ignoreList = ctlTup[1]
+            skipList = ctlTup[2]
+            diff = {}
+            initialState = self.__initialState[k]
+            state = _getStateDct(control)
+            for ik in initialState.keys():
+                if ik in skipList:
+                    continue
+                if initialState[ik] != state[ik]:
+                    diff[ik] = state[ik]
+                if diff and not (set(diff.keys()).issubset(ignoreList)):                
+                    allDiffs[k] = diff
+        return allDiffs
+
+    def applyDiffs(self, diffDct, xformSpace='local'):
+        """
+        Apply diffs for nodes.
+        @param diffDict:  a dictionary of [diffKey: diffs], gotten from getDiffs
+        @param xformSpace='local': Apply diffs from this space
+
+        Notes
+        -----
+        """
+        diffDct = copy.deepcopy(diffDct)
+        if isinstance(diffDct, basestring):
+            diffDct = eval(diffDct)
+
+        for ctlKey, diffs in diffDct.items():
+            try:
+                ctl = self.__controls[ctlKey][0]
+            except ValueError:
+                _logger.warning("%s does not exist, skipping" % ctlKey)
+                continue
+            
+            #apply and discard the matricies from the diff dict
+            matrix = diffs.get('worldMatrix', None)
+            if matrix and xformSpace == 'world':
+                pm.xform(node, m=matrix, ws=1)
+                diffs.pop('worldMatrix')
+
+            matrix = diffs.get('localMatrix', None)
+            if matrix and xformSpcae == 'local':
+                pm.xform(node, m=matrix)
+                diffs.pop('localMatrix')
+
+            #remaining kwargs are shapes, so apply them
+            if diffs:
+                makeControl(ctl, **diffs)
     
-        
 #####################################################
 ## curve shapes
 ####################################################

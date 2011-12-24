@@ -18,7 +18,6 @@ Control Properties
 Needs
 =====
   - Record the attributes used to initially create the shape
-  - Record attributes that have been changed
   - Bake offsets from a control's transform to the control properties
   - Change the xform type between joint and transform
   
@@ -45,51 +44,6 @@ _handleData = {'scale': [1,1,1],
                'pos': [0,0,0],
                'color': 'yellow',
                'shape': 'cube'}
-def _argHandleData(**kwargs):
-    '''
-    Return a default handle data dict, modified by any kwards matching keys in _handleData
-    '''
-    result = copy.deepcopy(_handleData)
-    for k, newData in kwargs.items():
-        defaultData = result.get(k, None)
-        if defaultData:
-            if not utils.isSiblingInstance(newData, defaultData):
-                raise utils.BeingsError("Data type of '%s' arg != original handle data type" % k)
-            if utils.isIterable(defaultData) and (len(defaultData) != len(newData)):
-                raise utils.BeingsError("Data length of '%s' arg != original handle data type" % k)
-            else:
-                result[k] = newData
-        else:
-            _logger.debug('skipping invalid arg "%s" % k') 
-    return result
-
-def makeControl(xform=None, xformType='joint', name=None, **kwargs):
-    '''
-    Create a control object
-    '''
-    if not xform:
-        if not name:
-            #get a generic name; make sure it's unique
-            _logger.warning("Creating control with generic name!")
-            cltNames = [ctl.nodeName() for ctl in pm.ls('beings_control*')]
-            i=1
-            while name not in ctlNames:                
-                name = 'beings_control%i' % i
-                i+=1
-        xform = pm.createNode(xformType, n=name)
-    else:
-        xformType = pm.nodeType(xform)
-    
-    if not node.hasAttr('beingsControlInfo'):
-        node.addAttr('beingsControlInfo', dt='string')
-            
-    handleData = _argHandleData(**kwargs)
-
-def modifyControl(xform, **kwargs):
-    '''
-    Modify the control shapes
-    '''
-    pass
 
 COLOR_MAP = {'null':0,
            'black':1,
@@ -123,7 +77,125 @@ COLOR_MAP = {'null':0,
            'blue3':29,
            'purple':30,
            'fuscia2':31}
+
 SHAPE_ORDER_TAG = 'shapeOrder'
+
+def _argHandleData(**kwargs):
+    '''
+    Return a default handle data dict, modified by any kwards matching keys in _handleData
+    '''
+    result = kwargs.get('handleData', None)
+    if result is None:        
+        result = copy.deepcopy(_handleData)
+    else:
+        kwargs.pop('handleData')
+    for k, newData in kwargs.items():
+        defaultData = result.get(k, None)
+        if defaultData:
+            if not utils.isSiblingInstance(newData, defaultData):
+                raise utils.BeingsError("Data type of '%s' arg != original handle data type" % k)
+            if utils.isIterable(defaultData) and (len(defaultData) != len(newData)):
+                raise utils.BeingsError("Data length of '%s' arg != original handle data type" % k)
+            else:
+                result[k] = newData
+        else:
+            _logger.debug('skipping invalid arg "%s" % k') 
+    return result
+
+def _modHandleData(xform, **kwargs):
+    nodeData = eval(pm.getAttr('%s.%s' % (xform, INFO_ATTR)))
+    return _argHandleData(handleData=nodeData, **kwargs)
+    
+def _shapeNodes(xform):
+    """
+    Return a list of shapes
+    """
+    nodes = self._xform.listRelatives(shapes=1)
+    return nodes
+    # sortedNodes = {}
+    # for node in nodes:
+    #     i = int(utils.NodeTag(SHAPE_ORDER_TAG, node=node)['order'])
+    #     sortedNodes[i] = node
+    # sortedKeys = sortedNodes.keys()
+    # sortedKeys.sort()
+    # return [sortedNodes[i] for i in sortedKeys]
+
+def _setColor(xform, color):
+    if color not in COLOR_MAP:
+        _logger.warning("invalid color '%s'" % color)
+        return
+    
+    for shape in _shapeNodes(xform):
+        shape.overrideEnabled.set(1)
+        shape.overrideColor.set(COLOR_MAP[color])
+
+INFO_ATTR = 'beingsControlInfo'
+def setControl(xform=None, xformType='joint', name=None, force=False, **kwargs):
+    '''
+    Create a control object
+    @param xform=None:  use this xform instead of creating a new one
+    @param xformType='joint': if creating a new xform, use this node type
+    @param name=None:  name of the new node
+    @param force=False:  if the node is already a control, force it to rebuild with
+        default kwargs.  Otherwise, the current shapes info is used to build, and
+        kwargs will override the current attrs
+    '''
+    if not xform:
+        if not name:
+            #get a generic name; make sure it's unique
+            _logger.warning("Creating control with generic name!")
+            cltNames = [ctl.nodeName() for ctl in pm.ls('beings_control*')]
+            i=1
+            while name not in ctlNames:                
+                name = 'beings_control%i' % i
+                i+=1
+        xform = pm.createNode(xformType, n=name)
+    else:
+        xformType = pm.nodeType(xform)
+
+    #delete any shapes that exist
+    for shape in xform.listRelatives(type='geometryShape'):
+        pm.delete(shape)
+    tmpXform = pm.createNode('transform', n='TMP')
+    
+    #create an attribute to store handle info
+    if not xform.hasAttr(INFO_ATTR):
+        xform.addAttr(INFO_ATTR, dt='string')    
+        handleData = _argHandleData(**kwargs)
+    else:
+        handleData = _modHandleData(xform, **kwargs)
+        
+    pm.setAttr('%s.%s' % (xform, INFO_ATTR), repr(handleData))
+
+    #get the shape function
+    shapeFunc = getattr(sys.modules[__name__],
+                        'shape_%s' % (handleData['shape']))
+    
+    #create the shape according to the handleData
+    with utils.NodeTracker() as nt:
+        shapeFunc()
+        shapes = [n for n in nt.getObjects() if \
+                  isinstance(n, pm.nt.GeometryShape) and n.exists()]
+        xforms = [n for n in nt.getObjects() if \
+                  isinstance(n, pm.nt.Transform) and n.exists()]
+        _logger.debug('Shapes: %s' % shapes)
+        _logger.debug('Xforms: %s' % xforms)
+        
+    for i, shapeNode in enumerate(shapes):
+        shapeNode.rename("%sShape" % (xform.name()))
+
+    #snap the tmp shape to the xform
+    utils.parentShapes(tmpXform, xforms)
+    bbScale(tmpXform)
+    utils.snap(xform, tmpXform)
+
+    #apply transformations
+    pm.xform(tmpXform, ro=handleData['rot'], r=1)
+    pm.xform(tmpXform, t=handleData['pos'], r=1, os=1)
+    tmpXform.s.set(handleData['scale'])
+        
+    utils.parentShape(xform, tmpXform)        
+    _setColor(color, )
 
 def bbCenter(shape, freeze=True):
     """
@@ -151,224 +223,43 @@ def bbScale(shape, freeze=True):
     pm.scale(shape, [sclAmt, sclAmt, sclAmt], r=True)
     if freeze:
         pm.makeIdentity(shape, apply=True, r=0, s=1, t=0, n=0)
-
-
-class Control(object):
-    '''
-    A rig control - a shape created under a transform or joint
-    '''
-
-    @classmethod
-    def fromNode(cls, node):
-        '''Get a control object from an existing node'''
-        info = json.loads(node.beingsControlInfo.get(), object_hook=utils.decodeDict)
-        c = cls(xformNode = node, skipBuild=True, **info)
-        return c
+            
+def scaleShapeToChild(xf, setData=False, skipBuild=False, keepPos=True, keepScale=True):    
+    children = xf.listRelatives(type='transform')
+    try:
+        child = children[0]
+    except IndexError:
+        _logger.error('no children found to scale to, returning')
+        return
     
-    def __init__(self, xformNode=None, xformType='joint', name='control', skipBuild=False,
-                 **kwargs):
-        if not xformNode:
-            self._xform = pm.createNode(xformType, n=name)
-        else:
-            self._xform = pm.PyNode(xformNode)
-            
-        self.__xformType=xformType
-        self.__xformName = name
-        
-        self._shapeData = {'color': 'null',
-                           'shape': 'sphere',
-                           'shapeType': 'crv',
-                           'rot': [0,0,0],
-                           'scale': [1,1,1],
-                           'pos': [0,0,0]}
+    if len(children) < 1:
+        _logger.warning('multiple children found - scaling to %s' % children[0])
+    worldVector = pm.dt.Vector(pm.xform(child, t=1, ws=1, q=1)) - \
+                  pm.dt.Vector(pm.xform(xf, t=1, ws=1, q=1))
+    wm = xf.worldMatrix.get()
+    localVector = wm * worldVector
 
-        #check if the node is already a control
-        if self._xform.hasAttr('beingsControlInfo'):
-            info = json.loads(self._xform.beingsControlInfo.get(), object_hook=utils.decodeDict)
-            for k, v in info.items():
-                if k in self._shapeData:
-                    self._shapeData[k] = v
-                else:
-                    _logger.warning("Warning! Found bad attr in control info - %s" % k)
+    #make sure that the scale of the local vector is in world space, since we're moving
+    #a node outside of the hierarchy
+    if not pm.pluginInfo('decomposeMatrix', q=1, loaded=1):
+        pm.loadPlugin('decomposeMatrix')
+    dcm = pm.createNode('decomposeMatrix')
+    xf.worldMatrix.connect(dcm.inputMatrix)
+    pm.select(dcm)
+    scale = dcm.outputScale.get()
+    localVector = localVector / scale
+    pm.delete(dcm)
 
-        dataKeys = self._shapeData.keys()
-        for k, v in kwargs.items():
-            if k not in dataKeys:
-                _logger.debug("Invalid param '%s'" % k)
-            self._shapeData[k] = v
-            
-        scaleToChild = kwargs.get('scaleToChild', None)
-        if not skipBuild:
-            self.setShape(scaleToChild=scaleToChild)
+    #get scale amount
+    scale = localVector/pm.dt.Vector(2,2,2)
+    scale = [abs(scale.x), abs(scale.y), abs(scale.z)]
+    pos = localVector/pm.dt.Vector(2,2,2)
+    pos = [pos.x, pos.y, pos.z]
 
-    def build(self, **kwargs):
-        handleInfo = self.getHandleInfo()
-        handleInfo.update(kwargs)
-        handleInfo['xformType'] = handleInfo.get('xformType', self.__xformType)
-        handleInfo['name'] = handleInfo.get('name', self.__xformName)
-        self.__init__(**handleInfo)
-        
-    def __str__(self):
-        return self.xformNode().name()
+    #modify shapes
+    setControl(pos=pos, scale=scale)
+    return {'pos': pos, 'scale': scale}
     
-    def __repr__(self):
-        return "Control(%s)" % self.xformNode().name()
-
-    def _writeInfoToNode(self):
-        '''
-        Add an attribute to the node with the control info
-        '''
-        node = self.xformNode()
-        if not node.hasAttr('beingsControlInfo'):
-            node.addAttr('beingsControlInfo', dt='string')
-        infoStr = json.dumps(self.getHandleInfo())
-        node.beingsControlInfo.set(infoStr)
-            
-    def scaleToChild(self, setData=False, skipBuild=False, keepPos=True, keepScale=True):
-        xf = self.xformNode()
-        children = xf.listRelatives(type='transform')
-        try:
-            child = children[0]
-        except IndexError:
-            _logger.error('no children found to scale to, returning')
-            return
-        if len(children) < 1:
-            _logger.warning('multiple children found - scaling to %s' % children[0])
-        worldVector = pm.dt.Vector(pm.xform(child, t=1, ws=1, q=1)) - \
-                      pm.dt.Vector(pm.xform(xf, t=1, ws=1, q=1))
-        wm = xf.worldMatrix.get()
-        localVector = wm * worldVector
-        
-        #make sure that the scale of the local vector is in world space, since we're moving
-        #a node outside of the hierarchy
-        if not pm.pluginInfo('decomposeMatrix', q=1, loaded=1):
-            pm.loadPlugin('decomposeMatrix')
-        dcm = pm.createNode('decomposeMatrix')
-        xf.worldMatrix.connect(dcm.inputMatrix)
-        pm.select(dcm)
-        scale = dcm.outputScale.get()
-        localVector = localVector / scale
-        pm.delete(dcm)
-
-        #get scale amount
-        scale = localVector/pm.dt.Vector(2,2,2)
-        scale = [abs(scale.x), abs(scale.y), abs(scale.z)]
-        if keepScale:
-            for i in range(3):
-                if scale[i] < .01:
-                    scale[i] = self._shapeData['scale'][i]
-        
-        pos = localVector/pm.dt.Vector(2,2,2)
-        pos = [pos.x, pos.y, pos.z]
-        if keepPos:
-            for i in range(3):
-                if abs(pos[i]) < .01:
-                    pos[i] = self._shapeData['pos'][i]
-        if setData:
-            self._shapeData['pos'] = pos
-            self._shapeData['scale'] = scale
-        if not skipBuild:
-            self.setShape(pos=pos, scale=scale)
-        return {'pos': pos, 'scale': scale}
-    
-    def getHandleInfo(self):
-        '''Get a dict that can be passed to setShape'''
-        return copy.deepcopy(self._shapeData)
-    
-    def setShape(self, shape=None, shapeType=None, scale=None, rot=None, pos=None,
-                 color=None, scaleToChild=False):
-        shape = shape and shape or self._shapeData['shape']
-        shapeType = shapeType and shapeType or self._shapeData['shapeType']
-        scale = scale and scale or self._shapeData['scale']
-        rot = rot and rot or self._shapeData['rot']
-        pos = pos and pos or self._shapeData['pos']
-        color = color and color or self._shapeData['color']      
-        thisModule = sys.modules[__name__]
-        shapeFunc = getattr(thisModule, 'shape_%s_%s' % (shape, shapeType))        
-            
-        self._shapeData['shape'] = shape
-        self._shapeData['shapeType'] = shapeType
-        self._shapeData['scale'] = scale
-        self._shapeData['rot'] = rot
-        self._shapeData['pos'] = pos
-        self._shapeData['color'] = color
-
-        if scaleToChild:
-            r = self.scaleToChild(skipBuild=True, setData=True)
-            pos = r['pos']
-            scale = r['scale']
-            
-        for shape in self._xform.listRelatives(type='geometryShape'):
-            pm.delete(shape)
-        tmpXform = pm.createNode('transform', n='TMP')
-
-        shapes = []
-        xforms = []
-        with utils.NodeTracker() as nt:
-            shapeFunc()
-            shapes = [n for n in nt.getObjects() if isinstance(n, pm.nt.GeometryShape) and n.exists()]
-            xforms = [n for n in nt.getObjects() if isinstance(n, pm.nt.Transform) and n.exists()]
-            _logger.debug('Shapes: %s' % shapes)
-            _logger.debug('Xforms: %s' % xforms)
-        for i, shapeNode in enumerate(shapes):
-            shapeNode.rename("%sShape" % (self._xform.name()))
-            tag = utils.NodeTag(SHAPE_ORDER_TAG)
-            tag['order'] = i
-            tag.setTag(shapeNode)
-
-        utils.parentShapes(tmpXform, xforms)
-        bbScale(tmpXform)        
-        utils.snap(self._xform, tmpXform)
-        #apply transformations
-        pm.xform(tmpXform, ro=self._shapeData['rot'], r=1)
-        pm.xform(tmpXform, t=self._shapeData['pos'], r=1, os=1)
-        tmpXform.s.set(self._shapeData['scale'])
-        
-        utils.parentShape(self._xform, tmpXform)
-        
-        self._setColor(color)
-        self._writeInfoToNode()
-        
-    def _tmpShapeXform(self):
-        ''' extract the shape nodes to a temporary transform'''
-        tmpXform = pm.createNode('transform', n='TMP')
-        utils.snap(self._xform, tmpXform)
-        
-    def xformNode(self):
-        return self._xform
-    
-    def shapeNodes(self):
-        """
-        Return a list of shapes in the order they were created
-        """
-        nodes = self._xform.listRelatives(shapes=1)
-        sortedNodes = {}
-        for node in nodes:
-            i = int(utils.NodeTag(SHAPE_ORDER_TAG, node=node)['order'])
-            sortedNodes[i] = node
-        sortedKeys = sortedNodes.keys()
-        sortedKeys.sort()
-        return [sortedNodes[i] for i in sortedKeys]
-
-        
-    def _setColor(self, color):
-        if color not in COLOR_MAP:
-            _logger.warning("invalid color '%s'" % color)
-            return
-        self._shapeData['color'] = color
-        for shape in self.shapeNodes():
-            shape.overrideEnabled.set(1)
-            shape.overrideColor.set(COLOR_MAP[self._shapeData['color']])
-            
-    def snap(self, node, scaleTo1=True):
-        '''Snap the xform but retain the shape'''
-        shapes = self.shapeNodes() 
-        tmpXform = pm.createNode('transform', n='TMP')
-        utils.parentShape(tmpXform, self._xform, deleteChildXform=False)
-        if scaleTo1:
-            self._xform.scale.set([1,1,1])
-        utils.snap(node, self._xform)
-        utils.parentShape(self._xform, tmpXform)
         
 #####################################################
 ## curve shapes
@@ -462,6 +353,7 @@ def makeShape_jack():
     shape_doublePin()
     shape_doublePin().ry.set(90)
     shape_doublePin().rx.set(90)
+    
 def makeShape_text(text="text", font="Arial_Bold"):
 
     """Make a cuve from text.
@@ -485,8 +377,6 @@ def makeShape_text(text="text", font="Arial_Bold"):
     txt = utils.parentShapes(txtParts[0], txtParts[1:])
     txt.rx.set(-90)
     return txt
-
-setattr(shape_text, '_kwargs', [('text', 'string'), ('font', 'string')])
 
 
 def makeShape_square():

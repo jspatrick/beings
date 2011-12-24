@@ -332,6 +332,7 @@ def buildCtlsFromData(ctlData):
     '''
     Rebuild controls in world space
     '''
+    ctlData = copy.deepcopy(ctlData)
     result = {}
     for ctlName, data in ctlData.items():
         origNodeName = data.pop('nodeName')
@@ -345,7 +346,7 @@ def buildCtlsFromData(ctlData):
         if nodeName != origNodeName:
             _logger.warning("Warning - %s exists.  Setting name to %s" % \
                             (origNodeName, nodeName))
-            ctl = makeControl(xformType = nodeType, name=nodeName, **ctlData)
+        ctl = makeControl(xformType = nodeType, name=nodeName, **data)
         pm.xform(ctl, m=worldMatrix, ws=True)
         result[ctlName] = ctl
     return result

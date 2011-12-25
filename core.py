@@ -34,6 +34,25 @@ from PyQt4.QtGui import *
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+#set up logging 
+__DEVMODE=True
+class BeingsFilter(logging.Filter):
+    def __init__(self, name=''):
+        logging.Filter.__init__(self, name=name)
+    def filter(self, record):
+        '''Add contextual info'''
+        msg = '[function: %s: line: %i] : %s' % (record.funcName, record.lineno, record.msg)
+        record.msg= msg
+        return True
+    
+_beingsRootLogger = logging.getLogger('beings')
+if _beingsRootLogger.getEffectiveLevel() == 0:
+    _beingsRootLogger.setLevel(logging.INFO)
+    
+for fltr in _beingsRootLogger.filters:
+    _beingsRootLogger.removeFilter(fltr)    
+_beingsRootLogger.addFilter(BeingsFilter())
+
 _registeredWidgets = {}
 CLASS_INDEX, DESCRIPTION_INDEX = range(2)
 def registerWidget(class_, niceName=None, description=None):
@@ -46,6 +65,7 @@ def registerWidget(class_, niceName=None, description=None):
        class_ in _registeredWidgets.values():
         _logger.debug("%s is already registered" % niceName)
     _registeredWidgets[niceName] = (class_, description)
+    
 def listWidgets():
     return _registeredWidgets.keys()
 def getWidgetInstance(widgetName):
@@ -201,10 +221,11 @@ class OptionCollection(QObject):
         self.__presets = {}
         self.__rules = {}
         self.__optPresets = {}
-
+        self.__defaults = {}
     def addOpt(self, optName, defaultVal, optType=str, **kwargs):
         self.__options[optName] = optType(defaultVal)
-        self.__rules[optName] = {'optType': optType}
+        self.__defaults[optName] = optType(defaultVal)        
+        self.__rules[optName] = {'optType': optType}        
         presets = kwargs.get('presets')
         if presets:
             self.setPresets(optName, *presets)
@@ -228,11 +249,11 @@ class OptionCollection(QObject):
         self._checkName(optName)
         return sorted(list(self.__presets[optName]))
     
-    def getOpt(self, optName):
+    def getValue(self, optName):
         self._checkName(optName)
         return self.__options[optName]
     
-    def setOpt(self, optName, val):
+    def setValue(self, optName, val):
         self._checkName(optName)
         changed=False
         if val != self.__options[optName]:
@@ -241,12 +262,23 @@ class OptionCollection(QObject):
         self.emit(SIGNAL('optSet'), optName, val)
         if changed:
             self.emit(SIGNAL('optChanged'), optName)
+            
+    #TODO:  Get option data
+    def getData(self):
+        '''Return the values of all options not set to default values'''
+        pass
+    
+    def setFromData(self, data):
+        '''
+        Set options based on data gotten from getData
+        '''
+        pass
         
     def getAllOpts(self):
         return copy.deepcopy(self.__options)
     def setAllOpts(self, optDct):
         for optName, optVal in optDct.items():
-            self.setOpt(optName, optVal)
+            self.setValue(optName, optVal)
 
 g_widgetList = []
 def getWidgetMimeData(widget):
@@ -355,9 +387,9 @@ class WidgetTreeItem(object):
     def getData(self, col):
         assert 0 <= col < self.numColumns
         if col == 0:
-            return QVariant(QString(self.options.getOpt('part')))
+            return QVariant(QString(self.options.getValue('part')))
         elif col == 1:
-            return QVariant(QString(self.options.getOpt('side')))
+            return QVariant(QString(self.options.getValue('side')))
         elif col == 2:
             if self.parent:
                 row = self.parent.rowOfChild(self)
@@ -371,7 +403,7 @@ class WidgetTreeItem(object):
             return self.orderKey()
 
     def orderKey(self): return "%s_%s" % \
-        (self.options.getOpt('part'), self.options.getOpt('side'))
+        (self.options.getValue('part'), self.options.getValue('side'))
 
     def addParentPart(self, nodeName):
         '''Add the 'key' name of a node'''
@@ -500,13 +532,13 @@ class TreeModel(QAbstractItemModel):
         header = self.headers[index.column()]
         value = str(value.toString())
         if header == 'Part':
-            widget.options.setOpt('part', value)
+            widget.options.setValue('part', value)
         if header == 'Side':
             
             if value not in ['cn', 'lf', 'rt']:
                 _logger.warning('invalid side "%s"' % value)
             else:
-                widget.options.setOpt('side', value)
+                widget.options.setValue('side', value)
         self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
         return True
     
@@ -547,7 +579,7 @@ class Widget(WidgetTreeItem):
     
     #Tree item reimplementations
     def getData(self, col):
-        if col == 4: return self.name(id=True)
+        if col == 4: return self.name()
         else:
             return super(Widget, self).getData(col)
         
@@ -562,7 +594,7 @@ class Widget(WidgetTreeItem):
                 
         super(Widget, self).__init__(part)
         assert(self.options)
-        self._partID = part
+        self._ID = part
         self._nodes = [] #stores all nodes        
         self._bindJoints = {} #stores registered bind joints
         self._differs = {'rig': control.Differ(), 'layout': control.Differ()}
@@ -573,17 +605,17 @@ class Widget(WidgetTreeItem):
             self._nodeCategories[categoy] = []
         
     def _resetNodeCategories(self):
-        for categoy in self.VALID_NODE_CATEGORIES:
-            self._nodeCategories[categoy] = []            
+        for category in self.VALID_NODE_CATEGORIES:
+            self._nodeCategories[category] = []            
     
     def name(self, id=False):
         """ Return a name of the object.
         partID should always be unique.  This can be used as a key
         in dictionaries referring to multiple instances"""
         if id:
-            return self._partID
-        part = self.options.getOpt('part')
-        side = self.options.getOpt('side')
+            return self._ID
+        part = self.options.getValue('part')
+        side = self.options.getValue('side')
         return '%s_%s' % (part, side)
 
     def __repr__(self):
@@ -632,9 +664,9 @@ class Widget(WidgetTreeItem):
             result[key].setParent(result[parentJointTok])
             
         #rename
-        char = self.options.getOpt('char')
-        side = self.options.getOpt('side')
-        part = self.options.getOpt('part')        
+        char = self.options.getValue('char')
+        side = self.options.getValue('side')
+        part = self.options.getValue('part')        
         
         namer = Namer(c=char, s=side, p=part, r='bnd')
         for tok, jnt in result.items():
@@ -681,9 +713,9 @@ class Widget(WidgetTreeItem):
         Return built or unbuilt
         """
         if self.getNodes():
-            for ctl in self._layoutControls.values():
-                if ctl.xformNode().exists():
-                    return "built"
+            
+            if self._differs['layout'].getObjs().values()[0].exists():                
+                return "built"
             return "rigged"
         else:
             return "unbuilt"
@@ -716,23 +748,21 @@ class Widget(WidgetTreeItem):
         #add to display layer
         globalNode = control.layoutGlobalsNode()
         if ctlType == 'layout':
-            for shape in ctl.shapeNodes():                
-                globalNode.layoutControlVis.connect(shape.overrideVisibility)
+            #for shape in control.getShapeNodes(ctl):                
+            globalNode.layoutControlVis.connect(ctl.v)
         elif ctlType == 'rig':
-            for shape in ctl.shapeNodes():                
-                globalNode.rigControlVis.connect(shape.overrideVisibility)
+            ###for shape in control.getShapeNodes(ctl):                
+            globalNode.rigControlVis.connect(ctl.v)
 
     @BuildCheck('unbuilt')
     def buildLayout(self, useCachedDiffs=True, altDiffs=None):
         
-        side = self.options.getOpt('side')
-        part = self.options.getOpt('part')
+        side = self.options.getValue('side')
+        part = self.options.getValue('part')
         namer = Namer()
         namer.setTokens(side=side, part=part)
 
         self._bindJoints = {}
-        self._layoutControls = {}
-        self._rigControls = {}
         with utils.NodeTracker() as nt:
             try:
                 self._makeLayout(namer)
@@ -742,10 +772,11 @@ class Widget(WidgetTreeItem):
         #set up the differ
         for diffType, differ in self._differs.items():
             differ.setInitialState()
-            if altDiffs is not None:
-                self.applyDiffs(altDiffs)
-            elif useCachedDiffs:
-                self.applyDiffs(self._cachedDiffs)
+            
+        if altDiffs is not None:
+            self.applyDiffs(altDiffs)
+        elif useCachedDiffs:
+            self.applyDiffs(self._cachedDiffs)
             
     def _makeLayout(self, namer):
         """
@@ -770,6 +801,7 @@ class Widget(WidgetTreeItem):
                     pm.delete(node)
         self._nodes = []
         self._resetNodeCategories()
+        
     @BuildCheck('built')
     def cacheDiffs(self):
         """
@@ -831,41 +863,39 @@ class Widget(WidgetTreeItem):
         pm.refresh()
         
         namer = Namer()
-        namer.setTokens(c=self.options.getOpt('char'),
+        namer.setTokens(c=self.options.getValue('char'),
                         n='',
-                        side=self.options.getOpt('side'),
-                        part=self.options.getOpt('part'))
+                        side=self.options.getValue('side'),
+                        part=self.options.getValue('part'))
         namer.lockToks('c', 'n', 's', 'p')
+
+        #get the rig control data
+        rigCtlData = control.getRebuildData(self._differs['rig'].getObjs())
+        #duplicate the bind joints, and delete the rest of the rig
         bndJntNodes = []
         with utils.NodeTracker() as nt:
             jntDct = self.duplicateBindJoints()
             bndJntNodes = nt.getObjects()
-        
         self.delete()
         
         for tok, jnt in jntDct.items():
             jnt.rename(namer.name(d=tok, r='bnd'))
-        with utils.NodeTracker() as nt:
-            
+        with utils.NodeTracker() as nt:            
             #re-create the rig controls
-            diffs = altDiffs if altDiffs else self._cachedDiffs
-            rigCtls = {}
-            differ = Differ()
-            differ.addObjs(self._rigControls)
-            for ctlName, ctlObj in self._rigControls.items():
-                name = namer.name(d=ctlName, r='ctl')
-                ctlObj.build(name=name)
-            differ.applyDiffs(diffs['rig'], skipLocalXforms=True)            
+            rigCtls = control.buildCtlsFromData(rigCtlData)
 
-            result = self._makeRig(namer, jntDct, copy.copy(self._rigControls))
+            #make the rig
+            result = self._makeRig(namer, jntDct, rigCtls)
             
             nodes = nt.getObjects()
             nodes.extend(bndJntNodes)
             self._nodes = [n for n in nodes if pm.objExists(n)]
-                
+            
+        #Check that the rig was created properly
         for key, node in self._parentNodes.items():
             if node == None:
                 _logger.warning("The '%s' parentNodeName was not assigned a a node" % key)
+                
         return result
     
     def _makeRig(self, namer, bndJnts, rigCtls):
@@ -882,42 +912,51 @@ class CenterOfGravity(Widget):
         self.addParentPart('pivot_ctl')
         
     def _makeLayout(self, namer):
-        #make the
-        masterLayoutCtl = control.Control(shape='circle', color='red', scale=[4.5, 4.5, 4.5],
-                                          name=namer.name(d='master_layout', s='ctl'), xformType='transform')
+        
+        masterLayoutCtl = control.makeControl(shape='circle',
+                                             color='red',
+                                             scale=[4.5, 4.5, 4.5],
+                                             name=namer.name(d='master_layout', s='ctl'),
+                                             xformType='transform')        
         self.registerControl('master', masterLayoutCtl)
-        cogLayoutCtl = control.Control(shape='circle', color='yellow', scale=[4, 4, 4],
-                                      name=namer.name(d='cog_layout', s='ctl'), xformType='transform')
-        cogLayoutCtl.xformNode().ty.set(5)
-        self.registerControl('cog', cogLayoutCtl)  
-        cogLayoutCtl.xformNode().setParent(masterLayoutCtl.xformNode())  
-
+        
+        cogLayoutCtl = control.makeControl(shape='circle',
+                                          color='yellow',
+                                          scale=[4, 4, 4],
+                                          name=namer.name(d='cog_layout', s='ctl'),
+                                          xformType='transform')
+        cogLayoutCtl.ty.set(5)
+        cogLayoutCtl.setParent(masterLayoutCtl)  
+        self.registerControl('cog', cogLayoutCtl)
+                
         cogJnt = pm.createNode('joint', name=namer.name(d='cog', r='bnd'))
         masterJnt = pm.createNode('joint', name=namer.name(d='master', r='bnd'))
         cogJnt.setParent(masterJnt)
         
-        utils.snap(cogJnt, cogLayoutCtl.xformNode())
-        pm.parentConstraint(cogLayoutCtl.xformNode(), cogJnt)                
-        pm.parentConstraint(masterLayoutCtl.xformNode(), masterJnt)
+        utils.snap(cogJnt, cogLayoutCtl)
+        pm.parentConstraint(cogLayoutCtl, cogJnt)                
+        pm.parentConstraint(masterLayoutCtl, masterJnt)
         
         self.registerBindJoint('master', masterJnt)
         self.registerBindJoint('cog', cogJnt, parent=masterJnt)
         
-        masterCtl = control.Control(shape='circle', color='lite blue', xformType='transform',
-                                    scale=[4,4,4], name = namer.name(r='ctl', d='cog'))
-        masterCtl.xformNode().setParent(masterLayoutCtl.xformNode())
+        masterCtl = control.makeControl(shape='circle',
+                                       color='lite blue',
+                                       xformType='transform',
+                                       scale=[4,4,4], name = namer.name(r='ctl', d='cog'))
+        masterCtl.setParent(masterLayoutCtl)
         
-        bodyCtl = control.Control(shape='triangle', color='green', xformType='transform',
+        bodyCtl = control.makeControl(shape='triangle', color='green', xformType='transform',
                                   scale=[3.5, 3.5, 3.5], name=namer.name(r='ctl', d='body'))
-        bodyCtl.xformNode().setParent(cogLayoutCtl.xformNode())
+        bodyCtl.setParent(cogLayoutCtl)
                                     
-        pivotCtl = control.Control(shape='jack', color='yellow', xformType='transform', scale=[2,2,2],
+        pivotCtl = control.makeControl(shape='jack', color='yellow', xformType='transform', scale=[2,2,2],
                                    name=namer.name(r='ctl', d='body_pivot'))
-        pivotCtl.xformNode().setParent(cogLayoutCtl.xformNode())
+        pivotCtl.setParent(cogLayoutCtl)
                                     
-        cogCtl = control.Control(shape='triangle', color='green', xformType='transform', scale=[2,2,2],
+        cogCtl = control.makeControl(shape='triangle', color='green', xformType='transform', scale=[2,2,2],
                                  name=namer.name(r='ctl', d='cog'))
-        cogCtl.xformNode().setParent(cogLayoutCtl.xformNode())
+        cogCtl.setParent(cogLayoutCtl)
         
         self.registerControl('master', masterCtl, ctlType='rig')
         self.registerControl('body', bodyCtl, ctlType='rig')
@@ -1009,14 +1048,14 @@ class Rig(TreeModel):
         self._stateFlag = 'unbuilt'
         self.options = OptionCollection()
         self.options.addOpt('char', 'defaultcharname')
-        self.options.setOpt('char', charName)
+        self.options.setValue('char', charName)
         self.options.addOpt('rigType', 'core')
-        self.options.setOpt('rigType', rigType)
+        self.options.setValue('rigType', rigType)
         self.options.addOpt('buildStyle', 'standard')
-        self.options.setOpt('buildStyle', buildStyle)
+        self.options.setValue('buildStyle', buildStyle)
         
         self.cog = CenterOfGravity()
-        self.cog.options.setOpt('char', self.options.getOpt('char'))        
+        self.cog.options.setValue('char', self.options.getValue('char'))        
         self.addWidget(self.cog)
     
     def addWidget(self, widget, parent=None, parentNode=None):        
@@ -1024,7 +1063,7 @@ class Rig(TreeModel):
             parent = self.root
             parentNode = ""
         parent.insertChild(widget, parentNode)        
-        widget.options.setOpt('char', self.options.getOpt('char'))        
+        widget.options.setValue('char', self.options.getValue('char'))        
         parentIndex = self.indexFromWidget(parent)
         if parentIndex is None:
             parentIndex = QModelIndex()
@@ -1099,8 +1138,8 @@ class Rig(TreeModel):
         '''
         build the main group structure
         '''
-        rigType = '_%s' % self.options.getOpt('rigType')
-        char = self.options.getOpt('char')
+        rigType = '_%s' % self.options.getValue('rigType')
+        char = self.options.getValue('char')
         top = pm.createNode('transform', name='%s%s_rig' % (char, rigType))
         self._coreNodes['top'] = top
         dnt = pm.createNode('transform', name='%s%s_dnt' % (char, rigType))

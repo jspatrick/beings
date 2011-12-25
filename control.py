@@ -122,7 +122,7 @@ def _modHandleData(xform, **kwargs):
     nodeData = eval(pm.getAttr('%s.%s' % (xform, INFO_ATTR)))
     return _argHandleData(handleData=nodeData, **kwargs)
     
-def _shapeNodes(xform):
+def getShapeNodes(xform):
     """
     Return a list of shapes
     """
@@ -142,7 +142,7 @@ def _setColor(xform, color):
         _logger.warning("invalid color '%s'" % color)
         return
     
-    for shape in _shapeNodes(xform):
+    for shape in getShapeNodes(xform):
         shape.overrideEnabled.set(1)
         shape.overrideColor.set(COLOR_MAP[color])
 
@@ -446,19 +446,20 @@ class Differ(object):
                 continue
             
             #apply and discard the matricies from the diff dict
-            matrix = diffs.get('worldMatrix', None)
-            if matrix and xformSpace == 'world':
-                pm.xform(node, m=matrix, ws=1)
-                diffs.pop('worldMatrix')
-
-            matrix = diffs.get('localMatrix', None)
-            if matrix and xformSpcae == 'local':
-                pm.xform(node, m=matrix)
-                diffs.pop('localMatrix')
-
+            worldmatrix = diffs.pop('worldMatrix', None)
+            localmatrix = diffs.pop('localMatrix', None)
             #remaining kwargs are shapes, so apply them
             if diffs:
                 makeControl(ctl, **diffs)
+                
+            if worldmatrix and xformSpace == 'world':
+                pm.xform(ctl, m=worldmatrix, ws=1)
+
+            if localmatrix and xformSpace == 'local':
+                pm.xform(ctl, m=localmatrix)
+
+
+            
     
 #####################################################
 ## curve shapes
@@ -547,11 +548,6 @@ def makeShape_arrow():
     crv.rx.set(90)
     crv.rz.set(-90)
     return crv
-
-def makeShape_jack():
-    shape_doublePin()
-    shape_doublePin().ry.set(90)
-    shape_doublePin().rx.set(90)
     
 def makeShape_text(text="text", font="Arial_Bold"):
 
@@ -600,9 +596,9 @@ def makeShape_cross3d():
     dup.ry.set(90)
     
 def makeShape_jack():
-    shape_doublePin()
-    shape_doublePin().ry.set(90)
-    shape_doublePin().rx.set(0)
+    makeShape_doublePin()
+    makeShape_doublePin().ry.set(90)
+    makeShape_doublePin().rx.set(0)
 
 def makeShape_layoutGlobals():
     pm.circle(normal=[0,1,0], r=2)
@@ -676,18 +672,18 @@ def layoutGlobalsNode():
     if tmp:
         return tmp[0]
     
-    ctl = Control(shape='layoutGlobals', xformType='transform', name='being_control', color='salmon')
-    node = ctl.xformNode()
-    for attr in node.listAttr(keyable=1):
+    ctl = makeControl(shape='layoutGlobals', xformType='transform', name='being_control', color='salmon')
+
+    for attr in ctl.listAttr(keyable=1):
         try:
             attr.setLocked(True)
             attr.setKeyable(False)
         except:
             pass
-    node.addAttr('layoutControlVis', at='bool', k=0, dv=1)    
-    node.layoutControlVis.set(cb=1)
-    node.addAttr('rigControlVis', at='bool', k=0, dv=0)
-    node.rigControlVis.set(cb=1)
-    return node
+    ctl.addAttr('layoutControlVis', at='bool', k=0, dv=1)    
+    ctl.layoutControlVis.set(cb=1)
+    ctl.addAttr('rigControlVis', at='bool', k=0, dv=1)
+    ctl.rigControlVis.set(cb=1)
+    return ctl
     
     

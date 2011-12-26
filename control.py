@@ -242,7 +242,18 @@ def bbScale(shape, freeze=True):
     pm.scale(shape, [sclAmt, sclAmt, sclAmt], r=True)
     if freeze:
         pm.makeIdentity(shape, apply=True, r=0, s=1, t=0, n=0)
-            
+
+def snapKeepShape(target, ctl, scaleTo1=True, **kwargs):
+    '''Snap the xform but retain the shape
+    @param scaleTo1=True - scale the xform to 1 before snapping'''
+    shapes = getShapeNodes(ctl)
+    tmpXform = pm.createNode('transform', n='TMP')
+    utils.parentShape(tmpXform, ctl, deleteChildXform=False)
+    if scaleTo1:
+        ctl.scale.set([1,1,1])
+    utils.snap(target, ctl, **kwargs)
+    utils.parentShape(ctl, tmpXform)
+    
 def scaleDownBone(xf, child=None):
     """
     Move and scale a shape so that it starts at the xform pivot and

@@ -222,6 +222,7 @@ class OptionCollection(QObject):
         self.__rules = {}
         self.__optPresets = {}
         self.__defaults = {}
+        
     def addOpt(self, optName, defaultVal, optType=str, **kwargs):
         self.__options[optName] = optType(defaultVal)
         self.__defaults[optName] = optType(defaultVal)        
@@ -943,7 +944,7 @@ class CenterOfGravity(Widget):
         masterCtl = control.makeControl(shape='circle',
                                        color='lite blue',
                                        xformType='transform',
-                                       scale=[4,4,4], name = namer.name(r='ctl', d='cog'))
+                                       scale=[4,4,4], name = namer.name(r='ctl', d='master'))
         masterCtl.setParent(masterLayoutCtl)
         
         bodyCtl = control.makeControl(shape='triangle', color='green', xformType='transform',
@@ -965,19 +966,15 @@ class CenterOfGravity(Widget):
         
     def _makeRig(self, namer, bndJnts, rigCtls):
         #set up the positions of the controls
-        
+        return
         ctlToks = rigCtls.keys()
 
         bndJnts['cog'].setParent(None)
         pm.delete(bndJnts['master'])
         for tok in ['body', 'pivot', 'cog']:
             #snap the nodes to the cog but keep the shape positions
-            rigCtls[tok].snap(bndJnts['cog'])
-            
-        #we no longer need the control objects.  replace them with the xform nodes    
-        for tok, ctl in rigCtls.items():
-            rigCtls[tok] = ctl.xformNode()
-        
+            control.snapKeepShape(bndJnts['cog'], rigCtls[tok])
+                    
         rigCtls['body'].setParent(rigCtls['master'])
         rigCtls['pivot'].setParent(rigCtls['body'])
         rigCtls['cog'].setParent(rigCtls['pivot'])

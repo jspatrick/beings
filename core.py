@@ -966,7 +966,7 @@ class CenterOfGravity(Widget):
         
     def _makeRig(self, namer, bndJnts, rigCtls):
         #set up the positions of the controls
-        return
+
         ctlToks = rigCtls.keys()
 
         bndJnts['cog'].setParent(None)

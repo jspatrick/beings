@@ -89,34 +89,6 @@ class WidgetRegistry(object):
         return self._descriptions[widget]
 g_widgetRegistry = WidgetRegistry()
 
-def _importAllWidgets(reloadThem=False):
-    """
-    Import all modules in 'widgets' directories.
-    """
-    rootDir = os.path.dirname(sys.modules[__name__].__file__)
-    widgetsDir = os.path.join(rootDir, 'widgets')
-    _logger.info("Loading widgets from %s" %  widgetsDir)
-    modules = []
-    for base in os.listdir(widgetsDir):
-        path = os.path.join(widgetsDir, base)
-        #don't match py files starting with an underscore
-        match = re.match(r'^((?!_)[a-zA-Z0-9_]+)\.py$', base)
-        if match and os.path.isfile(path):
-            name = match.groups()[0]
-            modules.append('beings.widgets.%s' % name)
-    for module in modules:
-        moduleObj = sys.modules.get(module, None)
-        if moduleObj and reloadThem:
-            _logger.info('Reloading %s' % module)
-            reload(sys.modules[module])
-        else:
-            _logger.info('Importing %s' % module)
-            __builtin__.__import__(module)
-    return modules
-
-_importAllWidgets(reloadThem=True)
-    
-
 class Namer(object):
     """
     Store name information, and help name nodes.
@@ -783,8 +755,8 @@ class Widget(WidgetTreeItem):
         self._bindJoints[name] = [jnt, None]
 
         #setup parenting
-        allJnts = [jnts[0] for jnt in self._bindJoints.values()]
-        for key, jntPr in allJnts.items():
+        allJnts = [jnts[0] for jnts in self._bindJoints.values()]
+        for key, jntPr in self._bindJoints.items():
             jnt = jntPr[0]
             par = jnt.getParent()
             if par in allJnts:
@@ -1204,4 +1176,34 @@ class Rig(TreeModel):
         model.setParent(dnt)
         self._coreNodes['model'] = model
 
+        
+
+
+def _importAllWidgets(reloadThem=False):
+    """
+    Import all modules in 'widgets' directories.
+    """
+    rootDir = os.path.dirname(sys.modules[__name__].__file__)
+    widgetsDir = os.path.join(rootDir, 'widgets')
+    _logger.info("Loading widgets from %s" %  widgetsDir)
+    modules = []
+    for base in os.listdir(widgetsDir):
+        path = os.path.join(widgetsDir, base)
+        #don't match py files starting with an underscore
+        match = re.match(r'^((?!_)[a-zA-Z0-9_]+)\.py$', base)
+        if match and os.path.isfile(path):
+            name = match.groups()[0]
+            modules.append('beings.widgets.%s' % name)
+    for module in modules:
+        moduleObj = sys.modules.get(module, None)
+        if moduleObj and reloadThem:
+            _logger.info('Reloading %s' % module)
+            reload(sys.modules[module])
+        else:
+            _logger.info('Importing %s' % module)
+            __builtin__.__import__(module)
+    return modules
+
+_importAllWidgets(reloadThem=True)
+    
         

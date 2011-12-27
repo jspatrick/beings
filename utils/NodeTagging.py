@@ -113,9 +113,8 @@ class ControlTag(NodeTag):
     def setLocks(cls, *nodes):
         """Set attribute locks on nodes"""
         for node in nodes:
-            notSet =['message', 'translate', 'rotate', 'scale', 'rotatePivot', 'scalePivot', 'rotateAxis',
-                     'selectHandle']
-            for a in pm.listAttr(node):
+            notSet =['message', 'translate', 'rotate', 'scale', 'rotatePivot', 'scalePivot', 'rotateAxis', 'selectHandle']
+            for a in pm.listAttr(node, k=1):
                 if a in notSet:
                     continue
                 a = pm.PyNode('%s.%s' % (node.name(), a))

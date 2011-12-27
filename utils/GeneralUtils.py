@@ -37,7 +37,7 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     mdn.input2X.set(staticDist)
     mdn.operation.set(2) #divide
     mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
-
+    
 def freeze(*args):
     """
     freeze every provided node.  Don't freeze joint orients
@@ -579,24 +579,14 @@ def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curA
     joint = pm.PyNode(joint)
     try:
         aimTgt = [x for x in joint.listRelatives(children=True) if isinstance(x, pm.nodetypes.Joint)][0]
-        jointChild = True
     except IndexError:
-        #no child joint
-        jointChild = False
-        if curAimAxis == None:
-            msg = "Orienting childless joint %s, and no current aim axis provided." % joint
-            msg += "\n...orienting to 'None'"
-            logger.debug(msg)
-            pm.joint(joint, e=1, oj="none", zso=True)
-            return
-
+        par = joint.getParent()
+        if par:
+            pm.delete(pm.orientConstraint(par, joint, mo=False))
+            pm.makeIdentity(joint, apply=True)
         else:
-            newAimVec = g_vectorMap[curAimAxis]
-            aimTgt = pm.spaceLocator()
-            #put the target locator in a position along the aim vector of the joint
-            aimTgt.setParent(joint)
-            aimTgt.setTranslation(newAimVec)
-            aimTgt.setParent (world=True)
+            pm.joint(joint, e=1, oj="none", zso=True)
+        return
 
     pm.parent(aimTgt, world=True)
 
@@ -619,10 +609,7 @@ def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curA
     joint.jointOrientY.set(rots[1])
     joint.jointOrientZ.set(rots[2])
     #reparent child joint
-    if not jointChild:
-        pm.delete(aimTgt)
-    else:
-        pm.parent (aimTgt, joint)
+    pm.parent (aimTgt, joint)
     pm.select(joint)
 
 def orientToPlane(midJnt, topJnt, btmJnt, aimVector, upVector, flipAim=False, flipUp=False):

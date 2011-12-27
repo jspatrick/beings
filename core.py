@@ -21,8 +21,7 @@ ll.build()
 ll.delete()
 d.applyDiffs(diffs)
 """
-
-import logging, re, copy, weakref, bisect, json
+import logging, re, copy, weakref, bisect, os, sys, __builtin__
 import pymel.core as pm
 import beings.control as control
 import beings.utils as utils
@@ -35,7 +34,6 @@ _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 #set up logging 
-__DEVMODE=True
 class BeingsFilter(logging.Filter):
     def __init__(self, name=''):
         logging.Filter.__init__(self, name=name)
@@ -45,34 +43,79 @@ class BeingsFilter(logging.Filter):
         record.msg= msg
         return True
     
-_beingsRootLogger = logging.getLogger('beings')
-if _beingsRootLogger.getEffectiveLevel() == 0:
-    _beingsRootLogger.setLevel(logging.INFO)
-    
-for fltr in _beingsRootLogger.filters:
-    _beingsRootLogger.removeFilter(fltr)    
-_beingsRootLogger.addFilter(BeingsFilter())
+def _setupLogging():
+    _beingsRootLogger = logging.getLogger('beings')
+    if _beingsRootLogger.getEffectiveLevel() == 0:
+        _beingsRootLogger.setLevel(logging.INFO)
 
-_registeredWidgets = {}
-CLASS_INDEX, DESCRIPTION_INDEX = range(2)
-def registerWidget(class_, niceName=None, description=None):
-    global _registeredWidgets
-    if niceName is None:
-        niceName = class_.__name__
-    if description is None:
-        description = 'No description provided'
-    if niceName in _registeredWidgets.keys() or \
-       class_ in _registeredWidgets.values():
-        _logger.debug("%s is already registered" % niceName)
-    _registeredWidgets[niceName] = (class_, description)
-    
-def listWidgets():
-    return _registeredWidgets.keys()
-def getWidgetInstance(widgetName):
-    return _registeredWidgets[widgetName][CLASS_INDEX]()
-def getWidgetDescription(widgetName):
-    return _registeredWidgets[widgetName][DESCRIPTION_INDEX]()
+    for fltr in _beingsRootLogger.filters:
+        _beingsRootLogger.removeFilter(fltr)    
+    _beingsRootLogger.addFilter(BeingsFilter())
+_setupLogging()
 
+class WidgetRegistry(object):
+    """Singleton that keeps data about widgets that are part of the system"""
+    instance = None
+    def __new__(cls, *args, **kwargs):
+        if cls != type(cls.instance):
+            cls.instance = super(WidgetRegistry, cls).__new__(cls, *args, **kwargs)
+            cls.instance._widgets = {}
+            cls.instance._descriptions = {}
+        return cls.instance
+    
+    def __init__(self):
+        pass        
+    def register(self, class_, niceName=None, description=None):        
+        if niceName is None:
+            niceName = class_.__name__
+        if description is None:
+            description = 'No description provided'
+        if niceName in self._widgets.keys() and \
+               self._widgets[niceName] != class_:
+            _logger.warning("%s is already registered" % niceName)
+            return False
+        #elif niceName not in self._widgets.keys():
+        else:
+            _logger.info("Registering '%s'" % niceName)
+            
+        self._widgets[niceName] = class_
+        self._descriptions[niceName] = class_
+        
+    def widgets(self):
+        return self._widgets.keys()
+    def getInstance(self, widget):
+        return self._widgets[widget]()
+    def getDescription(self, widget):
+        return self._descriptions[widget]
+g_widgetRegistry = WidgetRegistry()
+
+def _importAllWidgets(reloadThem=False):
+    """
+    Import all modules in 'widgets' directories.
+    """
+    rootDir = os.path.dirname(sys.modules[__name__].__file__)
+    widgetsDir = os.path.join(rootDir, 'widgets')
+    _logger.info("Loading widgets from %s" %  widgetsDir)
+    modules = []
+    for base in os.listdir(widgetsDir):
+        path = os.path.join(widgetsDir, base)
+        #don't match py files starting with an underscore
+        match = re.match(r'^((?!_)[a-zA-Z0-9_]+)\.py$', base)
+        if match and os.path.isfile(path):
+            name = match.groups()[0]
+            modules.append('beings.widgets.%s' % name)
+    for module in modules:
+        moduleObj = sys.modules.get(module, None)
+        if moduleObj and reloadThem:
+            _logger.info('Reloading %s' % module)
+            reload(sys.modules[module])
+        else:
+            _logger.info('Importing %s' % module)
+            __builtin__.__import__(module)
+    return modules
+
+_importAllWidgets(reloadThem=True)
+    
 
 class Namer(object):
     """
@@ -676,9 +719,10 @@ class Widget(WidgetTreeItem):
         return result
 
     def _prepBindJoints(self, jntDct):
-        '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
-        pass
-
+        '''freeze the joints  {layoutBindJntName: newBindJntPynode}'''
+        for jnt in jntDct.values():
+            pm.makeIdentity(jnt, apply=1, t=1, r=1, s=1, n=1)
+        
     def getNodes(self, category=None):
         nodes = []
         #don't warn about non-existing nodes
@@ -734,9 +778,18 @@ class Widget(WidgetTreeItem):
                 raise utils.BeingsError('One and only one object may exist called %s' % jntName)
             return pm.PyNode(jnt)
         jnt = checkName(jnt)
-        if parent:
-            parent = checkName(parent)
-        self._bindJoints[name] = (jnt, parent)
+        # if parent:
+        #     parent = checkName(parent)
+        self._bindJoints[name] = [jnt, None]
+
+        #setup parenting
+        allJnts = [jnts[0] for jnt in self._bindJoints.values()]
+        for key, jntPr in allJnts.items():
+            jnt = jntPr[0]
+            par = jnt.getParent()
+            if par in allJnts:
+                self._bindJoints[key] = [jnt, par]
+                
 
     def registerControl(self, name, ctl, ctlType ='layout'):
         """Register a control that should be cached"""        
@@ -853,6 +906,7 @@ class Widget(WidgetTreeItem):
     def buildRig(self, altDiffs=None):
         """build the rig
         @param altDiffs=None: Use the provided diff dict instead of the internal diffs"""
+        
         if self.state() != "built":
             self.buildLayout(altDiffs=altDiffs)
         else:
@@ -890,7 +944,8 @@ class Widget(WidgetTreeItem):
             
             nodes = nt.getObjects()
             nodes.extend(bndJntNodes)
-            self._nodes = [n for n in nodes if pm.objExists(n)]
+            with utils.SilencePymelLogger():
+                self._nodes = [n for n in nodes if pm.objExists(n)]
             
         #Check that the rig was created properly
         for key, node in self._parentNodes.items():
@@ -1007,9 +1062,12 @@ class CenterOfGravity(Widget):
         for ctl in rigCtls.values():
             NT.tagControl(ctl, uk=['tx', 'ty', 'tz', 'rx', 'ry', 'rz'])
         NT.tagControl(rigCtls['master'], uk=['uniformScale'])
+        
         #setup info for parenting
         self.setNodeCateogry(rigCtls['master'], 'fk')
-registerWidget(CenterOfGravity, 'Center Of Gravity', 'The widget under which all others should be parented')
+        
+WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'The widget under which all others should be parented')
+
 
 class Rig(TreeModel):
     '''

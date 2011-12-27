@@ -205,7 +205,7 @@ def makeControl(xform=None, xformType='transform', name=None, force=False, **kwa
     #snap the tmp shape to the xform
     utils.parentShapes(tmpXform, xforms)
     bbScale(tmpXform)
-    utils.snap(xform, tmpXform)
+    utils.snap(xform, tmpXform, scale=True)
 
     #apply transformations
     pm.xform(tmpXform, ro=handleData['rot'], r=1)

@@ -10,17 +10,7 @@ class BasicLeg(core.Widget):
         self.addParentPart('bnd_hip')
         self.addParentPart('bnd_knee')
         self.addParentPart('bnd_ankle')
-        
-    def _orientBindJoints(self, jntDct):
-        '''Orient bind joints.  jntDct is {layoutBindJntName: newBindJntPynode}'''
-        worldUpVec = utils.getXProductFromNodes(jntDct['knee'], jntDct['hip'], jntDct['ankle'])
-        for jnt in jntDct.values():
-            utils.freeze(jnt)
-        for tok in ['hip', 'knee']:
-            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=worldUpVec)
-        for tok in ['ankle', 'ball', 'toe', 'toetip']:
-            utils.orientJnt(jntDct[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
-            
+                    
     def _makeLayout(self, namer):
         """
         build the layout
@@ -39,28 +29,30 @@ class BasicLeg(core.Widget):
         pm.select(cl=1)
         for i, tok in enumerate(toks):
             legJoints[tok] = pm.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
-            legCtls[tok] = control.Control(name = namer.name(x='ctl', d=tok), shape='sphere')
+            legCtls[tok] = control.makeControl(shape='sphere',
+                                               scale=[0.3, 0.3, 0.3],
+                                               name = namer.name(x='ctl', d=tok, r='layout'))
             self.registerControl(tok, legCtls[tok])
-            legCtls[tok].setShape(scale=[0.3, 0.3, 0.3])
-            utils.snap(legJoints[tok], legCtls[tok].xformNode(), orient=False)
+            utils.snap(legJoints[tok], legCtls[tok], orient=False)
             pm.select(legJoints[tok])
+            
         for i, tok in enumerate(toks):
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
-            pm.parentConstraint(legCtls[tok].xformNode(), legJoints[tok])
+            pm.parentConstraint(legCtls[tok], legJoints[tok])
             parent = None
             if i > 0:
                 parent = legJoints[toks[i-1]]
-            self.registerBindJoint(tok, legJoints[tok], parent)
-            legCtls[tok].xformNode().r.setLocked(True)
-                    
+            self.registerBindJoint(tok, legJoints[tok])
+            legCtls[tok].r.setLocked(True)
+
         ankleCtl = legCtls['ankle']
         for tok in ['ball', 'toe', 'toetip']:
             ctl = legCtls[tok]
-            ctl.xformNode().setParent(ankleCtl.xformNode())
-            ctl.xformNode().tx.setLocked(True)
+            ctl.setParent(ankleCtl)
+            ctl.tx.setLocked(True)
 
         #make rig controls
-        ankleIkCtl = control.Control(name=namer.name(d='ankle', r='ik'), shape='sphere', color='blue')
+        ankleIkCtl = control.makeControl(name=namer.name(d='ankle', r='ik'), shape='sphere', color='blue')
         self.registerControl('ankleIK', ankleIkCtl, ctlType='rig')
         
         #create up-vec locs
@@ -107,4 +99,4 @@ class BasicLeg(core.Widget):
         for j in fkJnts.values():
             fkIkRev.outputX.connect(j.v)
 
-core.registerWidget(BasicLeg, "Basic Leg", "A basic IK/FK leg")
+core.WidgetRegistry().register(BasicLeg, "Basic Leg", "A basic IK/FK leg")

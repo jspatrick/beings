@@ -1166,6 +1166,7 @@ class Rig(TreeModel):
         self.emit(SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
         
     def buildLayout(self):
+        self.delete()
         self._stateFlag = 'built'
         for wdg in self.root.childWidgets():
             if wdg.state() == 'rigged':
@@ -1200,7 +1201,8 @@ class Rig(TreeModel):
     def state(self):
         return self._stateFlag
     
-    def buildRig(self, lock=False):
+    def buildRig(self, lock=False):        
+        self.delete()
         self._stateFlag = 'rigged'
         with utils.NodeTracker() as nt:            
             self._buildMainHierarchy()                 

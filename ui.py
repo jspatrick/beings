@@ -8,7 +8,7 @@ logging.basicConfig()
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
 
-core._importAllWidgets(reloadThem=False)
+core._importAllWidgets(reloadThem=True)
 
 def getResource(fileName):
     basedir = os.path.dirname(sys.modules[__name__].__file__)

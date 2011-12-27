@@ -5,7 +5,7 @@ utilities, it should be defined here.
 import logging, inspect, sys, re, string
 import pymel.core as pm
 from beings.utils.Exceptions import * #@UnusedWildImport
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 class SilencePymelLogger(object):
     def __init__(self):
@@ -449,7 +449,7 @@ def fixInverseScale(jointList):
             #check if there's a connection
             if len(jnt.inverseScale.inputs()) != 1 or jnt.inverseScale.inputs(plugs=True)[0] != parent.scale:
                 parent.scale >> jnt.inverseScale
-                logger.debug("connected %s's scale to %s's inverse scale" % (parent.name(), jnt.name()))
+                _logger.debug("connected %s's scale to %s's inverse scale" % (parent.name(), jnt.name()))
 
 
 def getJointDict(jointList):
@@ -524,7 +524,7 @@ def createJointsFromDict(jointDict, deleteExisting=False):
             attrFunc(attrVal)
     #if there was a joint that couldn't be parented, set it's world matrix
     if noParentJnt:
-        logger.debug("Couldn't find parent for %s...setting to world matrix" % noParentJnt.name())
+        _logger.debug("Couldn't find parent for %s...setting to world matrix" % noParentJnt.name())
         m = jointDict[noParentJnt.name()]['worldMatrix']
         pm.xform(noParentJnt, matrix=m, worldSpace=True)
 
@@ -672,7 +672,7 @@ def setNodeAxisVectors(node, oldA1="posY", oldA2="posX", newA1="posY", newA2="po
 
     oldV1 = getNodeAxisVector(node, oldA1)
     oldV2 = getNodeAxisVector(node, oldA2)
-    logger.debug("%s vector: %s; %s vector: %s" % (oldA1, str(oldV1), oldA2, str(oldV2)))
+    _logger.debug("%s vector: %s; %s vector: %s" % (oldA1, str(oldV1), oldA2, str(oldV2)))
     newV1 = g_vectorMap[newA1]
     newV2 = g_vectorMap[newA2]
 

@@ -85,7 +85,7 @@ class WidgetRegistry(object):
         self._widgets[niceName] = class_
         self._descriptions[niceName] = class_
         
-    def getWidgetName(self, instance):
+    def widgetName(self, instance):
         """Get the widget name from the instnace"""
         cls = instance.__class__
         for k, v in self._widgets.items():
@@ -418,7 +418,7 @@ class WidgetTreeItem(object):
                 #return
             
         child.parent = self
-        childList = (child.orderKey(), child, parentToPart)
+        childList =[child.orderKey(), child, parentToPart]
         bisect.insort(self.children, childList)
         
     def getClassName(self):
@@ -450,7 +450,14 @@ class WidgetTreeItem(object):
         if nodeName in self._parentNodes.keys():
             _logger.warning("%s already is a parent node" % nodeName)
         self._parentNodes[nodeName] = None
-
+        
+    def setParentPart(self, part):
+        '''Set the part this widget is parented with'''
+        if part not in self.parent.listParentParts():
+            _logger.warning("Invalid parent part: '%s'" % part)
+        row = self.parent.rowOfChild(self)
+        self.parent.children[row][self.CHILD_PART_INDEX] = part
+        
     def setParentNode(self, nodeName, node):
         '''Set the actual node of a nodeName'''
         if nodeName not in self._parentNodes.keys():
@@ -471,7 +478,7 @@ class TreeModel(QAbstractItemModel):
         self.root = WidgetTreeItem("", isRoot=True)
         self.columns = self.root.numColumns
         self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
-
+        
     def supportedDropActions(self):
         return Qt.CopyAction | Qt.MoveAction
     
@@ -573,12 +580,13 @@ class TreeModel(QAbstractItemModel):
         value = str(value.toString())
         if header == 'Part':
             widget.options.setValue('part', value)
-        if header == 'Side':
-            
+        if header == 'Side':            
             if value not in ['cn', 'lf', 'rt']:
                 _logger.warning('invalid side "%s"' % value)
             else:
                 widget.options.setValue('side', value)
+        if header == 'Parent Node':
+            widget.setParentPart(value)
         self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
         return True
     
@@ -903,11 +911,12 @@ class Widget(WidgetTreeItem):
         self._nodeCategories[category].append(node)
 
         
-    @BuildCheck('built', 'unbuilt')
     def buildRig(self, altDiffs=None):
         """build the rig
         @param altDiffs=None: Use the provided diff dict instead of the internal diffs"""
-        
+        if self.state() == 'rigged':
+            self.delete()
+            
         if self.state() != "built":
             self.buildLayout(altDiffs=altDiffs)
         else:
@@ -1182,7 +1191,7 @@ class Rig(TreeModel):
             wdata['parentPart'] = str(widget.getData(2).toString())
             wdata['options'] = widget.options.getData()
             wdata['diffs'] = widget.getDiffs()
-            wdata['widgetName'] = registry.getWidgetName(widget)
+            wdata['widgetName'] = registry.widgetName(widget)
             result[id(widget)] = wdata
             
         result['rigOptions'] = self.options.getData()
@@ -1286,9 +1295,6 @@ def _importAllWidgets(reloadThem=False):
             reload(sys.modules[module])
         else:
             _logger.info('Importing %s' % module)
-            __builtin__.__import__(module)
-    return modules
+            __builtin__.__import__(module, globals(), locals(), [], -1)
+    return modules    
 
-_importAllWidgets(reloadThem=True)
-    
-        

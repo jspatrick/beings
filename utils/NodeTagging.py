@@ -53,9 +53,9 @@ class NodeTag(dict):
         """
         Store an attribute of an object internally
         """    
-        self._tag = self.tagName(tag)
-
         dict.__init__(self)
+        
+        self._tag = self.tagName(tag)
         if node:
             node = pm.PyNode(node)            
             if node.hasAttr(self._tag):                
@@ -78,6 +78,9 @@ class ControlTag(NodeTag):
     Tag rig controls
     """
     LOCK_ATTRS = ['lockedKeyable', 'unlockedKeyable', 'unlockedUnkeyable']
+    _lockAttrMap = {'lk': 'lockedKeyable',
+                 'uk': 'unlockedKeyable',
+                 'uu': 'unlockedUnkeyable'}
     CONTROL_TAG = 'control'
     @classmethod
     def getControls(cls, root):
@@ -91,10 +94,12 @@ class ControlTag(NodeTag):
         for attr in self.LOCK_ATTRS:
             self[attr] = self.get(attr, [])
 
-    def __setitem__(self, k, v):
+    def __setitem__(self, k, v):     
         if k not in self.LOCK_ATTRS:
-            _logger.warning("Invalid parameter %s, not setting" % k)
-            return
+            k = self._lockAttrMap.get(k, None)
+            if not k:
+                _logger.warning("Invalid parameter %s, not setting" % k)
+                return
         if not self._checkInput(v):
             return
         NodeTag.__setitem__(self, k, v)
@@ -177,6 +182,8 @@ def tagControl(control, uk=[], lk=[], uu=[], replace=False):
     actFunc('lockedKeyable', lk)
     tag.setTag(control)
     return tag
+
+
 def getTaggedNodesTags(nodeList, tag, getChildren=True):
     """
     Return a {node:NodeTag} dict of all nodes tagged with tag
@@ -201,55 +208,4 @@ def getTaggedNodesTags(nodeList, tag, getChildren=True):
 
     return result
 
-#convenience methods
 
-def tagUnlocked(node, *args):
-    """
-    Tag a set of unlocked channels on a node and return the LockTag object
-    @param *args:  attributes to tag as unlocked
-    Currently this doesn't support tagging shape nodes
-    """
-    #check for valid node and attrs on that node
-    node = pm.pPyNode(node)
-    if isinstance(node, pm.nt.GeometryShape):
-        return None
-
-    badAttrs = []
-    for arg in args:
-        try:
-            node.attr(arg)
-        except pm.MayaAttributeError:
-            badAttrs.append(arg)
-    if badAttrs:
-        raise RIError("Invalid attributes on %s: %s" % (str(node), ', '.join(badAttrs)))
-
-    tag = tagNode(node, UNLOCKED_TAG)
-    tag.addUnlocked(*args)
-    return tag
-
-def lockNodes(*args, **kwargs):
-    """
-    Lock all untagged attributes on all nodes in *args.
-    @param onlyLockedTagged=False:  Only lock attributes on nodes that have been 
-    tagged with an unlockedAttrs tag
-    @param unlock=False:  unlock the nodes instead of locking
-    """
-    unlock = kwargs.get('unlock', False)
-    onlyLockTagged = kwargs.get('onlyLockTagged', False)
-
-    nodeList = [pm.PyNode(node) for node in args]
-    lockTags = []
-
-    if onlyLockTagged:
-        lockTags = getTaggedNodesTags(nodeList, UNLOCKED_TAG, getChildren=False)
-
-    else:
-        lockTags = [tagNode(node, UNLOCKED_TAG) for node in nodeList if not isinstance(node, pm.nt.GeometryShape)]
-
-    for tag in lockTags:
-        if unlock:
-            tag.unlock()
-        else:
-            tag.lock()
-
-    return lockTags

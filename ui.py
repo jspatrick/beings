@@ -16,14 +16,12 @@ def getResource(fileName):
     return resource
 
 #PROMOTED WIDGETS
-
 class WidgetTree(QTreeView):
     def __init__(self, parent=None):
         super(WidgetTree, self).__init__(parent)
         self.rig = core.Rig('mychar')
         self.setModel(self.rig)
         self.rig.reset()
-
         self.setAnimated(True)
         self.connect(self.model(), SIGNAL("dataChanged(QModelIndex,QModelIndex)"),
                      self.change)
@@ -41,10 +39,39 @@ class WidgetTree(QTreeView):
     def expanded(self):
         for column in range(self.model().columnCount(QModelIndex())):
                 self.resizeColumnToContents(column)
+                
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasFormat('application/x-widget'):
+            event.accept()
+        else:
+            event.ignore()
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasFormat('application/x-widget'):
+            event.accept()
+        else:
+            event.ignore()
+            
+    def dropEvent(self, event):
+        if event.mimeData().hasFormat('application/x-widget'):            
+            widget = core.widgetFromMimeData(event.mimeData())
+            self.rig.addWidget(widget)
+            event.accept()
+        else:
+            event.ignore()
 
 class WidgetList(QListWidget):
-    pass
-
+    def __init__(self, parent=None):
+        _logger.debug('initializing promoted WidgetList')
+        super(WidgetList, self).__init__(parent=parent)
+        self.setDragEnabled(True)
+        
+    def startDrag(self, dropActions):
+        widgetName = str(self.currentItem().text())
+        widget = core.WidgetRegistry().getInstance(widgetName)
+        drag = QDrag(self)
+        drag.setMimeData(core.getWidgetMimeData(widget))
+        drag.start(Qt.CopyAction)
+        
 #MAIN WIDGETS
 class RigViewDelegate(QItemDelegate):
     def __init__(self, parent=None):
@@ -76,13 +103,14 @@ class RigViewDelegate(QItemDelegate):
 class RigWidget(QWidget):
     def __init__(self, parent=None):
         super(RigWidget, self).__init__(parent=parent)
+        _logger.debug('initializing promoted RigWidget')
         uic.loadUi(getResource('rigwidget.ui'), self)
         self.rigView.setItemDelegate(RigViewDelegate(self))
         self.__registry = core.WidgetRegistry()
         #populate the widget list
         for wdg in self.__registry.widgetNames():
             self.widgetList.addItem(wdg)
-            
+
     @pyqtSlot()
     def on_buildLayoutBtn_released(self):
         self.rigView.rig.buildLayout()

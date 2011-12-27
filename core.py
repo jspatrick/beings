@@ -319,7 +319,7 @@ def getWidgetMimeData(widget):
     mimeData = QMimeData()
     mimeData.setData("application/x-widget", data)
     return mimeData
-    
+
 def widgetFromMimeData(mimeData):    
     if mimeData.hasFormat("application/x-widget"):
         data = mimeData.data("application/x-widget")

@@ -76,7 +76,7 @@
          </widget>
         </item>
         <item row="1" column="0">
-         <widget class="QListWidget" name="widgetList"/>
+         <widget class="WidgetList" name="widgetList"/>
         </item>
         <item row="2" column="0">
          <widget class="QPushButton" name="addWidgetBtn">
@@ -116,6 +116,11 @@
   <customwidget>
    <class>WidgetTree</class>
    <extends>QTreeView</extends>
+   <header>beings.ui</header>
+  </customwidget>
+  <customwidget>
+   <class>WidgetList</class>
+   <extends>QListWidget</extends>
    <header>beings.ui</header>
   </customwidget>
  </customwidgets>

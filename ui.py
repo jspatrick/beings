@@ -17,10 +17,7 @@ class RigWidget(QWidget):
     def __init__(self, parent=None):
         super(RigWidget, self).__init__(parent=parent)
         uic.loadUi(getResource('rigwidget.ui'), self)        
-        
-    def addWidget(self, inst):
-        self.rigView.rig.addWidget(inst)
-        
+                
     @pyqtSlot()
     def on_buildLayoutBtn_released(self):
         self.rigView.rig.buildLayout()
@@ -32,9 +29,10 @@ _testInst = None
 def treeTest():            
     global _testInst
     _testInst = RigWidget()
-    leg = core.getWidgetInstance('Basic Leg')
-    leg2 = core.getWidgetInstance('Basic Leg')
-    _testInst.addWidget(leg)
-    _testInst.addWidget(leg2)
+    leg = core.WidgetRegistry().getInstance('Basic Leg')
+    leg2 = core.WidgetRegistry().getInstance('Basic Leg')
+    _testInst.rigView.rig.addWidget(leg)
+    _testInst.rigView.rig.addWidget(leg2)
     _testInst.show()
+    
 

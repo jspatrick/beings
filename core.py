@@ -32,8 +32,9 @@ from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+_logger.setLevel(logging.DEBUG)
+#set up logging
 
-#set up logging 
 class BeingsFilter(logging.Filter):
     def __init__(self, name=''):
         logging.Filter.__init__(self, name=name)
@@ -44,6 +45,9 @@ class BeingsFilter(logging.Filter):
         return True
     
 def _setupLogging():
+    rootLogger = logging.getLogger()
+    if rootLogger.getEffectiveLevel() == 0:
+        rootLogger.setLevel(logging.INFO)
     _beingsRootLogger = logging.getLogger('beings')
     if _beingsRootLogger.getEffectiveLevel() == 0:
         _beingsRootLogger.setLevel(logging.INFO)
@@ -81,13 +85,18 @@ class WidgetRegistry(object):
         self._widgets[niceName] = class_
         self._descriptions[niceName] = class_
         
-    def widgets(self):
+    def getWidgetName(self, instance):
+        """Get the widget name from the instnace"""
+        cls = instance.__class__
+        for k, v in self._widgets.items():
+            if v == cls:
+                return k
+    def widgetNames(self):
         return self._widgets.keys()
-    def getInstance(self, widget):
-        return self._widgets[widget]()
-    def getDescription(self, widget):
-        return self._descriptions[widget]
-g_widgetRegistry = WidgetRegistry()
+    def getInstance(self, widgetName):
+        return self._widgets[widgetName]()
+    def getDescription(self, widgetName):
+        return self._descriptions[widgetName]    
 
 class Namer(object):
     """
@@ -282,14 +291,15 @@ class OptionCollection(QObject):
     #TODO:  Get option data
     def getData(self):
         '''Return the values of all options not set to default values'''
-        pass
+        return copy.deepcopy(self.__options)
     
     def setFromData(self, data):
         '''
         Set options based on data gotten from getData
         '''
-        pass
-        
+        for opt, val in data.items():
+            self.setValue(opt, val)
+            
     def getAllOpts(self):
         return copy.deepcopy(self.__options)
     def setAllOpts(self, optDct):
@@ -325,13 +335,15 @@ class WidgetTreeItem(object):
     def __init__(self, part, isRoot=False):
         self._isRoot = isRoot
         self.parent = None
-        self.children = []            
+        self.children = []
+        self.parent = None
         self.numColumns = 5
         
         self._parentNodes = {}
         
         #set up options    
         self.options = OptionCollection()
+        self.__origPartName = part
         self.options.addOpt('part', part)
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
@@ -377,22 +389,34 @@ class WidgetTreeItem(object):
         self.children.pop(row)
         return child
     
+    def getRoot(self):
+        node = self
+        while node.parent is not None:
+            node = node.parent
+        return node
+    
     def insertChild(self, child, parentToPart=""):
         if self._isRoot:
             if parentToPart != "":
-                raise KeyError("Children of a root node cannot have a parent to part")
+                raise KeyError("Children of a root node cannot have a parent to part")       
         elif parentToPart not in self.listParentParts():
             raise KeyError("Invalid parent to part '%s'" % parentToPart)
 
         if child._isRoot:
             raise TypeError("Cannot parent root nodes")
-        #order keys must be unique
+
+        #don't allow the same instance in the tree twice
+        ids = [id(w) for w in self.getRoot().childWidgets()]
+        if id(child) in ids:
+            raise RuntimeEror("Cannot add the same instance twice")
+        
+        #order keys should  be unique, else warn
         for currentChild in self.children:
             if currentChild[self.KEY_INDEX] == child.orderKey():
                 _logger.warning("Widget with ID '%s' already is a child"\
                                 % child.orderKey())
-                return
-
+                #return
+            
         child.parent = self
         childList = (child.orderKey(), child, parentToPart)
         bisect.insort(self.children, childList)
@@ -610,6 +634,7 @@ class Widget(WidgetTreeItem):
                 
         super(Widget, self).__init__(part)
         assert(self.options)
+        self._oritPartName = part
         self._ID = part
         self._nodes = [] #stores all nodes        
         self._bindJoints = {} #stores registered bind joints
@@ -622,8 +647,8 @@ class Widget(WidgetTreeItem):
         
     def _resetNodeCategories(self):
         for category in self.VALID_NODE_CATEGORIES:
-            self._nodeCategories[category] = []            
-    
+            self._nodeCategories[category] = []
+        
     def name(self, id=False):
         """ Return a name of the object.
         partID should always be unique.  This can be used as a key
@@ -635,11 +660,11 @@ class Widget(WidgetTreeItem):
         return '%s_%s' % (part, side)
 
     def __repr__(self):
-        return "%s(part='%s', useNextAvailablePart=False)" % \
+        return "%s('%s')" % \
                (self.__class__.__name__, self.name(id=True))
 
     def __str__(self):
-        return "%s(part= '%s', useNextAvailablePart=False)" % \
+        return "%s('%s')" % \
                (self.__class__.__name__, self.name(id=True))
 
     @BuildCheck('built')
@@ -835,7 +860,11 @@ class Widget(WidgetTreeItem):
         """
         self._cachedDiffs['rig'] = self._differs['rig'].getDiffs()
         self._cachedDiffs['layout'] = self._differs['layout'].getDiffs()
-
+        
+    def setDiffs(self, diffDct):
+        """Set diffs"""
+        self._cachedDiggs = diffDct
+        
     def getDiffs(self, cached=False):
         """
         get the object's tweaks, if built
@@ -1065,7 +1094,7 @@ class Rig(TreeModel):
     '''
     #a dummy object used as the 'root' of the rig
         
-    def __init__(self, charName, rigType='core', buildStyle='standard'):
+    def __init__(self, charName, rigType='core', buildStyle='standard', skipCog=False):
         super(Rig, self).__init__()
 
         self._charNodes = {}
@@ -1080,16 +1109,47 @@ class Rig(TreeModel):
         self.options.setValue('rigType', rigType)
         self.options.addOpt('buildStyle', 'standard')
         self.options.setValue('buildStyle', buildStyle)
+        if not skipCog:
+            self.cog = CenterOfGravity()
+            self.cog.options.setValue('char', self.options.getValue('char'))        
+            self.addWidget(self.cog)
+            
+    @classmethod
+    def rigFromData(cls, data):
+        '''
+        Get a rig from a data dict
+        '''
+        #create a rig instance
+        data = copy.deepcopy(data)
+        rigOpts = data.pop('rigOptions')
+        name = rigOpts['char']
+        rigType= rigOpts['rigType']
+        style = rigOpts['buildStyle']
+        rig = cls(name, rigType=rigType, buildStyle=style, skipCog=True)
         
-        self.cog = CenterOfGravity()
-        self.cog.options.setValue('char', self.options.getValue('char'))        
-        self.addWidget(self.cog)
+        #create widgets
+        idWidgets = {}
+        registry = WidgetRegistry()        
+        for id, dct in data.items():
+            wdg = registry.getInstance(dct['widgetName'])
+            wdg.setDiffs(dct['diffs'])
+            wdg.options.setFromData(dct['options'])
+            idWidgets[id] = wdg
+
+        #parent them into rig
+        for id, wdg in idWidgets.items():
+            parentID = data[id]['parentID']
+            parentWidget = idWidgets.get(parentID, None)            
+            parentPart = data[id]['parentPart']
+            rig.addWidget(wdg, parent = parentWidget, parentNode=parentPart)
+        return rig
     
     def addWidget(self, widget, parent=None, parentNode=None):        
         if parent is None:
             parent = self.root
             parentNode = ""
-        parent.insertChild(widget, parentNode)        
+        _logger.debug('adding widget - parent: %r, parentNode: %s' % (parent, parentNode))
+        parent.insertChild(widget, parentNode)
         widget.options.setValue('char', self.options.getValue('char'))        
         parentIndex = self.indexFromWidget(parent)
         if parentIndex is None:
@@ -1102,10 +1162,35 @@ class Rig(TreeModel):
             if wdg.state() == 'rigged':
                 wdg.delete()
             wdg.buildLayout()
-    
+
+    def getData(self):
+        '''
+        Get widget data needed to reconstruct the rig
+        starting at root, for each child get:
+        id: {parentWidgetID,
+             parentNode,
+             registered name,
+             optionData,
+             diffData}        
+        '''
+        result = {}
+        allWidgets = self.root.childWidgets()
+        registry = WidgetRegistry()
+        for widget in allWidgets:
+            wdata = {}
+            wdata['parentID'] = id(widget.parent)
+            wdata['parentPart'] = str(widget.getData(2).toString())
+            wdata['options'] = widget.options.getData()
+            wdata['diffs'] = widget.getDiffs()
+            wdata['widgetName'] = registry.getWidgetName(widget)
+            result[id(widget)] = wdata
+            
+        result['rigOptions'] = self.options.getData()
+        
+        return result
     def state(self):
         return self._stateFlag
-                
+    
     def buildRig(self, lock=False):
         self._stateFlag = 'rigged'
         with utils.NodeTracker() as nt:            

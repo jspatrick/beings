@@ -11,6 +11,7 @@ import maya.cmds as MC
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 _logger = logging.getLogger(__name__)
+_logger.setLevel(logging.DEBUG)
 logging.basicConfig(level=logging.INFO)
 
 #set up logging
@@ -487,7 +488,7 @@ class TreeModel(QAbstractItemModel):
                 index = self.indexFromWidget(widget, parentIndex=index)
                 if index != None:
                     return index
-        return None        
+        return None    
     
     def rowCount(self, parent):
         widget = self.widgetFromIndex(parent)
@@ -617,8 +618,7 @@ class Widget(WidgetTreeItem):
 
         #Get a unique part name.  This ensures all node names are unique
         #when multiple widgets are built.
-        
-        
+                
         self.ref = self
         self.numColumns = 5        
                 
@@ -652,7 +652,57 @@ class Widget(WidgetTreeItem):
     def __str__(self):
         return "%s('%s')" % \
                (self.__class__.__name__, self.name())
+    
+    @BuildCheck('built')
+    def mirror(self, other):
+        '''
+        Mirror this widget to another widget.  this assumes controls are in world space.
+        '''
+        thisCtlDct = self._differs['layout'].getObjs()
+        otherCtlDct = other._differs['layout'].getObjs()
+        direct = ['tz', 'ty', 'rx', 'sx', 'sy', 'sz']
+        inverted = ['tx', 'ry', 'rz']
+        namer = Namer(c=self.options.getValue('char'),
+                      s=self.options.getValue('side'),
+                      p=self.options.getValue('part'))
+        
+        for k, thisCtl in thisCtlDct.items():
+            otherCtl = otherCtlDct.get(k, None)
+            if not otherCtl:
+                _logger.warning("Cannot mirror '%s' - it is not in the other rig" % k)
+                continue
+            
+            for attr in direct:
+                try:
+                    pm.connectAttr('%s.%s' % (thisCtl, attr),
+                                   '%s.%s' % (otherCtl, attr))
+                except RuntimeError:
+                    pass
+                except Exception, e:
+                    _logger.warning("Error during connection: %s" % str(e))                    
 
+            for attr in inverted:                                
+                fromAttr = '%s.%s' % (thisCtl, attr)
+                toAttr = '%s.%s' % (otherCtl, attr)
+                char = self.options.getValue('char')
+                side = self.options.getValue('char')
+                mdn = pm.createNode('multiplyDivide',
+                                    n=namer.name(d='%sTo%s' % (fromAttr, toAttr)))
+                
+                mdn.input2X.set(-1)
+                mdn.operation.set(1)
+                pm.connectAttr(fromAttr, mdn.input1X)
+                try:
+                    pm.connectAttr(mdn.outputX, toAttr)                    
+                except RuntimeError:
+                    pm.delete(mdn)                
+                except Exception, e:
+                    _logger.warning("Error during connection: %s" % str(e))
+                    pm.delete(mdn)
+                else:
+                    self._nodes.append(mdn)
+
+                
     @BuildCheck('built')
     def duplicateBindJoints(self, oriented=True):
         """
@@ -1088,6 +1138,7 @@ class Rig(TreeModel):
         self._rigType = 'core'
         self._coreNodes = {}
         self._nodes = []
+        self._mirrored = {}
         self._stateFlag = 'unbuilt'
         self.options = OptionCollection()
         self.options.addOpt('char', 'defaultcharname')
@@ -1101,6 +1152,30 @@ class Rig(TreeModel):
             self.cog.options.setValue('char', self.options.getValue('char'))        
             self.addWidget(self.cog)
             
+    def setMirrored(self, widget):
+        """
+        If the widget has a side and a similarly named widget on the opposite side
+        is available, mirror it
+        """
+        _logger.debug("Mirroring %s" % widget)
+        siblings = [w for w in widget.parent.childWidgets(recursive=False) if w is not widget]
+        part = widget.options.getValue('part')
+        side = widget.options.getValue('side')
+        if side == 'lf':
+            findSide = 'rt'
+        elif side == 'rt':
+            findSide = 'lf'
+        else:
+            _logger.info("Cannot mirror center widgets")
+            return
+        for sibling in siblings:
+            if sibling.options.getValue('part') == part and \
+               sibling.options.getValue('side') == findSide:
+                self._mirrored[widget] = sibling
+                
+    def setUnMirrored(self, widget):
+        self._mirrored.pop(widget)
+        
     @classmethod
     def rigFromData(cls, data):
         '''
@@ -1174,7 +1249,11 @@ class Rig(TreeModel):
             if wdg.state() == 'rigged':
                 wdg.delete()
             wdg.buildLayout()
-
+            
+        #do mirroring
+        for wdg, tgt in self._mirrored.items():
+            wdg.mirror(tgt)
+            
     def getData(self):
         '''
         Get widget data needed to reconstruct the rig

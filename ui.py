@@ -6,6 +6,7 @@ import beings.utils as utils
 import logging, sys, os
 logging.basicConfig()
 _logger = logging.getLogger(__name__)
+_logger.setLevel(logging.DEBUG)
 
 core._importAllWidgets(reloadThem=True)
 
@@ -13,6 +14,7 @@ def getResource(fileName):
     basedir = os.path.dirname(sys.modules[__name__].__file__)
     resource = os.path.join(basedir, 'ui_resources', fileName)
     return resource
+
 class PopupError():
     """
     Decorator that will raise error messages
@@ -50,7 +52,13 @@ class WidgetTree(QTreeView):
         self.showDropIndicator()
         self.setDragDropMode(QAbstractItemView.InternalMove)
         self.expandAll()
+        self.setItemDelegate(RigViewDelegate(self.rig, self))
         
+    def setModel(self, rig):
+        self.rig = rig
+        self.setItemDelegate(RigViewDelegate(self.rig, self))
+        return super(WidgetTree, self).setModel(rig)
+    
     def change(self, topLeftIndex, bottomRightIndex):
         self.update(topLeftIndex)
         self.expandAll()
@@ -68,6 +76,7 @@ class WidgetTree(QTreeView):
                 QTreeView.dragEnterEvent(self, event)
         else:
             event.ignore()
+            
     def dragMoveEvent(self, event):
         if event.mimeData().hasFormat('application/x-widget'):
             if event.dropAction() == Qt.CopyAction:
@@ -112,10 +121,44 @@ class WidgetList(QListWidget):
         drag.setMimeData(core.getWidgetMimeData(widget))
         drag.start(Qt.CopyAction)
         
-#MAIN WIDGETS
+
+class WidgetAction(QAction):
+    def __init__(self, *args, **kwargs):
+        w = kwargs.pop('widget', None)
+        self._widget = w
+        super(WidgetAction, self).__init__(*args, **kwargs)
+        self.connect(self, SIGNAL('triggered()'), self.widgetTrigger)
+        
+    def setWidget(self, w):
+        self._widget = w
+
+    def widgetTrigger(self):
+        '''Emit a triggeredWidget signal with a widget'''
+        self.emit(SIGNAL('triggeredWidget'), self._widget)
+        
+    
 class RigViewDelegate(QItemDelegate):
-    def __init__(self, parent=None):
+    def __init__(self, rig, parent=None):
+        self._rig = rig
         super(RigViewDelegate, self).__init__(parent)
+        
+    def editorEvent(self, event, model, option, index):
+        if event.type() == QEvent.MouseButtonPress and index.isValid():                        
+            if event.button() == Qt.RightButton:
+                widget = model.widgetFromIndex(index)
+                menu = QMenu()
+                mirroraction = WidgetAction("Mirror", self, widget=widget)                
+                self.connect(mirroraction, SIGNAL('triggeredWidget'), self._rig.setMirrored)
+                menu.addAction(mirroraction)
+
+                unmirrorAction = WidgetAction("Un-Mirror", self, widget=widget)
+                self.connect(unmirrorAction, SIGNAL('triggeredWidget'), self._rig.setUnMirrored)
+                menu.addAction(unmirrorAction)
+                
+                menu.exec_(self.parent().viewport().mapToGlobal(event.pos()))
+                
+        return super(RigViewDelegate, self).editorEvent(event, model, option, index)
+                
     def createEditor(self, parent, option, index):
         model = index.model()
         if index.column() == model.headers.index('Side'):
@@ -131,8 +174,14 @@ class RigViewDelegate(QItemDelegate):
             return combobox            
         else:
             return QItemDelegate.createEditor(self, parent, option, index)
+        
     def setEditorData(self, editor, index):
+        model = index.model()
+        if index.column() == model.headers.index('Part'):
+            widget = model.widgetFromIndex(index)
+            editor.setText(widget.options.getValue('part'))
         return QItemDelegate.setEditorData(self, editor, index)
+    
     def setModelData(self, editor, model, index):
         if (index.column() == model.headers.index('Side')) or \
                (index.column() == model.headers.index('Parent Node')):
@@ -142,10 +191,11 @@ class RigViewDelegate(QItemDelegate):
             
 class RigWidget(QWidget):
     def __init__(self, parent=None):
+        
         super(RigWidget, self).__init__(parent=parent)
         _logger.debug('initializing promoted RigWidget')
         uic.loadUi(getResource('rigwidget.ui'), self)
-        self.rigView.setItemDelegate(RigViewDelegate(self))
+
         self.__registry = core.WidgetRegistry()
         #populate the widget list
         for wdg in self.__registry.widgetNames():

@@ -6,7 +6,6 @@ import beings.utils as utils
 import logging, sys, os
 logging.basicConfig()
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
 
 core._importAllWidgets(reloadThem=True)
 
@@ -14,6 +13,27 @@ def getResource(fileName):
     basedir = os.path.dirname(sys.modules[__name__].__file__)
     resource = os.path.join(basedir, 'ui_resources', fileName)
     return resource
+class PopupError():
+    """
+    Decorator that will raise error messages
+    """
+    def __init__(self, parent=None):
+        self._parent = parent
+    def __call__(self, func):
+        
+        def new(*args, **kwargs):
+            try:
+                result = func(*args, **kwargs)
+            except Exception, e:
+                QMessageBox.critical(self._parent, "Beings Error", str(e))
+                raise
+            
+            return result
+        doc = func.__doc__ or ""
+        new.__doc__ = "<Using PopupError Decorator>\n%s" % doc
+        new.__dict__.update(func.__dict__)
+        new.__name__ = func.__name__
+        return new
 
 #PROMOTED WIDGETS
 class WidgetTree(QTreeView):
@@ -132,14 +152,17 @@ class RigWidget(QWidget):
             self.widgetList.addItem(wdg)
 
     @pyqtSlot()
+    @PopupError()
     def on_buildLayoutBtn_released(self):
         self.rigView.rig.buildLayout()
         
     @pyqtSlot()
+    @PopupError()
     def on_buildRigBtn_released(self):
         self.rigView.rig.buildRig()
         
     @pyqtSlot()
+    @PopupError()
     def on_addWidgetBtn_released(self):
         wdg = str(self.widgetList.currentItem().text())
         inst = self.__registry.getInstance(wdg)

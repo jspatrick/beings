@@ -12,7 +12,7 @@ from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 _logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
-_logger.setLevel(logging.DEBUG)
+
 #set up logging
 
 class BeingsFilter(logging.Filter):
@@ -625,7 +625,6 @@ class Widget(WidgetTreeItem):
         super(Widget, self).__init__(part)
         assert(self.options)
         self._oritPartName = part
-        self._ID = part
         self._nodes = [] #stores all nodes        
         self._bindJoints = {} #stores registered bind joints
         self._differs = {'rig': control.Differ(), 'layout': control.Differ()}
@@ -642,19 +641,17 @@ class Widget(WidgetTreeItem):
         """ Return a name of the object.
         partID should always be unique.  This can be used as a key
         in dictionaries referring to multiple instances"""
-        if id:
-            return self._ID
         part = self.options.getValue('part')
         side = self.options.getValue('side')
         return '%s_%s' % (part, side)
 
     def __repr__(self):
         return "%s('%s')" % \
-               (self.__class__.__name__, self.name(id=True))
+               (self.__class__.__name__, self.name())
 
     def __str__(self):
         return "%s('%s')" % \
-               (self.__class__.__name__, self.name(id=True))
+               (self.__class__.__name__, self.name())
 
     @BuildCheck('built')
     def duplicateBindJoints(self, oriented=True):
@@ -1133,6 +1130,22 @@ class Rig(TreeModel):
             parentPart = data[id]['parentPart']
             rig.addWidget(wdg, parent = parentWidget, parentNode=parentPart)
         return rig
+
+    def getBadNames(self):
+        """
+        Return a list of [('badID', widget)] for all widgets with a duplicate or invalid name
+        """
+        
+        allWidgets = self.root.childWidgets()
+        result = []
+        IDs = []
+        for widget in allWidgets:
+            name = widget.name()
+            if name not in IDs:
+                IDs.append(name)
+            else:
+                result.append(name)
+        return result
     
     def addWidget(self, widget, parent=None, parentNode=None):        
         if parent is None:
@@ -1149,7 +1162,13 @@ class Rig(TreeModel):
         self.emit(SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
         
     def buildLayout(self):
-        self.delete()
+        badNames = self.getBadNames()
+        if badNames:
+            raise utils.BeingsError("Cannot build - duplicate or invalid IDs found:\n%s" \
+                                    % str(badNames))
+        
+        if self.state() in  ['rigged', 'built']:
+            self.delete()
         self._stateFlag = 'built'
         for wdg in self.root.childWidgets():
             if wdg.state() == 'rigged':
@@ -1183,9 +1202,17 @@ class Rig(TreeModel):
         return result
     def state(self):
         return self._stateFlag
-    
-    def buildRig(self, lock=False):        
-        self.delete()
+
+
+    def buildRig(self, lock=False):
+        #check to make sure part names are unique
+        badNames = self.getBadNames()
+        if badNames:
+            raise utils.BeingsError("Cannot build - duplicate or invalid IDs found:\n%s" \
+                                    % str(badNames))
+
+        if self.state() in  ['rigged', 'built']:
+            self.delete()
         self._stateFlag = 'rigged'
         with utils.NodeTracker() as nt:            
             self._buildMainHierarchy()                 
@@ -1198,6 +1225,7 @@ class Rig(TreeModel):
         if lock:
             NT.lockHierarchy(self._coreNodes['top'])
             
+
     def delete(self):
         for wdg in self.root.childWidgets():
             wdg.delete()
@@ -1207,15 +1235,7 @@ class Rig(TreeModel):
                     pm.delete(node)
         self._nodes = []
         self._stateFlag = 'unbuilt'
-        
-    def _getChildWidgets(self, parent=None):
-        '''Get widgets that are children of parent.'''
-        result = []
-        for wdgName, parentTup in self._parents.items():
-            if parentTup[0] == parent:
-                result.append(wdgName)
-        return result
-    
+            
     def _doParenting(self):
         '''
         Parent rigs to each other
@@ -1239,7 +1259,7 @@ class Rig(TreeModel):
                 parentNode = parent.getParentNode(parentPart)
                 for node in child.getNodes('fk'):
                     node.setParent(parentNode)
-                
+    
     def _buildMainHierarchy(self):
         '''
         build the main group structure

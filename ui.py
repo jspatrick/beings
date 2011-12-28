@@ -56,7 +56,7 @@ class WidgetTree(QTreeView):
         
     def setModel(self, rig):
         self.rig = rig
-        self.setItemDelegate(RigViewDelegate(self.rig, self))
+        
         return super(WidgetTree, self).setModel(rig)
     
     def change(self, topLeftIndex, bottomRightIndex):
@@ -136,7 +136,19 @@ class WidgetAction(QAction):
         '''Emit a triggeredWidget signal with a widget'''
         self.emit(SIGNAL('triggeredWidget'), self._widget)
         
-    
+def staticKwargsFunc(func, **staticKwargs):
+    """
+    Wrap a function with static kwargs, but allow for args and additional kwargs
+    """
+    def new(*args, **kwargs):
+       kwargs.update(staticKwargs)
+       return func(*args, **kwargs)
+    new.__name__ = func.__name__
+    doc = func.__doc__ or ""
+    new.__doc__ = "<Wrapped with wrapFunc>%s" % doc
+    new.__dict__.update(func.__dict__)
+    return new
+
 class RigViewDelegate(QItemDelegate):
     def __init__(self, rig, parent=None):
         self._rig = rig
@@ -146,10 +158,20 @@ class RigViewDelegate(QItemDelegate):
         if event.type() == QEvent.MouseButtonPress and index.isValid():                        
             if event.button() == Qt.RightButton:
                 widget = model.widgetFromIndex(index)
+                
                 menu = QMenu()
-                mirroraction = WidgetAction("Mirror", self, widget=widget)                
-                self.connect(mirroraction, SIGNAL('triggeredWidget'), self._rig.setMirrored)
-                menu.addAction(mirroraction)
+                rmAction = WidgetAction("Remove (preserve children)", self, widget=widget)
+                self.connect(rmAction, SIGNAL('triggeredWidget'), self._rig.rmWidget)
+                menu.addAction(rmAction)
+                
+                rmDeleteAction = WidgetAction("Remove (delete children)", self, widget=widget)
+                self.connect(rmDeleteAction, SIGNAL('triggeredWidget'),
+                             staticKwargsFunc(self._rig.rmWidget, removeChildren=True))
+                menu.addAction(rmDeleteAction)
+                
+                mirrorAction = WidgetAction("Mirror", self, widget=widget)                
+                self.connect(mirrorAction, SIGNAL('triggeredWidget'), self._rig.setMirrored)
+                menu.addAction(mirrorAction)
 
                 unmirrorAction = WidgetAction("Un-Mirror", self, widget=widget)
                 self.connect(unmirrorAction, SIGNAL('triggeredWidget'), self._rig.setUnMirrored)
@@ -158,7 +180,7 @@ class RigViewDelegate(QItemDelegate):
                 menu.exec_(self.parent().viewport().mapToGlobal(event.pos()))
                 
         return super(RigViewDelegate, self).editorEvent(event, model, option, index)
-                
+    
     def createEditor(self, parent, option, index):
         model = index.model()
         if index.column() == model.headers.index('Side'):
@@ -213,10 +235,8 @@ class RigWidget(QWidget):
         
     @pyqtSlot()
     @PopupError()
-    def on_addWidgetBtn_released(self):
-        wdg = str(self.widgetList.currentItem().text())
-        inst = self.__registry.getInstance(wdg)
-        self.rigView.rig.addWidget(inst)
+    def on_deleteRigBtn_released(self):
+        self.rigView.rig.delete()
         
         
 _ui = None

@@ -403,6 +403,25 @@ class WidgetTreeItem(object):
         childList =[child.orderKey(), child, parentToPart]
         bisect.insort(self.children, childList)
         
+    def rmChild(self, child, removeChildren=False):
+        """
+        Remove a child
+        @param reparentChildren=True:  reparent child's children to the child's parent
+        """
+        
+        if not removeChildren:
+            grandChildren = child.childWidgets(recursive=False)
+            try:
+                parentPart = self.listParentParts()[0]
+            except IndexError:
+                parentPart = ""
+            child.children = []
+            for grandChild in grandChildren:
+                self.insertChild(grandChild, parentToPart = parentPart)
+            
+        self.children.pop(self.rowOfChild(child))
+        return child
+        
     def getClassName(self):
         return self.__class__.__name__
     
@@ -422,7 +441,7 @@ class WidgetTreeItem(object):
         elif col == 3:
             return QVariant(QString(self.getClassName()))
         elif col == 4:
-            return self.orderKey()
+            return QVariant(QString(""))
 
     def orderKey(self): return "%s_%s" % \
         (self.options.getValue('part'), self.options.getValue('side'))
@@ -460,7 +479,7 @@ class TreeModel(QAbstractItemModel):
         super(TreeModel, self).__init__(parent)
         self.root = WidgetTreeItem("", isRoot=True)
         self.columns = self.root.numColumns
-        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
+        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'Mirrored']
         
     def supportedDropActions(self):
         return Qt.MoveAction | Qt.CopyAction
@@ -488,7 +507,7 @@ class TreeModel(QAbstractItemModel):
                 index = self.indexFromWidget(widget, parentIndex=index)
                 if index != None:
                     return index
-        return None    
+        return QModelIndex()
     
     def rowCount(self, parent):
         widget = self.widgetFromIndex(parent)
@@ -1234,6 +1253,13 @@ class Rig(TreeModel):
         parentIndex = self.indexFromWidget(parent)
         if parentIndex is None:
             parentIndex = QModelIndex()
+        self.emit(SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
+
+    def rmWidget(self, widget, removeChildren=False):
+        parent = widget.parent
+        parentIndex = self.indexFromWidget(parent)
+        remove = not removeChildren        
+        parent.rmChild(widget, removeChildren=removeChildren)        
         self.emit(SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
         
     def buildLayout(self):

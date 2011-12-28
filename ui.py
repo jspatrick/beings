@@ -42,20 +42,40 @@ class WidgetTree(QTreeView):
                 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat('application/x-widget'):
-            event.accept()
+            if event.dropAction() == Qt.CopyAction:
+                event.accept()
+            else:
+                QTreeView.dragEnterEvent(self, event)
         else:
             event.ignore()
     def dragMoveEvent(self, event):
         if event.mimeData().hasFormat('application/x-widget'):
-            event.accept()
+            if event.dropAction() == Qt.CopyAction:
+                event.accept()
+            else:
+                QTreeView.dragMoveEvent(self, event)
         else:
             event.ignore()
             
     def dropEvent(self, event):
-        if event.mimeData().hasFormat('application/x-widget'):            
-            widget = core.widgetFromMimeData(event.mimeData())
-            self.rig.addWidget(widget)
-            event.accept()
+        if event.mimeData().hasFormat('application/x-widget'):
+            if event.dropAction() == Qt.CopyAction:
+                widget = core.widgetFromMimeData(event.mimeData())
+                pos = QCursor.pos()
+                mousePos = self.viewport().mapFromGlobal(QCursor.pos())
+                index = self.indexAt(mousePos)
+                model = index.model()
+                if model:
+                    parentWidget = model.widgetFromIndex(index)
+                else:
+                    parentWidget = None
+                _logger.debug("Parenting under %r"  % parentWidget)
+                self.rig.addWidget(widget, parent=parentWidget)                
+                event.accept()
+                
+            elif event.dropAction() == Qt.MoveAction:
+                QTreeView.dropEvent(self, event)
+                
         else:
             event.ignore()
 

@@ -1,25 +1,5 @@
 """
-import pymel.core as pm
-import throttle.control as C
-import throttle.leg as L
-import throttle.utils as U
-reload(U)
-reload(C)
-reload(L)
-pm.newFile(force=1)
-ll = L.LegLayout()
-ll.build()
-ctl = C.Control.fromNode(pm.PyNode('leg1_cn_ctl2'))
-d = L.Differ()
-d.addObjs([ctl])
-d.setInitialState()
-ctl.xformNode().tx.set(1)
-diffs = d.getDiffs()
-pm.newFile(force=1)
-ll = L.LegLayout()
-ll.build()
-ll.delete()
-d.applyDiffs(diffs)
+The core widget and rig objects that custom widgets should inherit
 """
 import logging, re, copy, weakref, bisect, os, sys, __builtin__
 import pymel.core as pm
@@ -306,8 +286,9 @@ class OptionCollection(QObject):
         for optName, optVal in optDct.items():
             self.setValue(optName, optVal)
 
+#TODO:  Use weakrefs so we don't store old objects
 g_widgetList = []
-def getWidgetMimeData(widget):
+def getWidgetMimeData(widget, format='x-widget'):
     global g_widgetList
     if widget not in g_widgetList:
         g_widgetList.append(widget)
@@ -317,10 +298,10 @@ def getWidgetMimeData(widget):
     stream = QDataStream(data, QIODevice.WriteOnly)
     stream << QString(str(widgetIndex))
     mimeData = QMimeData()
-    mimeData.setData("application/x-widget", data)
+    mimeData.setData("application/%s" % format, data)
     return mimeData
 
-def widgetFromMimeData(mimeData):    
+def widgetFromMimeData(mimeData): 
     if mimeData.hasFormat("application/x-widget"):
         data = mimeData.data("application/x-widget")
         stream = QDataStream(data, QIODevice.ReadOnly)
@@ -339,7 +320,7 @@ class WidgetTreeItem(object):
         self.parent = None
         self.numColumns = 5
         
-        self._parentNodes = {}
+        self._parentNodes = utils.OrderedDict({})
         
         #set up options    
         self.options = OptionCollection()
@@ -408,7 +389,7 @@ class WidgetTreeItem(object):
         #don't allow the same instance in the tree twice
         ids = [id(w) for w in self.getRoot().childWidgets()]
         if id(child) in ids:
-            raise RuntimeEror("Cannot add the same instance twice")
+            raise RuntimeError("Cannot add the same instance twice")
         
         #order keys should  be unique, else warn
         for currentChild in self.children:
@@ -448,16 +429,17 @@ class WidgetTreeItem(object):
     def addParentPart(self, nodeName):
         '''Add the 'key' name of a node'''
         if nodeName in self._parentNodes.keys():
-            _logger.warning("%s already is a parent node" % nodeName)
+            _logger.warning("%s already is a parent node, skipping" % nodeName)
+            return
         self._parentNodes[nodeName] = None
         
-    def setParentPart(self, part):
+    def setParentedPart(self, part):
         '''Set the part this widget is parented with'''
         if part not in self.parent.listParentParts():
             _logger.warning("Invalid parent part: '%s'" % part)
         row = self.parent.rowOfChild(self)
         self.parent.children[row][self.CHILD_PART_INDEX] = part
-        
+
     def setParentNode(self, nodeName, node):
         '''Set the actual node of a nodeName'''
         if nodeName not in self._parentNodes.keys():
@@ -480,7 +462,7 @@ class TreeModel(QAbstractItemModel):
         self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'ID']
         
     def supportedDropActions(self):
-        return Qt.CopyAction | Qt.MoveAction
+        return Qt.MoveAction | Qt.CopyAction
     
     def flags(self, index):
         defaultFlags = QAbstractItemModel.flags(self, index)
@@ -586,7 +568,7 @@ class TreeModel(QAbstractItemModel):
             else:
                 widget.options.setValue('side', value)
         if header == 'Parent Node':
-            widget.setParentPart(value)
+            widget.setParentedPart(value)
         self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
         return True
     
@@ -649,7 +631,6 @@ class Widget(WidgetTreeItem):
         self._differs = {'rig': control.Differ(), 'layout': control.Differ()}
         self._cachedDiffs = {'rig': {}, 'layout': {}}
         self._nodeCategories = {}
-        self._parentNodes = {}
         for categoy in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[categoy] = []
         
@@ -1157,6 +1138,8 @@ class Rig(TreeModel):
         if parent is None:
             parent = self.root
             parentNode = ""
+        elif not parentNode:
+            parentNode = parent.listParentParts()[0]
         _logger.debug('adding widget - parent: %r, parentNode: %s' % (parent, parentNode))
         parent.insertChild(widget, parentNode)
         widget.options.setValue('char', self.options.getValue('char'))        

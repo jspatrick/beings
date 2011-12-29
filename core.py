@@ -893,24 +893,14 @@ class Widget(WidgetTreeItem):
             finally:
                 self._nodes = nt.getObjects()
 
-        #template nodes that aren't controls:                
+        #template nodes that aren't controls:                       #set up the differ
+        for diffType, differ in self._differs.items():
+            differ.setInitialState()
+ 
         for jntPr in self._bindJoints.values():
             node = jntPr[0]
             node.overrideEnabled.set(1)
             node.overrideDisplayType.set(2)
-
-        # unRefNodes = self._differs['rig'].getObjs().values()
-        # unRefNodes.extend(self._differs['layout'].getObjs().values())        
-        # for ctl in unRefNodes:
-        #     nodes = control.getShapeNodes(ctl)
-        #     nodes.append(ctl)
-        #     for node in nodes:
-        #         node.overrideDisplayType.set(0)
-        #         node.overrideEnabled.set(0)
-
-        #set up the differ
-        for diffType, differ in self._differs.items():
-            differ.setInitialState()
             
         if altDiffs is not None:
             self.applyDiffs(altDiffs)
@@ -1362,7 +1352,6 @@ class Rig(TreeModel):
         if badNames:
             raise utils.BeingsError("Cannot build - duplicate or invalid IDs found:\n%s" \
                                     % str(badNames))
-
         if self.state() in  ['rigged', 'built']:
             self.delete()
         self._stateFlag = 'rigged'
@@ -1378,8 +1367,14 @@ class Rig(TreeModel):
             NT.lockHierarchy(self._coreNodes['top'])
 
     def delete(self):
+        #delete mirrored widgets first so we get diffs before conections are broken
+        
+        mirrored = self._mirrored.values()
+        for wdg in mirrored:
+            wdg.delete()        
         for wdg in self.root.childWidgets():
-            wdg.delete()
+            if wdg not in mirrored:
+                wdg.delete()
         with utils.SilencePymelLogger():
             for node in self._nodes:
                 if pm.objExists(node):

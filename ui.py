@@ -31,6 +31,7 @@ class PopupError():
                 raise
             
             return result
+        
         doc = func.__doc__ or ""
         new.__doc__ = "<Using PopupError Decorator>\n%s" % doc
         new.__dict__.update(func.__dict__)
@@ -56,8 +57,8 @@ class WidgetTree(QTreeView):
         
     def setModel(self, rig):
         self.rig = rig
-        
-        return super(WidgetTree, self).setModel(rig)
+        super(WidgetTree, self).setModel(rig)
+        self.setItemDelegate(RigViewDelegate(self.rig, self))        
     
     def change(self, topLeftIndex, bottomRightIndex):
         self.update(topLeftIndex)
@@ -158,16 +159,23 @@ class RigViewDelegate(QItemDelegate):
         if event.type() == QEvent.MouseButtonPress and index.isValid():                        
             if event.button() == Qt.RightButton:
                 widget = model.widgetFromIndex(index)
-                
                 menu = QMenu()
-                rmAction = WidgetAction("Remove (preserve children)", self, widget=widget)
-                self.connect(rmAction, SIGNAL('triggeredWidget'), self._rig.rmWidget)
-                menu.addAction(rmAction)
                 
-                rmDeleteAction = WidgetAction("Remove (delete children)", self, widget=widget)
+                if widget.children:
+                    rmAction = WidgetAction("Remove (preserve children)", self, widget=widget)
+                    self.connect(rmAction, SIGNAL('triggeredWidget'), self._rig.rmWidget)
+                    menu.addAction(rmAction)
+
+                    rmDeleteAction = WidgetAction("Remove (delete children)", self,
+                                                  widget=widget)
+                else:
+                    rmDeleteAction = WidgetAction("Remove", self,
+                                                  widget=widget)
+                    
                 self.connect(rmDeleteAction, SIGNAL('triggeredWidget'),
                              staticKwargsFunc(self._rig.rmWidget, removeChildren=True))
                 menu.addAction(rmDeleteAction)
+                      
                 
                 mirrorAction = WidgetAction("Mirror", self, widget=widget)                
                 self.connect(mirrorAction, SIGNAL('triggeredWidget'), self._rig.setMirrored)

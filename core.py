@@ -47,9 +47,7 @@ class WidgetRegistry(object):
             cls.instance._widgets = {}
             cls.instance._descriptions = {}
         return cls.instance
-    
-    def __init__(self):
-        pass        
+
     def register(self, class_, niceName=None, description=None):        
         if niceName is None:
             niceName = class_.__name__
@@ -59,7 +57,7 @@ class WidgetRegistry(object):
                self._widgets[niceName] != class_:
             _logger.warning("%s is already registered" % niceName)
             return False
-        #elif niceName not in self._widgets.keys():
+
         else:
             _logger.info("Registering '%s'" % niceName)
             
@@ -291,9 +289,12 @@ class OptionCollection(QObject):
 g_widgetList = []
 def getWidgetMimeData(widget, format='x-widget'):
     global g_widgetList
-    if widget not in g_widgetList:
-        g_widgetList.append(widget)
-    widgetIndex = g_widgetList.index(widget)
+    objs = [ref() for ref in g_widgetList]
+    if widget not in objs:
+        ref = weakref.ref(widget)
+        g_widgetList.append(weakref.ref(widget))
+        objs.append(widget)
+    widgetIndex = objs.index(widget)
     
     data = QByteArray()
     stream = QDataStream(data, QIODevice.WriteOnly)
@@ -302,14 +303,24 @@ def getWidgetMimeData(widget, format='x-widget'):
     mimeData.setData("application/%s" % format, data)
     return mimeData
 
-def widgetFromMimeData(mimeData): 
+def widgetFromMimeData(mimeData):
+    global g_widgetList
+    widget = None
     if mimeData.hasFormat("application/x-widget"):
         data = mimeData.data("application/x-widget")
         stream = QDataStream(data, QIODevice.ReadOnly)
         index = QString()
         stream >> index
         index = int(str(index))
-        return g_widgetList[index]
+        widget = g_widgetList[index]()
+        if widget == None:
+            _logger.error("Warning!  Can't find widget in global Mime Data list")
+    #flush unused widgets:
+    startLen = len(g_widgetList)
+    g_widgetList = [r for r in g_widgetList if r()]
+    if len(g_widgetList) != startLen:
+        _logger.debug("Reduced the widgets in mimeData")
+    return g_widgetList[index]()
     
 class WidgetTreeItem(object):
     KEY_INDEX, WIDGET_INDEX, CHILD_PART_INDEX = range(3)
@@ -574,6 +585,7 @@ class TreeModel(QAbstractItemModel):
                                     widget.childAtRow(row))
         except AssertionError:
             return QModelIndex()
+        
     def setData(self, index, value, role=Qt.EditRole):
         widget = self.widgetFromIndex(index)
         if widget is None or widget is self.root:
@@ -676,50 +688,56 @@ class Widget(WidgetTreeItem):
     def mirror(self, other):
         '''
         Mirror this widget to another widget.  this assumes controls are in world space.
+        Templates mirrored controls
         '''
         thisCtlDct = self._differs['layout'].getObjs()
         otherCtlDct = other._differs['layout'].getObjs()
+        thisRigDct = self._differs['rig'].getObjs()
+        otherRigDct = other._differs['rig'].getObjs()
+        
         direct = ['tz', 'ty', 'rx', 'sx', 'sy', 'sz']
         inverted = ['tx', 'ry', 'rz']
         namer = Namer(c=self.options.getValue('char'),
                       s=self.options.getValue('side'),
                       p=self.options.getValue('part'))
         
-        for k, thisCtl in thisCtlDct.items():
-            otherCtl = otherCtlDct.get(k, None)
-            if not otherCtl:
-                _logger.warning("Cannot mirror '%s' - it is not in the other rig" % k)
-                continue
-            
-            for attr in direct:
-                try:
-                    pm.connectAttr('%s.%s' % (thisCtl, attr),
-                                   '%s.%s' % (otherCtl, attr))
-                except RuntimeError:
-                    pass
-                except Exception, e:
-                    _logger.warning("Error during connection: %s" % str(e))                    
+        for thisDct, otherDct in [(thisCtlDct, otherCtlDct), (thisRigDct, otherRigDct)]:
+            for k, thisCtl in thisDct.items():
+                otherCtl = otherDct.get(k, None)
+                otherCtl.template.set(1)
+                if not otherCtl:
+                    _logger.warning("Cannot mirror '%s' - it is not in the other rig" % k)
+                    continue
 
-            for attr in inverted:                                
-                fromAttr = '%s.%s' % (thisCtl, attr)
-                toAttr = '%s.%s' % (otherCtl, attr)
-                char = self.options.getValue('char')
-                side = self.options.getValue('char')
-                mdn = pm.createNode('multiplyDivide',
-                                    n=namer.name(d='%sTo%s' % (fromAttr, toAttr)))
-                
-                mdn.input2X.set(-1)
-                mdn.operation.set(1)
-                pm.connectAttr(fromAttr, mdn.input1X)
-                try:
-                    pm.connectAttr(mdn.outputX, toAttr)                    
-                except RuntimeError:
-                    pm.delete(mdn)                
-                except Exception, e:
-                    _logger.warning("Error during connection: %s" % str(e))
-                    pm.delete(mdn)
-                else:
-                    self._nodes.append(mdn)
+                for attr in direct:
+                    try:
+                        pm.connectAttr('%s.%s' % (thisCtl, attr),
+                                       '%s.%s' % (otherCtl, attr))
+                    except RuntimeError:
+                        pass
+                    except Exception, e:
+                        _logger.warning("Error during connection: %s" % str(e))                    
+
+                for attr in inverted:                                
+                    fromAttr = '%s.%s' % (thisCtl, attr)
+                    toAttr = '%s.%s' % (otherCtl, attr)
+                    char = self.options.getValue('char')
+                    side = self.options.getValue('char')
+                    mdn = pm.createNode('multiplyDivide',
+                                        n=namer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
+
+                    mdn.input2X.set(-1)
+                    mdn.operation.set(1)
+                    pm.connectAttr(fromAttr, mdn.input1X)
+                    try:
+                        pm.connectAttr(mdn.outputX, toAttr)                    
+                    except RuntimeError:
+                        pm.delete(mdn)                
+                    except Exception, e:
+                        _logger.warning("Error during connection: %s" % str(e))
+                        pm.delete(mdn)
+                    else:
+                        self._nodes.append(mdn)
 
                 
     @BuildCheck('built')
@@ -874,7 +892,22 @@ class Widget(WidgetTreeItem):
                 self._makeLayout(namer)
             finally:
                 self._nodes = nt.getObjects()
-                
+
+        #template nodes that aren't controls:                
+        for jntPr in self._bindJoints.values():
+            node = jntPr[0]
+            node.overrideEnabled.set(1)
+            node.overrideDisplayType.set(2)
+
+        # unRefNodes = self._differs['rig'].getObjs().values()
+        # unRefNodes.extend(self._differs['layout'].getObjs().values())        
+        # for ctl in unRefNodes:
+        #     nodes = control.getShapeNodes(ctl)
+        #     nodes.append(ctl)
+        #     for node in nodes:
+        #         node.overrideDisplayType.set(0)
+        #         node.overrideEnabled.set(0)
+
         #set up the differ
         for diffType, differ in self._differs.items():
             differ.setInitialState()
@@ -1194,7 +1227,21 @@ class Rig(TreeModel):
                 
     def setUnMirrored(self, widget):
         self._mirrored.pop(widget)
-        
+
+    #reimplement
+    def data(self, index, role):        
+        if role == Qt.DisplayRole:
+            if index.column() == self.headers.index('Mirrored'):                
+                widget = self.widgetFromIndex(index)
+                if widget in self._mirrored.keys():
+                    return QVariant("Source")
+                elif widget in self._mirrored.values():
+                    return QVariant("Target")
+                else:
+                    return QVariant("")
+                
+        return super(Rig, self).data(index, role)
+    
     @classmethod
     def rigFromData(cls, data):
         '''
@@ -1275,12 +1322,13 @@ class Rig(TreeModel):
             if wdg.state() == 'rigged':
                 wdg.delete()
             wdg.buildLayout()
-            
+        
         #do mirroring
         for wdg, tgt in self._mirrored.items():
             wdg.mirror(tgt)
+
             
-    def getData(self):
+    def getSaveData(self):
         '''
         Get widget data needed to reconstruct the rig
         starting at root, for each child get:
@@ -1308,7 +1356,6 @@ class Rig(TreeModel):
     def state(self):
         return self._stateFlag
 
-
     def buildRig(self, lock=False):
         #check to make sure part names are unique
         badNames = self.getBadNames()
@@ -1329,7 +1376,6 @@ class Rig(TreeModel):
         self._doParenting()
         if lock:
             NT.lockHierarchy(self._coreNodes['top'])
-            
 
     def delete(self):
         for wdg in self.root.childWidgets():
@@ -1378,9 +1424,7 @@ class Rig(TreeModel):
         self._coreNodes['dnt'] = dnt
         model = pm.createNode('transform', name='%s%s_model' % (char, rigType))
         model.setParent(dnt)
-        self._coreNodes['model'] = model
-
-        
+        self._coreNodes['model'] = model        
 
 
 def _importAllWidgets(reloadThem=False):

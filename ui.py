@@ -282,12 +282,13 @@ class RigWidget(QWidget):
             with open(filePath, 'w') as f:
                 json.dump(data, f)
         self.__fileName = str(filePath)
-        
+        _logger.info("Saved rig as %s" % filePath)
     def loadRig(self, data):
         """Load the rig data
-        @param data:  a rig dictionary"""
+        @param data:  a rig dictionary"""        
         rig = core.Rig.rigFromData(data)
-        self.rigView.setModel(rig)        
+        self.rigView.rig.delete()
+        self.rigView.setModel(rig)  
 
         
     @pyqtSlot()

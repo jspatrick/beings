@@ -227,7 +227,7 @@ class OptionCollection(QObject):
         self.__rules = {}
         self.__optPresets = {}
         self.__defaults = {}
-        
+    
     def addOpt(self, optName, defaultVal, optType=str, **kwargs):
         self.__options[optName] = optType(defaultVal)
         self.__defaults[optName] = optType(defaultVal)        
@@ -1191,11 +1191,19 @@ class Rig(TreeModel):
         self.options.setValue('rigType', rigType)
         self.options.addOpt('buildStyle', 'standard')
         self.options.setValue('buildStyle', buildStyle)
+        self.options.connect(self.options, SIGNAL('optChanged'), self._optChanged)
         if not skipCog:
             self.cog = CenterOfGravity()
             self.cog.options.setValue('char', self.options.getValue('char'))        
             self.addWidget(self.cog)
             
+    def _optChanged(self, opt):
+        """This is called with the option name anytime a rig option is changed"""
+        if opt == 'char':
+            newName = self.options.getValue('char')
+            for wdg in self.root.childWidgets():
+                wdg.options.setValue('char', newName)
+
     def setMirrored(self, widget):
         """
         If the widget has a side and a similarly named widget on the opposite side
@@ -1230,8 +1238,7 @@ class Rig(TreeModel):
                 elif widget in self._mirrored.values():
                     return QVariant("Target")
                 else:
-                    return QVariant("")
-                
+                    return QVariant("")                
         return super(Rig, self).data(index, role)
     
     @classmethod

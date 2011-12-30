@@ -943,7 +943,7 @@ class Widget(WidgetTreeItem):
         
     def setDiffs(self, diffDct):
         """Set diffs"""
-        self._cachedDiggs = diffDct
+        self._cachedDiffs = diffDct
         
     def getDiffs(self, cached=False):
         """
@@ -1254,10 +1254,15 @@ class Rig(TreeModel):
         idWidgets = {}
         registry = WidgetRegistry()        
         for id, dct in data.items():
-            wdg = registry.getInstance(dct['widgetName'])
+            if dct['isCog']:
+                wdg = rig.cog
+            else:
+                wdg = registry.getInstance(dct['widgetName'])
+                idWidgets[id] = wdg
+
             wdg.setDiffs(dct['diffs'])
             wdg.options.setFromData(dct['options'])
-            idWidgets[id] = wdg
+            
 
         #parent them into rig
         for id, wdg in idWidgets.items():
@@ -1343,20 +1348,26 @@ class Rig(TreeModel):
              parentNode,
              registered name,
              optionData,
-             diffData}        
+             diffData}    
         '''
         result = {}
         allWidgets = self.root.childWidgets()
+        for widget in allWidgets:
+            widget.cacheDiffs()
         registry = WidgetRegistry()
+        
+        #determine whether the cog has been removed from the widget
         result['skipCog'] = False
         if self.cog not in self.root.childWidgets():
             result['skipCog'] = True
-
+        
         for widget in allWidgets:
-            #if we're using the builtin cog, don't include it in allWidgets
-            if not result['skipCog'] and widget == self.cog:
-                continue
             wdata = {}
+            if widget == self.cog:
+                wdata['isCog'] = True
+            else:
+                wdata['isCog'] = False
+            
             if widget.parent is self.root:
                 wdata['parentID'] = 'None'
             elif widget.parent is self.cog:

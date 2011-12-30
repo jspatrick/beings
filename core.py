@@ -107,6 +107,7 @@ class Namer(object):
         self._lockedToks = []
         if toks:
             self.setTokens(**toks)
+            
     def lockToks(self, *toks):
         """Do not allow overriding tokens"""
         for tok in toks:
@@ -119,6 +120,7 @@ class Namer(object):
                 self._lockedToks.pop(index)
             except ValueError:
                 _logger.debug("%s is not locked" % tok)
+                
     def _fullToken(self, token):
         if token in self.tokenSymbols.values():
             return token
@@ -1240,10 +1242,13 @@ class Rig(TreeModel):
         #create a rig instance
         data = copy.deepcopy(data)
         rigOpts = data.pop('rigOptions')
+        skipCog = data.pop('skipCog')
+        
         name = rigOpts['char']
         rigType= rigOpts['rigType']
         style = rigOpts['buildStyle']
-        rig = cls(name, rigType=rigType, buildStyle=style, skipCog=True)
+        
+        rig = cls(name, rigType=rigType, buildStyle=style, skipCog=skipCog)
         
         #create widgets
         idWidgets = {}
@@ -1256,13 +1261,22 @@ class Rig(TreeModel):
 
         #parent them into rig
         for id, wdg in idWidgets.items():
-            parentID = data[id]['parentID']            
-            parentWidget = idWidgets.get(parentID, None)
-            if parentWidget is None and parentID != 'None':
-                _logger.warning("Cannot find parent widget for %s" % str(wdg))
-                _logger.debug("idWidgetDct:\n%r" % idWidgets)
+            parentID = data[id]['parentID']
+            if parentID == 'None':
+                parentWidget = None
+            elif parentID == 'Cog':
+                parentWidget = rig.cog
+            else:
+                try:
+                    parentWidget = idWidgets[parentID]
+                except KeyError:
+                    _logger.warning("Cannot find parent widget for %s" % str(wdg))
+                    _logger.debug("idWidgetDct:\n%r" % idWidgets)
+                    parentWidget = None
+                    
             parentPart = data[id]['parentPart']
             rig.addWidget(wdg, parent = parentWidget, parentNode=parentPart)
+            
         return rig
 
     def getBadNames(self):
@@ -1334,10 +1348,22 @@ class Rig(TreeModel):
         result = {}
         allWidgets = self.root.childWidgets()
         registry = WidgetRegistry()
+        result['skipCog'] = False
+        if self.cog not in self.root.childWidgets():
+            result['skipCog'] = True
+
         for widget in allWidgets:
+            #if we're using the builtin cog, don't include it in allWidgets
+            if not result['skipCog'] and widget == self.cog:
+                continue
             wdata = {}
-            wdata['parentID'] = str(id(widget.parent)) if widget.parent is not self.root \
-                                else 'None'
+            if widget.parent is self.root:
+                wdata['parentID'] = 'None'
+            elif widget.parent is self.cog:
+                wdata['parentID'] = 'Cog'
+            else:                
+                wdata['parentID'] = str(id(widget.parent))
+                
             wdata['parentPart'] = str(widget.getData(2).toString())
             wdata['options'] = widget.options.getData()
             wdata['diffs'] = widget.getDiffs()
@@ -1345,8 +1371,9 @@ class Rig(TreeModel):
             result[str(id(widget))] = wdata
             
         result['rigOptions'] = self.options.getData()
-        
+
         return result
+    
     def state(self):
         return self._stateFlag
 

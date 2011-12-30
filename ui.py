@@ -3,7 +3,7 @@ from PyQt4.QtGui import *
 from PyQt4 import uic
 import beings.core as core
 import beings.utils as utils
-import logging, sys, os
+import logging, sys, os, json
 logging.basicConfig()
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
@@ -53,13 +53,13 @@ class WidgetTree(QTreeView):
         self.showDropIndicator()
         self.setDragDropMode(QAbstractItemView.InternalMove)
         self.expandAll()
-        self.setItemDelegate(RigViewDelegate(self.rig, self))
+        self.setItemDelegate(RigViewDelegate(self))
         
     def setModel(self, rig):
         self.rig = rig
         super(WidgetTree, self).setModel(rig)
-        self.setItemDelegate(RigViewDelegate(self.rig, self))        
-    
+        self.rig.reset()
+        
     def change(self, topLeftIndex, bottomRightIndex):
         self.update(topLeftIndex)
         self.expandAll()
@@ -151,10 +151,13 @@ def staticKwargsFunc(func, **staticKwargs):
     return new
 
 class RigViewDelegate(QItemDelegate):
-    def __init__(self, rig, parent=None):
-        self._rig = rig
+    def __init__(self, parent=None):        
         super(RigViewDelegate, self).__init__(parent)
         
+    @property
+    def _rig(self):
+        return self.parent().rig
+    
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.MouseButtonPress and index.isValid():                        
             if event.button() == Qt.RightButton:
@@ -219,18 +222,74 @@ class RigViewDelegate(QItemDelegate):
         else:
             QItemDelegate.setModelData(self, editor, model, index)
             
+            
 class RigWidget(QWidget):
     def __init__(self, parent=None):
         
         super(RigWidget, self).__init__(parent=parent)
         _logger.debug('initializing promoted RigWidget')
         uic.loadUi(getResource('rigwidget.ui'), self)
-
+        self.__fileName = None
         self.__registry = core.WidgetRegistry()
         #populate the widget list
         for wdg in self.__registry.widgetNames():
             self.widgetList.addItem(wdg)
+        self.menuBar = QMenuBar(self)
+        
+        fileMenu = self.menuBar.addMenu('&File')
+        saveAsAction = self.createAction("&Save As..", slot=self.saveRig)
+        loadAction = self.createAction("&Open..", slot=self.fileOpen)
+        fileMenu.addActions([saveAsAction, loadAction])
+        
+    def createAction(self, text, slot=None, shortcut=None, icon=None,
+                     tip=None, checkable=False, signal="triggered()"):
+        action = QAction(text, self)
+        if icon is not None:
+            action.setIcon(QIcon(":/%s.png" % icon))
+        if shortcut is not None:
+            action.setShortcut(shortcut)
+        if tip is not None:
+            action.setToolTip(tip)
+            action.setStatusTip(tip)
+        if slot is not None:
+            self.connect(action, SIGNAL(signal), slot)
+        if checkable:
+            action.setCheckable(True)
+        return action
+    
+    def fileOpen(self):
+        """browse to a file and load rig"""
+        dir = os.path.dirname(self.__fileName) \
+                if self.__fileName is not None else "."
+        fname = unicode(QFileDialog.getOpenFileName(self,
+                            "Beings - Choose Rig File", dir,
+                            "Beings Database (*.brd)"))
+        
+        if fname:
+            with open(fname) as f:
+                data = json.load(f)
+            self.loadRig(data)
+        self.__fileName = str(fname)
+        
+    def saveRig(self):
+        """Save the rig data to a file"""        
 
+        filePath = QFileDialog.getSaveFileName(None,
+                            "Beings - Save rig file", ".",
+                            "Beings Database (*.brd)")
+        if filePath:
+            data = self.rigView.rig.getSaveData()
+            with open(filePath, 'w') as f:
+                json.dump(data, f)
+        self.__fileName = str(filePath)
+        
+    def loadRig(self, data):
+        """Load the rig data
+        @param data:  a rig dictionary"""
+        rig = core.Rig.rigFromData(data)
+        self.rigView.setModel(rig)        
+
+        
     @pyqtSlot()
     @PopupError()
     def on_buildLayoutBtn_released(self):

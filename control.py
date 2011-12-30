@@ -128,7 +128,7 @@ def getShapeNodes(xform):
     """
     
     nodes = xform.listRelatives(shapes=1)
-    return [n for n in nodes if isinstance pm.dt.GeometryShape(n)]
+    return [n for n in nodes if isinstance(n, pm.nt.GeometryShape)]
     # sortedNodes = {}
     # for node in nodes:
     #     i = int(utils.NodeTag(SHAPE_ORDER_TAG, node=node)['order'])

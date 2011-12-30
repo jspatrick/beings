@@ -1256,8 +1256,11 @@ class Rig(TreeModel):
 
         #parent them into rig
         for id, wdg in idWidgets.items():
-            parentID = data[id]['parentID']
-            parentWidget = idWidgets.get(parentID, None)            
+            parentID = data[id]['parentID']            
+            parentWidget = idWidgets.get(parentID, None)
+            if parentWidget is None and parentID != 'None':
+                _logger.warning("Cannot find parent widget for %s" % str(wdg))
+                _logger.debug("idWidgetDct:\n%r" % idWidgets)
             parentPart = data[id]['parentPart']
             rig.addWidget(wdg, parent = parentWidget, parentNode=parentPart)
         return rig
@@ -1333,12 +1336,13 @@ class Rig(TreeModel):
         registry = WidgetRegistry()
         for widget in allWidgets:
             wdata = {}
-            wdata['parentID'] = id(widget.parent)
+            wdata['parentID'] = str(id(widget.parent)) if widget.parent is not self.root \
+                                else 'None'
             wdata['parentPart'] = str(widget.getData(2).toString())
             wdata['options'] = widget.options.getData()
             wdata['diffs'] = widget.getDiffs()
             wdata['widgetName'] = registry.widgetName(widget)
-            result[id(widget)] = wdata
+            result[str(id(widget))] = wdata
             
         result['rigOptions'] = self.options.getData()
         

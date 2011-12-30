@@ -17,6 +17,9 @@
    <string notr="true"/>
   </property>
   <layout class="QGridLayout" name="gridLayout_2">
+   <property name="topMargin">
+    <number>25</number>
+   </property>
    <item row="0" column="0">
     <widget class="QSplitter" name="splitter_2">
      <property name="orientation">

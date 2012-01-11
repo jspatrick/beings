@@ -5,7 +5,7 @@ utilities, it should be defined here.
 import logging, inspect, sys, re, string
 import pymel.core as pm
 from beings.utils.Exceptions import * #@UnusedWildImport
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 class SilencePymelLogger(object):
     def __init__(self):
@@ -37,7 +37,7 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     mdn.input2X.set(staticDist)
     mdn.operation.set(2) #divide
     mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
-
+    
 def freeze(*args):
     """
     freeze every provided node.  Don't freeze joint orients
@@ -449,7 +449,7 @@ def fixInverseScale(jointList):
             #check if there's a connection
             if len(jnt.inverseScale.inputs()) != 1 or jnt.inverseScale.inputs(plugs=True)[0] != parent.scale:
                 parent.scale >> jnt.inverseScale
-                logger.debug("connected %s's scale to %s's inverse scale" % (parent.name(), jnt.name()))
+                _logger.debug("connected %s's scale to %s's inverse scale" % (parent.name(), jnt.name()))
 
 
 def getJointDict(jointList):
@@ -524,7 +524,7 @@ def createJointsFromDict(jointDict, deleteExisting=False):
             attrFunc(attrVal)
     #if there was a joint that couldn't be parented, set it's world matrix
     if noParentJnt:
-        logger.debug("Couldn't find parent for %s...setting to world matrix" % noParentJnt.name())
+        _logger.debug("Couldn't find parent for %s...setting to world matrix" % noParentJnt.name())
         m = jointDict[noParentJnt.name()]['worldMatrix']
         pm.xform(noParentJnt, matrix=m, worldSpace=True)
 
@@ -579,24 +579,14 @@ def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curA
     joint = pm.PyNode(joint)
     try:
         aimTgt = [x for x in joint.listRelatives(children=True) if isinstance(x, pm.nodetypes.Joint)][0]
-        jointChild = True
     except IndexError:
-        #no child joint
-        jointChild = False
-        if curAimAxis == None:
-            msg = "Orienting childless joint %s, and no current aim axis provided." % joint
-            msg += "\n...orienting to 'None'"
-            logger.debug(msg)
-            pm.joint(joint, e=1, oj="none", zso=True)
-            return
-
+        par = joint.getParent()
+        if par:
+            pm.delete(pm.orientConstraint(par, joint, mo=False))
+            pm.makeIdentity(joint, apply=True)
         else:
-            newAimVec = g_vectorMap[curAimAxis]
-            aimTgt = pm.spaceLocator()
-            #put the target locator in a position along the aim vector of the joint
-            aimTgt.setParent(joint)
-            aimTgt.setTranslation(newAimVec)
-            aimTgt.setParent (world=True)
+            pm.joint(joint, e=1, oj="none", zso=True)
+        return
 
     pm.parent(aimTgt, world=True)
 
@@ -619,10 +609,7 @@ def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curA
     joint.jointOrientY.set(rots[1])
     joint.jointOrientZ.set(rots[2])
     #reparent child joint
-    if not jointChild:
-        pm.delete(aimTgt)
-    else:
-        pm.parent (aimTgt, joint)
+    pm.parent (aimTgt, joint)
     pm.select(joint)
 
 def orientToPlane(midJnt, topJnt, btmJnt, aimVector, upVector, flipAim=False, flipUp=False):
@@ -685,7 +672,7 @@ def setNodeAxisVectors(node, oldA1="posY", oldA2="posX", newA1="posY", newA2="po
 
     oldV1 = getNodeAxisVector(node, oldA1)
     oldV2 = getNodeAxisVector(node, oldA2)
-    logger.debug("%s vector: %s; %s vector: %s" % (oldA1, str(oldV1), oldA2, str(oldV2)))
+    _logger.debug("%s vector: %s; %s vector: %s" % (oldA1, str(oldV1), oldA2, str(oldV2)))
     newV1 = g_vectorMap[newA1]
     newV2 = g_vectorMap[newA2]
 

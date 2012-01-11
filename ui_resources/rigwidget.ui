@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>Form</class>
- <widget class="QWidget" name="Form">
+ <class>beingsWidget</class>
+ <widget class="QWidget" name="beingsWidget">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -11,10 +11,16 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Form</string>
+   <string>Beings</string>
   </property>
-  <layout class="QVBoxLayout" name="verticalLayout_3">
-   <item>
+  <property name="styleSheet">
+   <string notr="true"/>
+  </property>
+  <layout class="QGridLayout" name="gridLayout_2">
+   <property name="topMargin">
+    <number>25</number>
+   </property>
+   <item row="0" column="0">
     <widget class="QSplitter" name="splitter_2">
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
@@ -27,27 +33,34 @@
        <enum>QFrame::Sunken</enum>
       </property>
       <layout class="QGridLayout" name="gridLayout">
-       <item row="2" column="0" colspan="2">
+       <item row="0" column="0">
+        <widget class="QLabel" name="label_4">
+         <property name="text">
+          <string>Rig Tree:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0" colspan="3">
         <widget class="WidgetTree" name="rigView"/>
        </item>
-       <item row="3" column="0">
+       <item row="2" column="0">
         <widget class="QPushButton" name="buildLayoutBtn">
          <property name="text">
           <string>Build Layout</string>
          </property>
         </widget>
        </item>
-       <item row="3" column="1">
+       <item row="2" column="1">
         <widget class="QPushButton" name="buildRigBtn">
          <property name="text">
           <string>Build Rig</string>
          </property>
         </widget>
        </item>
-       <item row="1" column="0">
-        <widget class="QLabel" name="label_4">
+       <item row="2" column="2">
+        <widget class="QPushButton" name="deleteRigBtn">
          <property name="text">
-          <string>Rig Tree:</string>
+          <string>Delete Rig</string>
          </property>
         </widget>
        </item>
@@ -67,16 +80,16 @@
        <property name="lineWidth">
         <number>0</number>
        </property>
-       <layout class="QVBoxLayout" name="verticalLayout">
-        <item>
+       <layout class="QGridLayout" name="gridLayout_3">
+        <item row="0" column="0">
          <widget class="QLabel" name="label_3">
           <property name="text">
            <string>Widget Library</string>
           </property>
          </widget>
         </item>
-        <item>
-         <widget class="QListWidget" name="widgetList"/>
+        <item row="1" column="0">
+         <widget class="WidgetList" name="widgetList"/>
         </item>
        </layout>
       </widget>
@@ -91,12 +104,37 @@
         <item>
          <widget class="QLabel" name="label_2">
           <property name="text">
-           <string>Widget Options</string>
+           <string>Options</string>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QListWidget" name="listWidget"/>
+         <widget class="QTabWidget" name="tabWidget">
+          <property name="tabPosition">
+           <enum>QTabWidget::North</enum>
+          </property>
+          <property name="tabShape">
+           <enum>QTabWidget::Rounded</enum>
+          </property>
+          <property name="currentIndex">
+           <number>2</number>
+          </property>
+          <widget class="QWidget" name="widgetOptions">
+           <attribute name="title">
+            <string>Widget</string>
+           </attribute>
+          </widget>
+          <widget class="QWidget" name="rigOptions">
+           <attribute name="title">
+            <string>Rig</string>
+           </attribute>
+          </widget>
+          <widget class="QWidget" name="controlOptions">
+           <attribute name="title">
+            <string>Control</string>
+           </attribute>
+          </widget>
+         </widget>
         </item>
        </layout>
       </widget>
@@ -109,7 +147,12 @@
   <customwidget>
    <class>WidgetTree</class>
    <extends>QTreeView</extends>
-   <header>beings.promotedWidgets</header>
+   <header>beings.ui</header>
+  </customwidget>
+  <customwidget>
+   <class>WidgetList</class>
+   <extends>QListWidget</extends>
+   <header>beings.ui</header>
   </customwidget>
  </customwidgets>
  <resources/>

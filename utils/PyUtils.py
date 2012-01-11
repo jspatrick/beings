@@ -25,20 +25,21 @@ def getSubclasses(module, cls, exclude=[]):
         result[x] = c
     return result
 
-def isIter(arg, string=False):
-    '''
-    Is the arg iterable?
-    string=False(bool):  consider string an iterable item
-    '''
-
-    if isinstance(arg, basestring):
-        if string:
-            return True
-        return False
-    if hasattr(arg, '__iter__'):
-        return True
-    return False
-
+def isSiblingInstance(obj1, obj2, stringsAreEqual=True):
+    """
+    Is object 1's class the same as object2's class?
+    @param stringsAreEqual: str == unicode == basestring
+    @param 
+    """
+    cls1 = obj1.__class__
+    cls2 = obj2.__class__
+    if stringsAreEqual:
+        if issubclass(cls1, basestring):
+            cls1 = basestring
+        if issubclass(cls2, basestring):
+            cls2 = basestring
+        
+    return cls1 == cls2
 
 #json utils
 def decodeList(lst):

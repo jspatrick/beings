@@ -3,6 +3,8 @@ import beings.control as control
 import beings.utils as utils
 import pymel.core as pm
 import maya.cmds as MC
+import logging
+_logger = logging.getLogger(__name__)
 
 class BasicLeg(core.Widget):
     def __init__(self, part='basicleg', **kwargs):
@@ -42,7 +44,7 @@ class BasicLeg(core.Widget):
         for i, tok in enumerate(toks):
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])            
             legCtls[tok].r.setLocked(True)
-        
+        legCtls['ankle'].ry.setLocked(False)
         ankleCtl = legCtls['ankle']
         for tok in ['ball', 'toe', 'toetip']:
             ctl = legCtls[tok]
@@ -73,7 +75,8 @@ class BasicLeg(core.Widget):
                          worldUpVector=[0,-1,0],
                          worldUpType='objectRotation',
                          worldUpObject=l)
-        #make
+        
+        #setup IK
         for pr in [('ankle', 'ball'), ('ball', 'toe'), ('toe', 'toetip')]:
             handle = pm.ikHandle(solver='ikSCsolver', sj=legJoints[pr[0]],
                                  ee=legJoints[pr[1]],
@@ -85,21 +88,40 @@ class BasicLeg(core.Widget):
             #pm.pointConstraint(legCtls[pr[1]], legJoints[pr[1]])            
             
         #make rig controls
-        ankleIkCtl = control.makeControl(name=namer.name(d='ankle', r='ik'), shape='jack', color='blue')
+        #ankleIK
+        ankleIkCtl = control.makeControl(name=namer.name(d='ankle', r='ik', x='animctl'), shape='jack', color='blue')
         self.registerControl('ankleIK', ankleIkCtl, ctlType='rig')
         utils.snap(legJoints['ankle'], ankleIkCtl, orient=False)
         par = utils.insertNodeAbove(ankleIkCtl)
         pm.pointConstraint(legJoints['ankle'], par, mo=False)
 
+        #kneeIK
+        kneeIkCtl = control.makeControl(name=namer.name(d='knee', r='ik', x='animctl'),
+                                        shape='jack', color='red', scale=[.5, .5, .5])
+        self.registerControl('kneeIK', kneeIkCtl, ctlType='rig')
+        utils.snap(legJoints['knee'], kneeIkCtl, orient=False)
+        par = utils.insertNodeAbove(kneeIkCtl)
+        pm.pointConstraint(legJoints['knee'], par, mo=False)
+
+        #heel
+        heelCtl = control.makeControl(name=namer.name(d='heel', x='animctl'),
+                                      shape='jack', color='red', scale=[.5,.5,.5])
+        self.registerControl('heelIK', heelCtl, ctlType='rig')
+        utils.snap(legJoints['ball'], heelCtl, orient=False)
+        heelCtl.tz.set(-.5)
+        par = utils.insertNodeAbove(heelCtl)
+        pm.parentConstraint(legJoints['ball'], par, mo=True)
+        
+        #FK 
         for tok, jnt in legJoints.items():
             if tok == 'toetip':
                 continue
             ctl = pm.createNode('transform', name=namer.name(d=tok, r='fk', x='animctl'))
             utils.snap(jnt, ctl)
             control.makeControl(xform=ctl, shape='cube', color='yellow', scale=[.35, .35, .35])
-            self.registerControl(tok, ctl, ctlType='rig')
-            
+            self.registerControl(tok, ctl, ctlType='rig')            
         return namer
+    
     def __setupFkCtls(self, bndJnts, rigCtls, fkToks, scaleDownBone=True):
         """Set up the fk controls.  This will delete the original controls that were passed
         in and rebuild the control shapes on a duplicate of the bind joints
@@ -128,7 +150,18 @@ class BasicLeg(core.Widget):
             except KeyError:
                 pass
         return fkCtls
-    
+    def __blendJointChains(self, fkChain, ikChain, bindChain, fkIkAttr, reverse):
+        for tok in bindChain.keys():
+            if (tok not in fkChain) or (tok not in ikChain):
+                _logger.debug("Skipping blending %s" % tok)
+                continue
+            for cstType in ['point', 'orient', 'scale']:
+                fnc = getattr(pm, '%sConstraint' % cstType)
+                cst = fnc(fkChain[tok], ikChain[tok], bindChain[tok])
+                fkAttr = getattr(cst, '%sW0' % fkChain[tok].nodeName())
+                ikAttr = getattr(cst, '%sW1' % ikChain[tok].nodeName())
+                reverse.outputX.connect(fkAttr)
+                fkIkAttr.connect(ikAttr)
     def _makeRig(self, namer, bndJnts, rigCtls):
         #add the parenting nodes - this is a required step.  It registers the actual nodes
         #the rig uses to parent widgets to each other
@@ -140,21 +173,23 @@ class BasicLeg(core.Widget):
         if side == 'rt':
             o.setAxis('aim', 'negY')
             o.reorientJoints(bndJnts.values())
-        fkCtls = self.__setupFkCtls(bndJnts, rigCtls,
-                                    ['hip', 'knee', 'ankle', 'ball', 'toe'])
-        # fkJnts = utils.dupJntDct(bndJnts, '_bnd_', '_fk_')
-        # fkCtls = {}
-        # for tok, jnt in fkJnts.items():
-        #     if tok == 'toetip':
-        #         continue
-        #     ctl = control.makeControl(jnt, shape='cube', scale=[.25, .25, .25],
-        #                           color='yellow')
-        #     control.scaleDownBone(ctl)
-        #     fkCtls[tok] = ctl
             
-        namer.setTokens(r='ik')
+        fkJnts = self.__setupFkCtls(bndJnts, rigCtls,
+                                    ['hip', 'knee', 'ankle', 'ball', 'toe'])
         ikJnts = utils.dupJntDct(bndJnts, '_bnd_', '_ik_')
         ikCtl = rigCtls['ankleIK']
+        ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)
+        fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
+        
+        self.__blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, fkIkRev)
+        
+        ikCtl.fkIk.connect(fkIkRev.inputX)
+        for j in fkJnts.values():
+            fkIkRev.outputX.connect(j.v)
+        
+        namer.setTokens(r='ik')
+        
+        
         self.setNodeCateogry(ikCtl, 'ik')
         utils.snap(bndJnts['ankle'], ikCtl, orient=False)
         ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'],
@@ -162,11 +197,7 @@ class BasicLeg(core.Widget):
                                       solver='ikRPsolver',
                                       n=namer.name(x='ikh'))
         ikHandle.setParent(ikCtl)
-        ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)  
-        fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
-        ikCtl.fkIk.connect(fkIkRev.inputX)
-        for j in fkCtls.values():
-            fkIkRev.outputX.connect(j.v)
+        
             
             
 core.WidgetRegistry().register(BasicLeg, "Leg", "A basic IK/FK leg")

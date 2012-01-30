@@ -1,8 +1,4 @@
 """
-This whole damn module needs a re-write.  Controls don't need to be class-based, since the handle
-data needs to be stored on the node anyways.
-
-
 Control Properties
 ==================
 
@@ -11,9 +7,6 @@ Control Properties
   scale: [float, float, float]
   shape: string
   color: string
-  scaleToChild: bool
-    after creating the shape, scale all nodes from a point at the xform until one reaches
-    the first child of that xform
 
 Needs
 =====
@@ -147,6 +140,16 @@ def _setColor(xform, color):
         shape.overrideColor.set(COLOR_MAP[color])
 
 INFO_ATTR = 'beingsControlInfo'
+def getInfo(control):
+    return eval(pm.getAttr('%s.%s' % (control, INFO_ATTR)))
+
+def setInfo(control, info):
+    if not control.hasAttr(INFO_ATTR):
+        control.addAttr(INFO_ATTR, dt='string')
+    if type(info) == dict:
+        info = repr(info)
+    pm.setAttr('%s.%s' % (control, INFO_ATTR), info)
+    
 def makeControl(xform=None, xformType='transform', name=None, force=False, **kwargs):
     '''
     Create a control object
@@ -168,9 +171,11 @@ def makeControl(xform=None, xformType='transform', name=None, force=False, **kwa
                 name = 'beings_control%i' % i
                 
         xform = pm.createNode(xformType, n=name)
+    
     else:
         xformType = pm.nodeType(xform)
         xform = pm.PyNode(xform)
+    
     #delete any shapes that exist
     for shape in xform.listRelatives(type='geometryShape'):
         pm.delete(shape)
@@ -254,66 +259,102 @@ def snapKeepShape(target, ctl, scaleTo1=True, **kwargs):
     utils.snap(target, ctl, **kwargs)
     utils.parentShape(ctl, tmpXform)
     
-def scaleDownBone(xf, child=None):
-    """
-    Move and scale a shape so that it starts at the xform pivot and
-    ends at the tip.
-    """
-    children = xf.listRelatives(type='transform')
+# def scaleDownBone(xf, child=None):
+#     """
+#     Move and scale a shape so that it starts at the xform pivot and
+#     ends at the tip.
+#     """
+#     children = xf.listRelatives(type='transform')
     
-    if child is not None:
-        child = pm.PyNode(child)
-    else:
-        try:
-            child = children[0]
-            if len(children) > 1:
-                _logger.warning('multiple children found - scaling to %s' % children[0])
+#     if child is not None:
+#         child = pm.PyNode(child)
+#     else:
+#         try:
+#             child = children[0]
+#             if len(children) > 1:
+#                 _logger.warning('multiple children found - scaling to %s' % children[0])
             
-        except IndexError:
-            _logger.error('no children found to scale to, returning')
-            return
+#         except IndexError:
+#             _logger.error('no children found to scale to, returning')
+#             return
     
-    worldVector = pm.dt.Vector(pm.xform(child, t=1, ws=1, q=1)) - \
-                  pm.dt.Vector(pm.xform(xf, t=1, ws=1, q=1))
-    wm = xf.worldMatrix.get()
-    localVector = wm * worldVector
+#     worldVector = pm.dt.Vector(pm.xform(child, t=1, ws=1, q=1)) - \
+#                   pm.dt.Vector(pm.xform(xf, t=1, ws=1, q=1))
+#     wm = xf.worldMatrix.get()
+#     localVector = wm * worldVector
 
-    #make sure that the scale of the local vector is in world space, since we're moving
-    #a node outside of the hierarchy
-    if not pm.pluginInfo('decomposeMatrix', q=1, loaded=1):
-        pm.loadPlugin('decomposeMatrix')
-    dcm = pm.createNode('decomposeMatrix')
-    xf.worldMatrix.connect(dcm.inputMatrix)
-    pm.select(dcm)
-    scale = dcm.outputScale.get()
-    localVector = localVector / scale
-    pm.delete(dcm)
+#     #make sure that the scale of the local vector is in world space, since we're moving
+#     #a node outside of the hierarchy
+#     if not pm.pluginInfo('decomposeMatrix', q=1, loaded=1):
+#         pm.loadPlugin('decomposeMatrix')
+#     dcm = pm.createNode('decomposeMatrix')
+#     xf.worldMatrix.connect(dcm.inputMatrix)
+#     pm.select(dcm)
+#     scale = dcm.outputScale.get()
+#     localVector = localVector / scale
+#     pm.delete(dcm)
 
-    #get scale amount
-    scale = localVector/pm.dt.Vector(2,2,2)
-    scale = [abs(scale.x), abs(scale.y), abs(scale.z)]
+#     #get scale amount
+#     scale = localVector/pm.dt.Vector(2,2,2)
+#     scale = [abs(scale.x), abs(scale.y), abs(scale.z)]
 
-    #for axes that aren't the maximum, use the original scale values.
-    #usually we're scaling a cube right down it's axis, so the results
-    #are predictable.  Otherwise they might get weird, so warn
-    maxScale = max(scale)
-    handleData = eval(pm.getAttr('%s.%s' % (xf, INFO_ATTR)))
-    origScale = handleData['scale']
-    finalScale = []
-    for i, val in enumerate(scale):
-        if maxScale != val:
-            if scale[i] > 0.01:
-                _logger.warning("warning - performing a skewing scale.")
-            finalScale.append(origScale[i])
-        else:
-            finalScale.append(val)
+#     #for axes that aren't the maximum, use the original scale values.
+#     #usually we're scaling a cube right down it's axis, so the results
+#     #are predictable.  Otherwise they might get weird, so warn
+#     maxScale = max(scale)
+#     handleData = eval(pm.getAttr('%s.%s' % (xf, INFO_ATTR)))
+#     origScale = handleData['scale']
+#     finalScale = []
+#     for i, val in enumerate(scale):
+#         if maxScale != val:
+#             if scale[i] > 0.01:
+#                 _logger.warning("warning - performing a skewing scale.")
+#             finalScale.append(origScale[i])
+#         else:
+#             finalScale.append(val)
             
-    pos = localVector/pm.dt.Vector(2,2,2)
-    pos = [pos.x, pos.y, pos.z]
+#     pos = localVector/pm.dt.Vector(2,2,2)
+#     pos = [pos.x, pos.y, pos.z]
 
-    #modify shapes
-    makeControl(xf, pos=pos, scale=finalScale)
-    return {'pos': pos, 'scale': finalScale}
+#     #modify shapes
+#     makeControl(xf, pos=pos, scale=finalScale)
+#     return {'pos': pos, 'scale': finalScale}
+
+def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
+    zero = utils.insertNodeAbove(ctl)
+    o = utils.Orientation()
+    o.setAxis('aim', centerDown)
+
+    pm.pointConstraint(startJoint, endJoint, zero)
+    pm.aimConstraint(endJoint, zero,
+                     aim=o.getAxis('aim'),
+                     upVector=o.getAxis('up'),
+                     wu=o.getAxis('up'), worldUpType='objectRotation',
+                     worldUpObject=startJoint)
+    pm.pointConstraint(startJoint, endJoint, zero)
+
+    #set up network to measure the distance 
+    
+    mdn = pm.createNode('multiplyDivide')    
+    dd = pm.distanceDimension(startPoint=[0,0,0], endPoint=[5,5,5])
+    startLoc = dd.startPoint.listConnections()[0]
+    endLoc = dd.endPoint.listConnections()[0]
+    startLoc.v.set(0)
+    endLoc.v.set(0)
+    pm.pointConstraint(startJoint, startLoc)
+    pm.pointConstraint(endJoint, endLoc)
+    dd.distance.connect(mdn.input1X)
+    dd.getParent().v.set(0)
+    #find the amount we need to scale by. Ctls are built to a scale of 1
+    #unit by default.  We need to scale by half the distance * multiplier to scale ctl
+    #back to 1
+    scale = getInfo(ctl)['scale']
+    scale = scale[utils.indexFromVector(o.getAxis('aim'))]
+    scale = (1.0/scale)/2.0
+    mdn.input2X.set(scale)
+    
+    scaleAttr = o.getAttr(zero, 'aim', type='scale')
+    mdn.outputX.connect(scaleAttr)
 
 def _getStateDct(node):
     """ Get a dict representing the state of the node """

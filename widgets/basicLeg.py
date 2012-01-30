@@ -3,8 +3,10 @@ import beings.control as control
 import beings.utils as utils
 import pymel.core as pm
 import maya.cmds as MC
+
 import logging
 _logger = logging.getLogger(__name__)
+
 
 class BasicLeg(core.Widget):
     def __init__(self, part='basicleg', **kwargs):
@@ -112,33 +114,37 @@ class BasicLeg(core.Widget):
         par = utils.insertNodeAbove(heelCtl)
         pm.parentConstraint(legJoints['ball'], par, mo=True)
         
-        #FK 
+        #FK
+        
         for tok, jnt in legJoints.items():
             if tok == 'toetip':
                 continue
+
             ctl = pm.createNode('transform', name=namer.name(d=tok, r='fk', x='animctl'))
             utils.snap(jnt, ctl)
             control.makeControl(xform=ctl, shape='cube', color='yellow', scale=[.35, .35, .35])
-            self.registerControl(tok, ctl, ctlType='rig')            
+            self.registerControl(tok, ctl, ctlType='rig')
+
+            #center and scale it
+            childJnt = legJoints[toks[toks.index(tok)+1]]            
+            control.centeredCtl(jnt, childJnt, ctl)
+            
         return namer
     
-    def __setupFkCtls(self, bndJnts, rigCtls, fkToks, scaleDownBone=True):
+    def __setupFkCtls(self, bndJnts, rigCtls, fkToks):
         """Set up the fk controls.  This will delete the original controls that were passed
         in and rebuild the control shapes on a duplicate of the bind joints
         @return: dict of {tok:ctl}
         """
         fkCtls = utils.dupJntDct(bndJnts, '_bnd_', '_fk_')
-        unusedToks = set(fkCtls.keys()).difference(fkToks)
-            
-        for tok in fkToks:
+        unusedToks = set(fkCtls.keys()).difference(fkToks)            
+        for tok in fkToks:            
             newCtl = fkCtls[tok]
             oldCtl = rigCtls[tok]
-            ctlArgs = eval(oldCtl.beingsControlInfo.get())
-            pm.delete(oldCtl)
-            control.makeControl(xform=newCtl, **ctlArgs)
-            if scaleDownBone:
-                control.scaleDownBone(newCtl)
-                
+            info = control.getInfo(oldCtl)
+            control.setInfo(newCtl, control.getInfo(oldCtl))            
+            utils.parentShape(newCtl, oldCtl)
+            
         for tok in unusedToks:            
             ctl = fkCtls.pop(tok)
             if set(ctl.listRelatives()).intersection(fkCtls.values()):
@@ -162,6 +168,96 @@ class BasicLeg(core.Widget):
                 ikAttr = getattr(cst, '%sW1' % ikChain[tok].nodeName())
                 reverse.outputX.connect(fkAttr)
                 fkIkAttr.connect(ikAttr)
+
+    def _setupRevFoot(self, namer, ikJnts, rigCtls, ikCtl, orientation, ankleIKH):
+            
+        #make the heel ctl a movable pivot
+        heelMoveZero = pm.createNode('transform', n=namer.name(d='heel', x='ctl_zero'))
+        utils.snap(rigCtls['heelIK'], heelMoveZero)        
+        heelMoveNegpiv = pm.duplicate(heelMoveZero, n=namer.name(d='heel', x='ctl_negpiv'))[0]
+        heelMoveNegpiv.setParent(rigCtls['heelIK'])
+        rigCtls['heelIK'].setParent(heelMoveZero)
+        
+        heelMoveMdn = pm.createNode('multiplyDivide', n=namer.name(r='ik', d='heel_pvt', x='mdn'))
+        rigCtls['heelIK'].t.connect(heelMoveMdn.input1)
+        heelMoveMdn.input2.set(-1, -1, -1) 
+        heelMoveMdn.output.connect(heelMoveNegpiv.t)        
+
+        #create the ik hanldes
+        ikHandles = {}
+        toks = ['ankle', 'ball', 'toe', 'toetip']
+        for i in range(len(toks)-1):
+            start = toks[i]
+            end = toks[i+1]
+            name = namer.name(d='revfoot_%s_to_%s' % (start, end),
+                                 x='ikh',
+                                 r='ik')
+            r = pm.ikHandle(sj=ikJnts[start], ee=ikJnts[end], n=name, sol='ikSCsolver')
+            ikHandles[toks[i+1]] = pm.PyNode(r[0])
+            eff = pm.PyNode(r[1])
+            r[1].rename(name + '_eff')
+
+        #make reverse foot joints, snap them all to the heel and aimed at the toetip
+        revFootJnts = {}
+        revFtToks = ['heel', 'toetip', 'toe', 'toetap', 'ball']
+        for tok in revFtToks:
+            name=namer.name(d='revfoot_%s' % tok, r='ik', x='jnt')
+            revFootJnts[tok] = pm.createNode('joint', n=name)
+
+        #position and orient the groups
+        utils.snap(rigCtls['heelIK'], revFootJnts['heel'])
+        aimAt(ikJnts['toetip'], revFootJnts['heel'], ikJnts['ankle'], orientation)        
+        utils.snap(ikJnts['toetip'], revFootJnts['toetip'])
+        aimAt(ikJnts['toe'], revFootJnts['toetip'], ikJnts['ankle'], orientation)
+        utils.snap(ikJnts['toe'], revFootJnts['toe'])
+        aimAt(ikJnts['ball'], revFootJnts['toe'], ikJnts['ankle'], orientation)
+        utils.snap(ikJnts['toe'], revFootJnts['toetap'])
+        aimAt(ikJnts['ball'], revFootJnts['toetap'], ikJnts['ankle'], orientation)
+        utils.snap(ikJnts['ball'], revFootJnts['ball'])
+        aimAt(ikJnts['ankle'], revFootJnts['ball'], ikJnts['ankle'], orientation)
+        revFootJnts['ball'].setParent(revFootJnts['toe'])
+        revFootJnts['toetap'].setParent(revFootJnts['toetip'])
+        revFootJnts['toe'].setParent(revFootJnts['toetip'])
+        revFootJnts['toetip'].setParent(revFootJnts['heel'])
+        pm.makeIdentity(revFootJnts.values(), apply=True, r=1)
+        
+        ikHandles['ball'].setParent(revFootJnts['toe'])
+        ikHandles['toe'].setParent(revFootJnts['toetip'])
+        ikHandles['toetip'].setParent(revFootJnts['toetap'])
+        ankleIKH.setParent(revFootJnts['ball'])
+
+        heelZero = pm.createNode('transform',
+                                 n = namer.name(d='revfoot_%s' % tok, r='ik', x='jnt_zero'))
+        utils.snap(revFootJnts['heel'], heelZero)
+        
+        revFootJnts['heel'].setParent(heelZero)
+        heelZero.setParent(heelMoveNegpiv)
+        heelMoveZero.setParent(ikCtl)
+
+        #create attrs on the ik handle to control the reverse foot
+        attrs = {revFootJnts['heel']:[('heelLift', 'rx', -1),
+                                      ('heelRock', 'rz', 1),
+                                      ('heelRoll', 'ry', 1)],
+                 revFootJnts['toetip']:[('toeTipLift', 'rx', 1),
+                                        ('toeTipRock', 'rz', 1),
+                                        ('toeTipRoll', 'ry', 1)],                 
+                 revFootJnts['toe']:[('toeLift', 'rx', 1),
+                                     ('toeTwist', 'ry', 1)],
+                 revFootJnts['toetap']:[('toeTap', 'rx', 1)],
+                 revFootJnts['ball']: [('ballLift', 'rx', 1),
+                                       ('ballTwist', 'ry', 1)]}
+        
+        for jnt, attrGrp in attrs.items():
+            
+            for attr, axis, mult in attrGrp:
+                mdn = pm.createNode('multiplyDivide', n=namer.name(r='ik', d=attr, x='mdn'))                
+                ikCtl.addAttr(attr, k=1, dv=0)
+                pm.connectAttr('%s.%s' % (ikCtl, attr), mdn.input1X.name())
+                mdn.input2X.set(10*mult)
+                pm.connectAttr(mdn.outputX.name(), '%s.%s' % (jnt, axis))
+        heelMoveNegpiv.v.set(0)
+        return revFootJnts
+    
     def _makeRig(self, namer, bndJnts, rigCtls):
         #add the parenting nodes - this is a required step.  It registers the actual nodes
         #the rig uses to parent widgets to each other
@@ -184,9 +280,10 @@ class BasicLeg(core.Widget):
         self.__blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, fkIkRev)
         
         ikCtl.fkIk.connect(fkIkRev.inputX)
-        for j in fkJnts.values():
-            fkIkRev.outputX.connect(j.v)
-        
+        for tok, jnt in ikJnts.items():                        
+            ikCtl.fkIk.connect(jnt.v)
+            if fkJnts.get(tok):
+                fkIkRev.outputX.connect(fkJnts[tok].v)
         namer.setTokens(r='ik')
         
         
@@ -197,7 +294,18 @@ class BasicLeg(core.Widget):
                                       solver='ikRPsolver',
                                       n=namer.name(x='ikh'))
         ikHandle.setParent(ikCtl)
-        
-            
-            
+
+        revFootJnts = self._setupRevFoot(namer, ikJnts, rigCtls, ikCtl, o, ikHandle)
+        return locals()
+    
+def aimAt(master, slave, upRotObject, orientation, flipUp=False):
+    aimVec = orientation.getAxis('aim')
+    upVec = orientation.getAxis('up')
+    worldUpVec = upVec
+    if flipUp:
+        worldUpVec = [x*-1 for x in worldUpVec]        
+    cst = pm.aimConstraint(master, slave, aim=aimVec, u=upVec, wu=worldUpVec,
+                     mo=False, wut='objectRotation')
+    pm.delete(cst)
+    
 core.WidgetRegistry().register(BasicLeg, "Leg", "A basic IK/FK leg")

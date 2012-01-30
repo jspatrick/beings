@@ -54,7 +54,7 @@ class WidgetTree(QTreeView):
         self.setDragDropMode(QAbstractItemView.InternalMove)
         self.expandAll()
         self.setItemDelegate(RigViewDelegate(self))
-        
+    
     def setModel(self, rig):
         self.rig = rig
         super(WidgetTree, self).setModel(rig)
@@ -237,9 +237,10 @@ class RigWidget(QWidget):
         self.menuBar = QMenuBar(self)
         
         fileMenu = self.menuBar.addMenu('&File')
+        newAction = self.createAction('&New', slot=self.fileNew)
         saveAsAction = self.createAction("&Save As..", slot=self.saveRig)
         loadAction = self.createAction("&Open..", slot=self.fileOpen)
-        fileMenu.addActions([saveAsAction, loadAction])
+        fileMenu.addActions([newAction, saveAsAction, loadAction])
         
     def createAction(self, text, slot=None, shortcut=None, icon=None,
                      tip=None, checkable=False, signal="triggered()"):
@@ -270,6 +271,10 @@ class RigWidget(QWidget):
                 data = json.load(f)
             self.loadRig(data)
         self.__fileName = str(fname)
+
+    def fileNew(self):
+        rig = core.Rig("mychar")
+        self.rigView.setModel(rig)
         
     def saveRig(self):
         """Save the rig data to a file"""        
@@ -283,6 +288,7 @@ class RigWidget(QWidget):
                 json.dump(data, f)
         self.__fileName = str(filePath)
         _logger.info("Saved rig as %s" % filePath)
+        
     def loadRig(self, data):
         """Load the rig data
         @param data:  a rig dictionary"""        

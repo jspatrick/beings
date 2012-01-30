@@ -28,7 +28,19 @@ def mRotOrder(orientationObj):
     ro = 'k%s' % orientationObj.rotOrder(asString=True, default=True).swapcase()
     return getattr(OM.MEulerRotation, ro)
 
-
+def indexFromVector(vector):
+    """
+    If the vector represents an axis where only one value isn't zero,
+    return the index of the non-zero axis
+    """
+    index=None
+    for i in range(len(vector)):
+        if vector[i]:
+            if index:
+                logger.warning("Multiple non-zero indices found; returning the first")
+            else:
+                index=i
+    return index
 
 class OrientationError(): pass
 class Orientation(object):
@@ -43,6 +55,8 @@ class Orientation(object):
                     'negY': [0, -1, 0],
                     'negZ': [0, 0, -1]}
 
+    #TODO:  make a property that returns a copy
+    axisVecDict = copy.copy(Orientation._axisVecDict)
 
     _defaultAxes = {'aim': ('posY', [0, 1, 0]),
                      'up': ('posX', [1, 0, 1]),
@@ -153,6 +167,10 @@ class Orientation(object):
         else:
             logger.info('Skipping unflip: Aim is not flipped')
 
+    def getAttr(self, xformNode, axis, type='translate'):
+        axis = self.getAxis(axis, asString=True)[3]
+        return getattr(xformNode, '%s%s' % (type, axis))
+    
     def rotOrder(self, asString=False, default=False):
         if default:
             if asString:

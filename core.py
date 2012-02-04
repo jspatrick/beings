@@ -323,60 +323,27 @@ def widgetFromMimeData(mimeData):
         _logger.debug("Reduced the widgets in mimeData")
     return g_widgetList[index]()
     
-class WidgetTreeItem(object):
-    KEY_INDEX, WIDGET_INDEX, CHILD_PART_INDEX = range(3)
+class TreeItem(object):
 
     def __init__(self, part, isRoot=False):
-        self._isRoot = isRoot
-        self.parent = None
-        self.children = []
-        self.parent = None
-        self.numColumns = 5
+        self.__parent = None
+        self.__children = []
         
         self._parentNodes = utils.OrderedDict({})
         
-        #set up options    
+        #set up options
         self.options = OptionCollection()
         self.__origPartName = part
         self.options.addOpt('part', part)
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
         
-    def getID(self):
-        return "%s%i" % (self.getClassName(), self._idNum)
-    
-    def __setIDNum(self, num):
-        self._idNum = num
+    def _setParent(self, parent):
+        self.__parent = parent
         
-    def setNextAvailableID(self, root=None):
-        if root is None:
-            root = self.__getRoot()
-        thisClass = self.getClassName()
-        allChildren = root.childWidgets()
-        usedIDNums = set([])
-        for child in allChildren:
-            if child != self and child.getClassName() == thisClass:
-                usedIDNums.add(child._idNum)
-        i = 0
-        while (i < 1000):
-            if i not in usedIDNums:
-                break
-            else:
-                i += 1
-                continue
-        self.__setIDNum(i)
-        
-    def __getRoot(self):
-        parent=self
-        while True:
-            if parent.parent is None:
-                break
-            parent = parent.parent
-        return parent
-
     def childWidgets(self, recursive=True):
         result = []
-        for child in self.children:
+        for child in self.__children:
             childWidget = child[self.WIDGET_INDEX]
             if recursive:
                 result.extend(childWidget.childWidgets())
@@ -398,21 +365,12 @@ class WidgetTreeItem(object):
                 return i
         return -1
     
-    def childWithKey(self, key):
-        if not self.children:
-            return None
-        i = bisect.bisect_left(self.children, (key, None))
-        if i < 0 or i >= len(self.children):
-            return None
-        if self.children[i][self.KEY_INDEX] == key:
-            return self.children[i][self.WIDGET_INDEX]
-        return None
-
     def removeChild(self, child):
         row = self.rowOfChild(child)
         if row == -1:
             _logger.warning("%r is not a child of %r" % (child, self))
         self.children.pop(row)
+        child._setParent(None)
         return child
     
     def getRoot(self):
@@ -422,14 +380,11 @@ class WidgetTreeItem(object):
         return node
     
     def insertChild(self, child, parentToPart=""):
-        if self._isRoot:
+        if self.root() == self:
             if parentToPart != "":
                 raise KeyError("Children of a root node cannot have a parent to part")       
         elif parentToPart not in self.listParentParts():
             raise KeyError("Invalid parent to part '%s'" % parentToPart)
-
-        if child._isRoot:
-            raise TypeError("Cannot parent root nodes")
 
         #don't allow the same instance in the tree twice
         ids = [id(w) for w in self.getRoot().childWidgets()]
@@ -465,31 +420,6 @@ class WidgetTreeItem(object):
             
         self.children.pop(self.rowOfChild(child))
         return child
-        
-    def getClassName(self):
-        return self.__class__.__name__
-    
-    def getData(self, col):
-        assert 0 <= col < self.numColumns
-        if col == 0:
-            return QVariant(QString(self.options.getValue('part')))
-        elif col == 1:
-            return QVariant(QString(self.options.getValue('side')))
-        elif col == 2:
-            if self.parent:
-                row = self.parent.rowOfChild(self)
-                child = self.parent.children[row][self.CHILD_PART_INDEX]
-                return QVariant(QString(child))
-            else:
-                return QVariant(QString(""))
-        elif col == 3:
-            return QVariant(QString(self.getClassName()))
-        elif col == 4:
-            return QVariant(QString(""))
-
-
-    def orderKey(self): return "%s_%s" % \
-        (self.options.getValue('part'), self.options.getValue('side'))
 
     def addParentPart(self, nodeName):
         '''Add the 'key' name of a node'''
@@ -498,24 +428,6 @@ class WidgetTreeItem(object):
             return
         self._parentNodes[nodeName] = None
         
-    def setParentedPart(self, part):
-        '''Set the part this widget is parented with'''
-        if part not in self.parent.listParentParts():
-            _logger.warning("Invalid parent part: '%s'" % part)
-        row = self.parent.rowOfChild(self)
-        self.parent.children[row][self.CHILD_PART_INDEX] = part
-
-    def setParentNode(self, nodeName, node):
-        '''Set the actual node of a nodeName'''
-        if nodeName not in self._parentNodes.keys():
-            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
-        self._parentNodes[nodeName] = node
-
-    def getParentNode(self, nodeName):
-        if nodeName not in self._parentNodes.keys():
-            raise utils.BeingsError("Invalid parent node name '%s'" % nodeName)
-        return self._parentNodes[nodeName]
-
     def listParentParts(self):
         return self._parentNodes.keys()
         

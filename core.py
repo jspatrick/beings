@@ -235,7 +235,8 @@ class OptionCollection(QObject):
         presets = kwargs.get('presets')
         if presets:
             self.setPresets(optName, *presets)
-        self.emit(SIGNAL('optionAdded'), optName)
+        if not kwargs.get('quiet'):
+            self.emit(SIGNAL('optionAdded'), optName)
         
     def _checkName(self, optName):
         if optName not in self.__options:
@@ -259,15 +260,17 @@ class OptionCollection(QObject):
         self._checkName(optName)
         return self.__options[optName]
     
-    def setValue(self, optName, val):
+    def setValue(self, optName, val, quiet=False):
         self._checkName(optName)
         changed=False
         if val != self.__options[optName]:
             changed = True
-        self.__options[optName] = val        
-        self.emit(SIGNAL('optSet'), optName, val)
-        if changed:
-            self.emit(SIGNAL('optChanged'), optName)
+        self.__options[optName] = val
+        
+        if not quiet:
+            self.emit(SIGNAL('optSet'), optName, val)
+            if changed:
+                self.emit(SIGNAL('optChanged'), optName, oldVal, newVal)
             
     #TODO:  Get option data
     def getData(self):
@@ -287,49 +290,109 @@ class OptionCollection(QObject):
         for optName, optVal in optDct.items():
             self.setValue(optName, optVal)
 
-g_widgetList = []
-def getWidgetMimeData(widget, format='x-widget'):
-    global g_widgetList
-    objs = [ref() for ref in g_widgetList]
-    if widget not in objs:
-        ref = weakref.ref(widget)
-        g_widgetList.append(weakref.ref(widget))
-        objs.append(widget)
-    widgetIndex = objs.index(widget)
     
-    data = QByteArray()
-    stream = QDataStream(data, QIODevice.WriteOnly)
-    stream << QString(str(widgetIndex))
-    mimeData = QMimeData()
-    mimeData.setData("application/%s" % format, data)
-    return mimeData
+class TreeItem(QObject):
+    """
+    A tree item.
 
-def widgetFromMimeData(mimeData):
-    global g_widgetList
-    widget = None
-    if mimeData.hasFormat("application/x-widget"):
-        data = mimeData.data("application/x-widget")
-        stream = QDataStream(data, QIODevice.ReadOnly)
-        index = QString()
-        stream >> index
-        index = int(str(index))
-        widget = g_widgetList[index]()
-        if widget == None:
-            _logger.error("Warning!  Can't find widget in global Mime Data list")
-    #flush unused widgets:
-    startLen = len(g_widgetList)
-    g_widgetList = [r for r in g_widgetList if r()]
-    if len(g_widgetList) != startLen:
-        _logger.debug("Reduced the widgets in mimeData")
-    return g_widgetList[index]()
+    Tree items must define their available plugs.  When children are added, they are added
+    to a particular plug in the parent item.  Plugs must be configured on the TreeItem instances
+    before children are added.
     
-class TreeItem(object):
-
-    def __init__(self, part, isRoot=False):
+    When child branches are added
+    Tree items must have a unique combination of side and part.  Tree items
+    add parent parts.
+    """
+    def __init__(self, plugs=None):    
         self.__parent = None
-        self.__children = []
+        if plugs is None:
+            plugs = [""]
+        self.__plugs = set([str(p) for p in plugs])
         
-        self._parentNodes = utils.OrderedDict({})
+        self.__children = []
+        self.__childPlugs = []
+                                
+        
+    def plugs(self): return list(self.__plugs)
+    def addPlug(self, plugName): self.__plugs.add(str(plugName))
+    def rmPlug(self, plugName): self.__plugs.difference_update(str(plugName))
+    def parent(self): return self.__parent    
+    def _setParent(self, parent):
+        self.__parent = parent
+        
+    def children(self, recursive=False):
+        result = []
+        for child in self.__children:            
+            if recursive:
+                result.extend(child.children())
+            result.append(child)
+        return result
+       
+    def childIndex(self, child):
+        return self.__children.index(child)
+    
+    def root(self):
+        node = self
+        while node.__parent is not None:
+            node = node.__parent
+        return node
+    
+    def addChild(self, child, plug=""):        
+        if not self.__plugs:
+            raise RuntimeError("must add plugs to the parent before adding a child")
+        
+        elif plug not in self.plugs():
+            raise KeyError("Invalid plug '%s'" % plug)
+
+        #don't allow the same instance in the tree twice
+        root = self.root()
+        ids = [id(w) for w in root.children(recursive=True)]
+        ids.append(id(root))
+        if id(child) in ids:
+            raise RuntimeError("Cannot add the same instance twice")
+        
+        child._setParent(self)
+        self.__children.append(child)
+        self.__childPlugs.append(plug)
+        
+    def rmChild(self, child, reparentChildren=False):
+        """
+        Remove a child
+        @param reparentChildren=True: if True, reparent child's children to the this obj.
+        """
+        
+        if reparentChildren:
+            grandChildren = child.children(recursive=False)
+            plug = self.plugs()[0]
+            
+            for grandChild in grandChildren:
+                child.rmChild(grandChild)
+                self.insertChild(grandChild, plug=plug)
+    
+        index = self.childIndex(child)
+        self.__children.pop(index)
+        self.__childPlugs.pop(index)
+        child._setParent(None)
+        return child
+
+class Widget(TreeItem):
+    '''
+    A tree item that builds things in Maya.
+
+    Builds happen top down, meaning that nodes at the root of the
+    tree build themselves, then call children to build themselves.
+
+    When children have finished building, they alert their parents
+    via a childCompletedBuild method.  Parents can then query children
+    on the nodes they have built, and parent these nodes into their
+    hierarchies.
+
+    
+    '''
+    BUILD_TYPES = ['layout', 'rig']
+    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'ik', 'fk']
+    def __init__(self, part='widget', plugs=None):
+        super(Widget, self).__init__(plugs=plugs)
         
         #set up options
         self.options = OptionCollection()
@@ -337,290 +400,73 @@ class TreeItem(object):
         self.options.addOpt('part', part)
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
+        self.connect(self.options, SIGNAL('optChanged'), self._optionChanged)
+                                
         
-    def _setParent(self, parent):
-        self.__parent = parent
-        
-    def childWidgets(self, recursive=True):
-        result = []
-        for child in self.__children:
-            childWidget = child[self.WIDGET_INDEX]
-            if recursive:
-                result.extend(childWidget.childWidgets())
-            result.append(childWidget)
-        return result
-    
-    def numChildren(self):
-        return len(self.children)
-    
-    def childAtRow(self, row, returnIndex=None):
-        if returnIndex is None:
-            returnIndex = self.WIDGET_INDEX
-        assert 0 <= row < len(self.children)
-        return self.children[row][returnIndex]
-    
-    def rowOfChild(self, child):
-        for i, item in enumerate(self.children):
-            if item[self.WIDGET_INDEX] == child:
-                return i
-        return -1
-    
-    def removeChild(self, child):
-        row = self.rowOfChild(child)
-        if row == -1:
-            _logger.warning("%r is not a child of %r" % (child, self))
-        self.children.pop(row)
-        child._setParent(None)
-        return child
-    
-    def getRoot(self):
-        node = self
-        while node.parent is not None:
-            node = node.parent
-        return node
-    
-    def insertChild(self, child, parentToPart=""):
-        if self.root() == self:
-            if parentToPart != "":
-                raise KeyError("Children of a root node cannot have a parent to part")       
-        elif parentToPart not in self.listParentParts():
-            raise KeyError("Invalid parent to part '%s'" % parentToPart)
-
-        #don't allow the same instance in the tree twice
-        ids = [id(w) for w in self.getRoot().childWidgets()]
-        if id(child) in ids:
-            raise RuntimeError("Cannot add the same instance twice")
-        
-        #order keys should  be unique, else warn
-        for currentChild in self.children:
-            if currentChild[self.KEY_INDEX] == child.orderKey():
-                _logger.warning("Widget with ID '%s' already is a child"\
-                                % child.orderKey())
-                #return
-            
-        child.parent = self
-        childList =[child.orderKey(), child, parentToPart]
-        bisect.insort(self.children, childList)
-        
-    def rmChild(self, child, removeChildren=False):
-        """
-        Remove a child
-        @param reparentChildren=True:  reparent child's children to the child's parent
-        """
-        
-        if not removeChildren:
-            grandChildren = child.childWidgets(recursive=False)
-            try:
-                parentPart = self.listParentParts()[0]
-            except IndexError:
-                parentPart = ""
-            child.children = []
-            for grandChild in grandChildren:
-                self.insertChild(grandChild, parentToPart = parentPart)
-            
-        self.children.pop(self.rowOfChild(child))
-        return child
-
-    def addParentPart(self, nodeName):
-        '''Add the 'key' name of a node'''
-        if nodeName in self._parentNodes.keys():
-            _logger.warning("%s already is a parent node, skipping" % nodeName)
-            return
-        self._parentNodes[nodeName] = None
-        
-    def listParentParts(self):
-        return self._parentNodes.keys()
-        
-class TreeModel(QAbstractItemModel):
-    def __init__(self, parent=None):
-        super(TreeModel, self).__init__(parent)
-        self.root = WidgetTreeItem("", isRoot=True)
-        self.columns = self.root.numColumns
-        self.headers = ['Part', 'Side', 'Parent Node', 'Class', 'Mirrored']
-        
-    def supportedDropActions(self):
-        return Qt.MoveAction | Qt.CopyAction
-    
-    def flags(self, index):
-        defaultFlags = QAbstractItemModel.flags(self, index)
-        if index.isValid():
-            return Qt.ItemIsEditable | Qt.ItemIsDragEnabled | \
-                    Qt.ItemIsDropEnabled | defaultFlags
-        else:
-            return Qt.ItemIsDropEnabled | defaultFlags
-        
-    def widgetFromIndex(self, index):
-        return index.internalPointer() \
-            if index.isValid() else self.root
-    
-    def indexFromWidget(self, widget, parentIndex=QModelIndex()):
-        """Get the QModelIndex from a widget."""
-        rows = self.rowCount(parentIndex)
-        for i in range(rows):
-            index = self.index(i, 0, parentIndex)
-            if index.internalPointer() == widget:
-                return index
-            else:
-                index = self.indexFromWidget(widget, parentIndex=index)
-                if index != None:
-                    return index
-        return QModelIndex()
-    
-    def rowCount(self, parent):
-        widget = self.widgetFromIndex(parent)
-        if widget is None:
-            return 0
-        else:
-            return widget.numChildren()
-        
-    def mimeTypes(self):
-        types = QStringList()
-        types.append('application/x-widget')
-        return types
-    
-    def mimeData(self, indexList):
-        index = indexList[0]
-        widget = self.widgetFromIndex(index)
-        mimeData = getWidgetMimeData(widget)
-        return mimeData
-    
-    def dropMimeData(self, mimedata, action, row, column, parentIndex):
-        if action == Qt.IgnoreAction:
-            return True
-        dragNode = widgetFromMimeData(mimedata)
-        if not dragNode:
-            return False
-        if dragNode.parent:
-            dragNode.parent.removeChild(dragNode)
-            
-        parentNode = self.widgetFromIndex(parentIndex)
-        if parentNode is self.root or parentNode is None:
-            self.root.insertChild(dragNode)
-        else:
-            parentParts = parentNode.listParentParts()
-            parentNode.insertChild(dragNode, parentParts[0])
-        self.insertRow(parentNode.numChildren()-1, parentIndex)
-        self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), parentIndex, parentIndex)
-        return True
-    
-    def insertRow(self, row, parent):
-        return self.insertRows(row, 1, parent)
-    
-    def insertRows(self, row, count, parent):
-         self.beginInsertRows(parent, row, (row + (count-1)))
-         self.endInsertRows()
-         return True
-    
-    def removeRow(self, row, parentIndex):
-         return self.removeRows(row, 1, parentIndex)
-    
-    def removeRows(self, row, count, parentIndex):
-         self.beginRemoveRows(parentIndex, row, row)    
-         self.endRemoveRows()
-         return True
-    
-    def columnCount(self, parent):
-        return self.columns
-    
-    def index(self, row, column, parent):
-        assert self.root
-        widget = self.widgetFromIndex(parent)
-        assert widget is not None
-        try:
-            return self.createIndex(row, column,
-                                    widget.childAtRow(row))
-        except AssertionError:
-            return QModelIndex()
-        
-    def setData(self, index, value, role=Qt.EditRole):
-        widget = self.widgetFromIndex(index)
-        if widget is None or widget is self.root:
-            return False
-        header = self.headers[index.column()]
-        value = str(value.toString())
-        if header == 'Part':
-            widget.options.setValue('part', value)
-        if header == 'Side':            
-            if value not in ['cn', 'lf', 'rt']:
-                _logger.warning('invalid side "%s"' % value)
-            else:
-                widget.options.setValue('side', value)
-        if header == 'Parent Node':
-            widget.setParentedPart(value)
-        self.emit(SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
-        return True
-    
-    def parent(self, child):
-        widget = self.widgetFromIndex(child)
-        if widget is None:
-            return QModelIndex()
-        parent = widget.parent
-        if parent is None:
-            return QModelIndex()
-        grandparent = parent.parent
-        if grandparent is None:
-            return QModelIndex()
-        row = grandparent.rowOfChild(parent)
-        assert row != -1
-        return self.createIndex(row, 0, parent)
-
-    def data(self, index, role):
-        if role == Qt.TextAlignmentRole:
-            return QVariant(int(Qt.AlignTop|Qt.AlignLeft))
-        if role != Qt.DisplayRole:
-            return QVariant()
-        widget = self.widgetFromIndex(index)
-        assert widget is not None
-        return widget.getData(index.column())
-    
-    def headerData(self, section, orientation, role):
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
-            assert 0 <= section <= len(self.headers)
-            return QVariant(self.headers[section])
-        return QVariant()
-    
-
-class Widget(WidgetTreeItem):
-    
-    layoutObjs = set([])
-    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'ik', 'fk']
-    
-    #Tree item reimplementations
-    def getData(self, col):
-        if col == 4: return self.name()
-        else:
-            return super(Widget, self).getData(col)
-        
-    def __init__(self, part='widget', **kwargs):
-
-        #Get a unique part name.  This ensures all node names are unique
-        #when multiple widgets are built.
-                
-        self.ref = self
-        self.numColumns = 5        
-                
-        super(Widget, self).__init__(part)
-        assert(self.options)
-        self._oritPartName = part
         self._nodes = [] #stores all nodes        
         self._bindJoints = {} #stores registered bind joints
         self._differs = {'rig': control.Differ(), 'layout': control.Differ()}
         self._cachedDiffs = {'rig': {}, 'layout': {}}
+        
+        #when built, build nodes are added to categories if they need to be
+        #operated upon by parents
         self._nodeCategories = {}
         for categoy in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[categoy] = []
         
+    def _optionChanged(self, opt, oldVal, newVal):
+        #if the char is changed on any node, it should be changed for all nodes in the hierarchy
+        if opt == 'char':
+            root = self.root()
+            allNodes = root.children(recursive=True) + root
+            for node in allNodes:
+                if hasattr(node, "options"):
+                    node.options.setOpt('char', newVal, quiet=True)        
+        
+    def __validateChildSettings(self):
+        """
+        Validate that all options are appropriately set before doing a build
+        """
+        children = self.children(recursive=True)
+        usedNames = {}
+        for child in children:            
+            part = child.options.getOpt('part')
+            side = child.options.getOpt('side')
+            name = '%s_%s' % (part, side)            
+            if name in usedNames:
+                raise RuntimeError("Cannot build; part %s and side %s used in %r and %r" \
+                                   %(usedNames[name], child))
+            else:
+                usedNames[name] = child
+        
+    def doBuild(self, buildType):
+        if buildType not in self.BUILD_TYPES:
+            raise RuntimeError("Invalid build type '%s'" % buildType)
+        
+        for child in self.children():
+            child.doBuild(buildType)
+            
+        self.parent().childCompletedAction(self, buildType)
+        for child in self.children():
+            child.parentCompletedBuild(self, buildType)
+    
+    def childCompletedBuild(self, child, buildType):
+        pass
+    
+    def parentCompletedBuild(self, parent, buildType):
+        pass
+
     def _resetNodeCategories(self):
         for category in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[category] = []
 
-    def name(self, id=False):
-        """ Return a name of the object.
-        partID should always be unique.  This can be used as a key
-        in dictionaries referring to multiple instances"""
-        part = self.options.getValue('part')
-        side = self.options.getValue('side')
-        return '%s_%s' % (part, side)
+#    def name(self, id=False):
+#        """ Return a name of the object.
+#        partID should always be unique.  This can be used as a key
+#        in dictionaries referring to multiple instances"""
+#        part = self.options.getValue('part')
+#        side = self.options.getValue('side')
+#        return '%s_%s' % (part, side)
 
     def __repr__(self):
         return "%s('%s')" % \
@@ -630,7 +476,7 @@ class Widget(WidgetTreeItem):
         return "%s('%s')" % \
                (self.__class__.__name__, self.name())
     
-    @BuildCheck('built')
+    @BuildCheck('layoutBuilt')
     def mirror(self, other):
         '''
         Mirror this widget to another widget.  this assumes controls are in world space.
@@ -685,7 +531,7 @@ class Widget(WidgetTreeItem):
                     else:
                         self._nodes.append(mdn)
 
-    @BuildCheck('built')
+    @BuildCheck('layoutBuilt')
     def duplicateBindJoints(self, oriented=True):
         """
         Duplicate the bind joints.  Give a new prefix
@@ -859,7 +705,7 @@ class Widget(WidgetTreeItem):
         """
         raise NotImplementedError
     
-    @BuildCheck('built', 'rigged')
+    @BuildCheck('layoutBuilt', 'rigBuilt')
     def delete(self, cache=True):
         """
         Delete the layout
@@ -877,7 +723,7 @@ class Widget(WidgetTreeItem):
         self._nodes = []
         self._resetNodeCategories()
         
-    @BuildCheck('built')
+    @BuildCheck('layoutBuilt')
     def cacheDiffs(self):
         """
         Store tweaks internally
@@ -905,7 +751,7 @@ class Widget(WidgetTreeItem):
         else:
             return self._cachedDiffs
 
-    @BuildCheck('built')
+    @BuildCheck('layoutBuilt')
     def applyDiffs(self, diffDict):
         """
         Apply tweaks

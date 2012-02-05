@@ -421,7 +421,7 @@ class Differ(object):
     def __init__(self):
         self.__controls = {}
         self.__initialState = {}
-        
+        self.__wasSetup = False
     def getObjs(self):
         result = {}
         for ctlName, ctlTup in self.__controls.items():
@@ -464,12 +464,13 @@ class Differ(object):
         self.__initialState = {}
         for k, ctl in self.__controls.items():
             self.__initialState[k] = _getStateDct(ctl[0])
-            
+        self.__wasSetup=True
+        
     def getDiffs(self):
         """
         Get diffs for all nodes
         """
-        if not self.__initialState:
+        if not self.__wasSetup:
             raise utils.BeingsError("Initial state was never set")
         allDiffs = {}
         for k, ctlTup in self.__controls.items():

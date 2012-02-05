@@ -55,8 +55,6 @@ class Orientation(object):
                     'negY': [0, -1, 0],
                     'negZ': [0, 0, -1]}
 
-    #TODO:  make a property that returns a copy
-    axisVecDict = copy.copy(Orientation._axisVecDict)
 
     _defaultAxes = {'aim': ('posY', [0, 1, 0]),
                      'up': ('posX', [1, 0, 1]),

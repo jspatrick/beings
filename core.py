@@ -478,10 +478,13 @@ class Widget(TreeItem):
         for child in self.children():
             if hasattr(child, 'parentCompletedBuild'):
                 child.parentCompletedBuild(self, buildType)
-                
+    def plugNode(self, plug):
+        return self.__plugNodes.get(plug, None)
+    
     def childCompletedBuild(self, child, buildType):
         #do parenting
-        if 'buildType' == 'rig':
+        _logger.debug("Child %s complete %s build" % (child, buildType))
+        if buildType == 'rig':
             plug = self.plugOfChild(child)
             parentNode = self.__plugNodes[plug]
              
@@ -624,7 +627,7 @@ class Widget(TreeItem):
                 nodes = [n for n in self._nodeCategories[category] if pm.objExists(n)]
                 self._nodeCategories[category] = copy.copy(nodes) # set it to the existing objs
 
-                if category == 'fk':
+                if category == 'parent':
                     otherCategoryNodes = set([])
                     for grp in self._nodeCategories.values():
                         otherCategoryNodes.update(grp)

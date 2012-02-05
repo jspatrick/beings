@@ -272,12 +272,13 @@ class OptionCollection(QtCore.QObject):
         changed=False
         if val != self.__options[optName]:
             changed = True
+        oldVal = self.__options[optName]
         self.__options[optName] = val
         
         if not quiet:
             self.emit(QtCore.SIGNAL('optSet'), optName, val)
             if changed:
-                self.emit(QtCore.SIGNAL('optChanged'), optName, oldVal, newVal)
+                self.emit(QtCore.SIGNAL('optChanged'), optName, oldVal, val)
             
     #TODO:  Get option data
     def getData(self):
@@ -448,10 +449,11 @@ class Widget(TreeItem):
         #if the char is changed on any node, it should be changed for all nodes in the hierarchy
         if opt == 'char':
             root = self.root()
-            allNodes = root.children(recursive=True) + root
+            allNodes = root.children(recursive=True) + [root]
             for node in allNodes:
                 if hasattr(node, "options"):
-                    node.options.setOpt('char', newVal, quiet=True)        
+                    if node.options.getValue('char') != newVal:
+                        node.options.setValue('char', newVal, quiet=True)        
         
     def __validateChildSettings(self):
         """
@@ -1039,60 +1041,6 @@ class CenterOfGravity(Widget):
         
 WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'The widget under which all others should be parented')
 
-
-#class Rig(TreeModel):
-#    '''
-#    A character tracks widgets, organizes the build, etc
-#    import pymel.core as pm
-#    import beings.control as C
-#    import beings.leg as L
-#    import beings.utils as U
-#    reload(U)
-#    reload(C)
-#    reload(L)
-#    pm.newFile(force=1)
-#
-#    ll = L.LegLayout()
-#    ll2 = L.LegLayout(side='rt')
-#
-#    rig = L.Rig('mycharacter')
-#    rig.addWidget(ll)
-#    rig.addWidget(ll2)
-#    rig.setParent(ll, ll2, 'bnd_hip')
-#    rig.buildRig()
-#
-#    '''
-#    #a dummy object used as the 'root' of the rig
-#        
-#    def __init__(self, charName, rigType='core', buildStyle='standard', skipCog=False):
-#        super(Rig, self).__init__()
-#
-#        self._charNodes = {}
-#        self._rigType = 'core'
-#        self._coreNodes = {}
-#        self._nodes = []
-#        self._mirrored = {}
-#        self._stateFlag = 'unbuilt'
-#        self.options = OptionCollection()
-#        self.options.addOpt('char', 'defaultcharname')
-#        self.options.setValue('char', charName)
-#        self.options.addOpt('rigType', 'core')
-#        self.options.setValue('rigType', rigType)
-#        self.options.addOpt('buildStyle', 'standard')
-#        self.options.setValue('buildStyle', buildStyle)
-#        self.options.connect(self.options, QtCore.SIGNAL('optChanged'), self._optChanged)
-#        if not skipCog:
-#            self.cog = CenterOfGravity()
-#            self.cog.options.setValue('char', self.options.getValue('char'))        
-#            self.addWidget(self.cog)
-#            
-#    def _optChanged(self, opt):
-#        """This is called with the option name anytime a rig option is changed"""
-#        if opt == 'char':
-#            newName = self.options.getValue('char')
-#            for wdg in self.root.childWidgets():
-#                wdg.options.setValue('char', newName)
-#
 #    def setMirrored(self, widget):
 #        """
 #        If the widget has a side and a similarly named widget on the opposite side
@@ -1116,217 +1064,257 @@ WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'The widget unde
 #                
 #    def setUnMirrored(self, widget):
 #        self._mirrored.pop(widget)
-#
-#    #reimplement
-#    def data(self, index, role):        
-#        if role == QtCore.Qt.DisplayRole:
-#            if index.column() == self.headers.index('Mirrored'):                
-#                widget = self.widgetFromIndex(index)
-#                if widget in self._mirrored.keys():
-#                    
-#                    return QtCore.QVariant("Source")
-#                elif widget in self._mirrored.values():
-#                    return QtCore.QVariant("Target")
-#                else:
-#                    return QtCore.QVariant("")                
-#        return super(Rig, self).data(index, role)
-#    
-#    @classmethod
-#    def rigFromData(cls, data):
-#        '''
-#        Get a rig from a data dict
-#        '''
-#        #create a rig instance
-#        data = copy.deepcopy(data)
-#        rigOpts = data.pop('rigOptions')
-#        skipCog = data.pop('skipCog')
-#        
-#        name = rigOpts['char']
-#        rigType= rigOpts['rigType']
-#        style = rigOpts['buildStyle']
-#        
-#        rig = cls(name, rigType=rigType, buildStyle=style, skipCog=skipCog)
-#        
-#        #create widgets
-#        idWidgets = {}
-#        registry = WidgetRegistry()        
-#        for id, dct in data.items():
-#            if dct['isCog']:
-#                wdg = rig.cog
-#            else:
-#                wdg = registry.getInstance(dct['widgetName'])
-#                idWidgets[id] = wdg
-#
-#            wdg.setDiffs(dct['diffs'])
-#            wdg.options.setFromData(dct['options'])
-#            
-#
-#        #parent them into rig
-#        for id, wdg in idWidgets.items():
-#            parentID = data[id]['parentID']
-#            if parentID == 'None':
-#                parentWidget = None
-#            elif parentID == 'Cog':
-#                parentWidget = rig.cog
-#            else:
-#                try:
-#                    parentWidget = idWidgets[parentID]
-#                except KeyError:
-#                    _logger.warning("Cannot find parent widget for %s" % str(wdg))
-#                    _logger.debug("idWidgetDct:\n%r" % idWidgets)
-#                    parentWidget = None
-#                    
-#            parentPart = data[id]['parentPart']
-#            rig.addWidget(wdg, parent = parentWidget, parentNode=parentPart)
-#            
-#        return rig
-#
-#    def getBadNames(self):
-#        """
-#        Return a list of [('badID', widget)] for all widgets with a duplicate or invalid name
-#        """
-#        
-#        allWidgets = self.root.childWidgets()
-#        result = []
-#        IDs = []
-#        for widget in allWidgets:
-#            name = widget.name()
-#            if name not in IDs:
-#                IDs.append(name)
-#            else:
-#                result.append(name)
-#        return result
-#    
-#    def addWidget(self, widget, parent=None, parentNode=None):        
-#        if parent is None:
-#            parent = self.root
-#            parentNode = ""
-#        elif not parentNode:
-#            parentNode = parent.listParentParts()[0]
-#        _logger.debug('adding widget - parent: %r, parentNode: %s' % (parent, parentNode))
-#        parent.insertChild(widget, parentNode)
-#        widget.options.setValue('char', self.options.getValue('char'))        
-#        parentIndex = self.indexFromWidget(parent)
-#        if parentIndex is None:            
-#            parentIndex = QtCore.QModelIndex()
-#        self.emit(QtCore.SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
-#
-#    def rmWidget(self, widget, removeChildren=False):
-#        parent = widget.parent
-#        parentIndex = self.indexFromWidget(parent)
-#        remove = not removeChildren        
-#        parent.rmChild(widget, removeChildren=removeChildren)        
-#        self.emit(QtCore.SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
-#        
-#    def buildLayout(self):
-#        badNames = self.getBadNames()
-#        if badNames:
-#            raise utils.BeingsError("Cannot build - duplicate or invalid IDs found:\n%s" \
-#                                    % str(badNames))
-#        
-#        if self.state() in  ['rigged', 'built']:
-#            self.delete()
-#        self._stateFlag = 'built'
-#        for wdg in self.root.childWidgets():
-#            if wdg.state() == 'rigged':
-#                wdg.delete()
-#            wdg.buildLayout()
-#        
-#        #do mirroring
-#        for wdg, tgt in self._mirrored.items():
-#            wdg.mirror(tgt)
-#
-#            
-#    def getSaveData(self):
-#        '''
-#        Get widget data needed to reconstruct the rig
-#        starting at root, for each child get:
-#        id: {parentWidgetID,
-#             parentNode,
-#             registered name,
-#             optionData,
-#             diffData}    
-#        '''
-#        result = {}
-#        allWidgets = self.root.childWidgets()
-#        for widget in allWidgets:
-#            widget.cacheDiffs()
-#        registry = WidgetRegistry()
-#        
-#        #determine whether the cog has been removed from the widget
-#        result['skipCog'] = False
-#        if self.cog not in self.root.childWidgets():
-#            result['skipCog'] = True
-#        
-#        for widget in allWidgets:
-#            wdata = {}
-#            if widget == self.cog:
-#                wdata['isCog'] = True
-#            else:
-#                wdata['isCog'] = False
-#            
-#            if widget.parent is self.root:
-#                wdata['parentID'] = 'None'
-#            elif widget.parent is self.cog:
-#                wdata['parentID'] = 'Cog'
-#            else:                
-#                wdata['parentID'] = str(id(widget.parent))
-#                
-#            wdata['parentPart'] = str(widget.getData(2).toString())
-#            wdata['options'] = widget.options.getData()
-#            wdata['diffs'] = widget.getDiffs()
-#            wdata['widgetName'] = registry.widgetName(widget)
-#            result[str(id(widget))] = wdata
-#            
-#        result['rigOptions'] = self.options.getData()
-#
-#        return result
-#    
-#    def state(self):
-#        return self._stateFlag
-#
-#    def buildRig(self, lock=False):
-#        #check to make sure part names are unique
-#        badNames = self.getBadNames()
-#        if badNames:
-#            raise utils.BeingsError("Cannot build - duplicate or invalid IDs found:\n%s" \
-#                                    % str(badNames))
-#        if self.state() in  ['rigged', 'built']:
-#            self.delete()
-#        self._stateFlag = 'rigged'
-#        with utils.NodeTracker() as nt:            
-#            self._buildMainHierarchy()                 
-#            self._nodes = nt.getObjects()
-#            
-#        for wdg in self.root.childWidgets():            
-#            wdg.buildRig()
-#
-#        self._doParenting()
-#        if lock:
-#            NT.lockHierarchy(self._coreNodes['top'])
-#
-#    def delete(self):
-#        #delete mirrored widgets first so we get diffs before conections are broken
-#        
-#        mirrored = self._mirrored.values()
-#        for wdg in mirrored:
-#            wdg.delete()        
-#        for wdg in self.root.childWidgets():
-#            if wdg not in mirrored:
-#                wdg.delete()
-#        with utils.SilencePymelLogger():
-#            for node in self._nodes:
-#                if pm.objExists(node):
-#                    pm.delete(node)
-#        self._nodes = []
-#        self._stateFlag = 'unbuilt'
-#            
-#    def _doParenting(self):
-#        '''
-#        Parent rigs to each other
-#        '''
-#
-#    
+
+class RigModel(QtCore.QAbstractItemModel):
+    '''
+    Abstract item model for a rig 
+    '''
+    #a dummy object used as the 'root' of the rig
+        
+    def __init__(self, parent=None):
+        super(RigModel, self).__init__(parent=parent)
+        self.root = Root()
+        self.headers = ['Part', 'Side', 'Parent Part', 'Class', 'Mirrored']
+        self._mimeDataWidgets = []
+        
+    #reimplement    
+    def index(self, row, col, parentIndex):
+#        if not self.hasIndex(row, col, parentIndex):
+#            return QtCore.QModelIndex()
+        if not parentIndex.isValid():
+            parent = self.root
+        else:
+            parent = parentIndex.internalPointer()
+        child = parent.children()[row]
+        return self.createIndex(row, col, child)
+    
+    def parent(self, index):
+        if not index.isValid():
+            return QtCore.QModelIndex()
+        widget = index.internalPointer()
+        parent = widget.parent()
+        if parent == self.root:
+            return QtCore.QModelIndex()
+        #get row of parent
+        row = parent.parent().childIndex(parent)
+        return self.createIndex(row, 0, parent)
+        
+    def rowCount(self, parentIndex):
+        if parentIndex.column() > 0:
+            return 0
+        
+        if not parentIndex.isValid():
+            parent = self.root
+        else:
+            parent = parentIndex.internalPointer()
+            
+        return len(parent.children())
+    
+    def columnCount(self, parentIndex): return len(self.headers)
+    def supportedDropActions(self):
+        return QtCore.Qt.MoveAction | QtCore.Qt.CopyAction
+    def flags(self, index):        
+        if not index.isValid():
+            return 0
+        flags =  QtCore.Qt.ItemIsEnabled | \
+                QtCore.Qt.ItemIsSelectable | \
+                QtCore.Qt.ItemIsEditable | \
+                QtCore.Qt.ItemIsDragEnabled | \
+                QtCore.Qt.ItemIsDropEnabled
+                
+        return flags
+    
+    def mimeTypes(self):
+        types = QtCore.QStringList()
+        types.append('application/x-widgetlist')
+        types.append('application/x-widget-classname')
+        return types
+    
+    def mimeData(self, indexList):
+        widgets = []
+        for i in range(len(indexList)):
+            widgets.append(indexList[i].internalPointer())
+        self._mimeDataWidgets = widgets
+        
+        mimeData = QtCore.QMimeData()
+        mimeData.setData("application/x-widgetlist", QtCore.QByteArray())
+        return mimeData
+            
+    def data(self, index, role):
+        if not index.isValid():
+            return QtCore.QVariant()
+        if role != QtCore.Qt.DisplayRole:
+            return QtCore.QVariant()
+        else:            
+            widget = index.internalPointer()
+            if index.column() == self.headers.index('Part'):                
+                return QtCore.QVariant(widget.options.getValue('part'))
+            if index.column() == self.headers.index('Side'):                
+                return QtCore.QVariant(widget.options.getValue('side'))
+            if index.column() == self.headers.index('Parent Part'):
+                plug = widget.parent().plugOfChild(widget)
+                return QtCore.QVariant(plug)
+            if index.column() == self.headers.index('Class'):
+                return QtCore.QVariant(widget.__class__.__name__)
+            
+            
+            return QtCore.QVariant("Test..")
+        
+    def headerData(self, section, orientation, role):
+        if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:
+            return QtCore.QVariant(self.headers[section])
+        return QtCore.QVariant()
+    @classmethod
+    def rigFromData(cls, data):
+        '''
+        Get a rig from a data dict
+        '''
+        #create a rig instance
+        data = copy.deepcopy(data)
+        rigOpts = data.pop('rigOptions')
+        skipCog = data.pop('skipCog')
+        
+        name = rigOpts['char']
+        rigType= rigOpts['rigType']
+        style = rigOpts['buildStyle']
+        
+        rig = cls(name, rigType=rigType, buildStyle=style, skipCog=skipCog)
+        
+        #create widgets
+        idWidgets = {}
+        registry = WidgetRegistry()        
+        for id, dct in data.items():
+            if dct['isCog']:
+                wdg = rig.cog
+            else:
+                wdg = registry.getInstance(dct['widgetName'])
+                idWidgets[id] = wdg
+
+            wdg.setDiffs(dct['diffs'])
+            wdg.options.setFromData(dct['options'])
+            
+
+        #parent them into rig
+        for id, wdg in idWidgets.items():
+            parentID = data[id]['parentID']
+            if parentID == 'None':
+                parentWidget = None
+            elif parentID == 'Cog':
+                parentWidget = rig.cog
+            else:
+                try:
+                    parentWidget = idWidgets[parentID]
+                except KeyError:
+                    _logger.warning("Cannot find parent widget for %s" % str(wdg))
+                    _logger.debug("idWidgetDct:\n%r" % idWidgets)
+                    parentWidget = None
+                    
+            parentPart = data[id]['parentPart']
+            rig.addWidget(wdg, parent = parentWidget, parentNode=parentPart)
+            
+        return rig
+
+    def getBadNames(self):
+        """
+        Return a list of [('badID', widget)] for all widgets with a duplicate or invalid name
+        """
+        
+        allWidgets = self.root.childWidgets()
+        result = []
+        IDs = []
+        for widget in allWidgets:
+            name = widget.name()
+            if name not in IDs:
+                IDs.append(name)
+            else:
+                result.append(name)
+        return result
+    
+    def addWidget(self, widget, parent=None, parentNode=None):        
+        if parent is None:
+            parent = self.root
+            parentNode = ""
+        elif not parentNode:
+            parentNode = parent.listParentParts()[0]
+        _logger.debug('adding widget - parent: %r, parentNode: %s' % (parent, parentNode))
+        parent.insertChild(widget, parentNode)
+        widget.options.setValue('char', self.options.getValue('char'))        
+        parentIndex = self.indexFromWidget(parent)
+        if parentIndex is None:            
+            parentIndex = QtCore.QModelIndex()
+        self.emit(QtCore.SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
+
+    def rmWidget(self, widget, removeChildren=False):
+        parent = widget.parent
+        parentIndex = self.indexFromWidget(parent)
+        remove = not removeChildren        
+        parent.rmChild(widget, removeChildren=removeChildren)        
+        self.emit(QtCore.SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
+        
+    def buildLayout(self):
+        badNames = self.getBadNames()
+        if badNames:
+            raise utils.BeingsError("Cannot build - duplicate or invalid IDs found:\n%s" \
+                                    % str(badNames))
+        
+        if self.state() in  ['rigged', 'built']:
+            self.delete()
+        self._stateFlag = 'built'
+        for wdg in self.root.childWidgets():
+            if wdg.state() == 'rigged':
+                wdg.delete()
+            wdg.buildLayout()
+        
+        #do mirroring
+        for wdg, tgt in self._mirrored.items():
+            wdg.mirror(tgt)
+
+            
+    def getSaveData(self):
+        '''
+        Get widget data needed to reconstruct the rig
+        starting at root, for each child get:
+        id: {parentWidgetID,
+             parentNode,
+             registered name,
+             optionData,
+             diffData}    
+        '''
+        result = {}
+        allWidgets = self.root.childWidgets()
+        for widget in allWidgets:
+            widget.cacheDiffs()
+        registry = WidgetRegistry()
+        
+        #determine whether the cog has been removed from the widget
+        result['skipCog'] = False
+        if self.cog not in self.root.childWidgets():
+            result['skipCog'] = True
+        
+        for widget in allWidgets:
+            wdata = {}
+            if widget == self.cog:
+                wdata['isCog'] = True
+            else:
+                wdata['isCog'] = False
+            
+            if widget.parent is self.root:
+                wdata['parentID'] = 'None'
+            elif widget.parent is self.cog:
+                wdata['parentID'] = 'Cog'
+            else:                
+                wdata['parentID'] = str(id(widget.parent))
+                
+            wdata['parentPart'] = str(widget.getData(2).toString())
+            wdata['options'] = widget.options.getData()
+            wdata['diffs'] = widget.getDiffs()
+            wdata['widgetName'] = registry.widgetName(widget)
+            result[str(id(widget))] = wdata
+            
+        result['rigOptions'] = self.options.getData()
+
+        return result
+    
 
 
 

@@ -42,7 +42,7 @@ class PopupError():
 class WidgetTree(QTreeView):
     def __init__(self, parent=None):
         super(WidgetTree, self).__init__(parent)
-        self.rig = core.Rig('mychar')
+        self.rig = core.RigModel('mychar')
         self.setModel(self.rig)
         self.rig.reset()
         self.setAnimated(True)
@@ -68,46 +68,6 @@ class WidgetTree(QTreeView):
     def expanded(self):
         for column in range(self.model().columnCount(QModelIndex())):
                 self.resizeColumnToContents(column)
-                
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasFormat('application/x-widget'):
-            if event.dropAction() == Qt.CopyAction:
-                event.accept()
-            else:
-                QTreeView.dragEnterEvent(self, event)
-        else:
-            event.ignore()
-            
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasFormat('application/x-widget'):
-            if event.dropAction() == Qt.CopyAction:
-                event.accept()
-            else:
-                QTreeView.dragMoveEvent(self, event)
-        else:
-            event.ignore()
-            
-    def dropEvent(self, event):
-        if event.mimeData().hasFormat('application/x-widget'):
-            if event.dropAction() == Qt.CopyAction:
-                widget = core.widgetFromMimeData(event.mimeData())
-                pos = QCursor.pos()
-                mousePos = self.viewport().mapFromGlobal(QCursor.pos())
-                index = self.indexAt(mousePos)
-                model = index.model()
-                if model:
-                    parentWidget = model.widgetFromIndex(index)
-                else:
-                    parentWidget = None
-                _logger.debug("Parenting under %r"  % parentWidget)
-                self.rig.addWidget(widget, parent=parentWidget)                
-                event.accept()
-                
-            elif event.dropAction() == Qt.MoveAction:
-                QTreeView.dropEvent(self, event)
-                
-        else:
-            event.ignore()
 
 class WidgetList(QListWidget):
     def __init__(self, parent=None):

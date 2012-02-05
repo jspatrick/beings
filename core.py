@@ -3,7 +3,7 @@ The core widget and rig objects that custom widgets should inherit
 """
 import logging, re, copy, os, sys, __builtin__
 import pymel.core as pm
-from PyQt4 import QtCore, QtGui
+from PyQt4 import QtCore
 
 import beings.control as control
 import beings.utils as utils
@@ -273,6 +273,11 @@ class OptionCollection(QtCore.QObject):
         if val != self.__options[optName]:
             changed = True
         oldVal = self.__options[optName]
+        
+        if not quiet:            
+            if changed:
+                self.emit(QtCore.SIGNAL('optAboutToChange'), optName, oldVal, val)
+
         self.__options[optName] = val
         
         if not quiet:
@@ -347,6 +352,13 @@ class TreeItem(QtCore.QObject):
             node = node.__parent
         return node
     
+    def addedChild(self, child):
+        """Callback when a child is added"""
+        pass
+    def removedChild(self, child):
+        """Callback after a child is removed"""
+        pass
+     
     def addChild(self, child, plug=""):        
         if not self.__plugs:
             raise RuntimeError("must add plugs to the parent before adding a child")
@@ -366,6 +378,7 @@ class TreeItem(QtCore.QObject):
         child._setParent(self)        
         self.__children.append(child)
         self.__childPlugs.append(plug)
+        self.addedChild(child)
         
     def rmChild(self, child, reparentChildren=False):
         """
@@ -384,7 +397,8 @@ class TreeItem(QtCore.QObject):
         index = self.childIndex(child)
         self.__children.pop(index)
         self.__childPlugs.pop(index)
-        child._setParent(None)        
+        child._setParent(None)
+        self.removedChild(child)        
         return child
     
     def plugOfChild(self, child): return self.__childPlugs[self.childIndex(child)]
@@ -404,7 +418,7 @@ class Widget(TreeItem):
     
     '''
     BUILD_TYPES = ['layout', 'rig']
-    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'parent']
+    VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'parent', 'ik']
     def __init__(self, part='widget', plugs=None):
         super(Widget, self).__init__(plugs=plugs)
         
@@ -415,7 +429,8 @@ class Widget(TreeItem):
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
         self.connect(self.options, QtCore.SIGNAL('optChanged'), self._optionChanged)
-                                
+        self.connect(self.options, QtCore.SIGNAL('optAboutToChange'), 
+                     self._optionAboutToChange)
         
         self._nodes = [] #stores all nodes
         self.__state = 'unbuilt'        
@@ -436,15 +451,33 @@ class Widget(TreeItem):
         #operated upon by parents
         self._nodeCategories = {}
         
+        #nodes are added to catgories in a tuple of (node, 'unhandled')
+        #or (node, 'handled') 
         for categoy in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[categoy] = []
             
+        #is the widget mirrored?
+        self._mirroring = ''
+        
+    def removedChild(self, child):
+        child._mirroring = ''
+        super(Widget, self).removedChild(child)
+        
     def addParentPart(self, part): self.addPlug(part)
     def setParentNode(self, part, node):
         if part not in self.plugs():
             raise RuntimeError("invalid plug '%s'" % part)
         self.__plugNodes[part] = node
         
+    def addChild(self, child, plug=""):        
+        result = super(Widget, self).addChild(child, plug=plug)
+        try:
+            assert isinstance(child, Widget)
+            child.options.setValue('char', self.options.getValue('char'))
+        except AssertionError:
+            _logger.debug("Parening non-Widget to %r" % self)
+        return result
+    
     def _optionChanged(self, opt, oldVal, newVal):
         #if the char is changed on any node, it should be changed for all nodes in the hierarchy
         if opt == 'char':
@@ -453,8 +486,18 @@ class Widget(TreeItem):
             for node in allNodes:
                 if hasattr(node, "options"):
                     if node.options.getValue('char') != newVal:
-                        node.options.setValue('char', newVal, quiet=True)        
+                        node.options.setValue('char', newVal, quiet=True)
         
+    def _optionAboutToChange(self, opt, oldVal, newVal):
+        #if changing the part or side invalidates mirroring, set it         
+        if opt == 'part' or opt == 'side':
+            if self._mirroring: 
+                other = self._getMirrorableWidget()
+                if other:
+                    other._mirroring = ''
+                self._mirroring = ''
+            
+                
     def __validateChildSettings(self):
         """
         Validate that all options are appropriately set before doing a build
@@ -480,6 +523,7 @@ class Widget(TreeItem):
         for child in self.children():
             if hasattr(child, 'parentCompletedBuild'):
                 child.parentCompletedBuild(self, buildType)
+                
     def plugNode(self, plug):
         return self.__plugNodes.get(plug, None)
     
@@ -494,7 +538,10 @@ class Widget(TreeItem):
                 node.setParent(parentNode)            
                     
     def parentCompletedBuild(self, parent, buildType):
-        pass
+        if buildType == 'layout':
+            if self._mirroring == 'source':
+                other = self._getMirrorableWidget()
+                self.mirror(other)
         
     def name(self):
         """ Return a name of the object."""        
@@ -510,61 +557,6 @@ class Widget(TreeItem):
         return "%s('%s')" % \
                (self.__class__.__name__, self.name())
     
-    @BuildCheck('layoutBuilt')
-    def mirror(self, other):
-        '''
-        Mirror this widget to another widget.  this assumes controls are in world space.
-        Templates mirrored controls
-        '''
-        thisCtlDct = self._differs['layout'].getObjs()
-        otherCtlDct = other._differs['layout'].getObjs()
-        thisRigDct = self._differs['rig'].getObjs()
-        otherRigDct = other._differs['rig'].getObjs()
-        
-        direct = ['tz', 'ty', 'rx', 'sx', 'sy', 'sz']
-        inverted = ['tx', 'ry', 'rz']
-        namer = Namer(c=self.options.getValue('char'),
-                      s=self.options.getValue('side'),
-                      p=self.options.getValue('part'))
-        
-        for thisDct, otherDct in [(thisCtlDct, otherCtlDct), (thisRigDct, otherRigDct)]:
-            for k, thisCtl in thisDct.items():
-                otherCtl = otherDct.get(k, None)
-                otherCtl.template.set(1)
-                if not otherCtl:
-                    _logger.warning("Cannot mirror '%s' - it is not in the other rig" % k)
-                    continue
-
-                for attr in direct:
-                    try:
-                        pm.connectAttr('%s.%s' % (thisCtl, attr),
-                                       '%s.%s' % (otherCtl, attr))
-                    except RuntimeError:
-                        pass
-                    except Exception, e:
-                        _logger.warning("Error during connection: %s" % str(e))                    
-
-                for attr in inverted:                                
-                    fromAttr = '%s.%s' % (thisCtl, attr)
-                    toAttr = '%s.%s' % (otherCtl, attr)
-                    char = self.options.getValue('char')
-                    side = self.options.getValue('char')
-                    mdn = pm.createNode('multiplyDivide',
-                                        n=namer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
-
-                    mdn.input2X.set(-1)
-                    mdn.operation.set(1)
-                    pm.connectAttr(fromAttr, mdn.input1X)
-                    try:
-                        pm.connectAttr(mdn.outputX, toAttr)                    
-                    except RuntimeError:
-                        pm.delete(mdn)                
-                    except Exception, e:
-                        _logger.warning("Error during connection: %s" % str(e))
-                        pm.delete(mdn)
-                    else:
-                        self._nodes.append(mdn)
-
     @BuildCheck('layoutBuilt')
     def duplicateBindJoints(self, oriented=True):
         """
@@ -647,7 +639,7 @@ class Widget(TreeItem):
                 self._nodes = copy.copy(nodes)
             
         return nodes
-
+    #TODO:  add node state handling
     def state(self): return self.__state
 
     def registerBindJoint(self, name, jnt, parent=None):
@@ -892,6 +884,98 @@ class Widget(TreeItem):
     def _makeRig(self, namer, bndJnts, rigCtls):
         raise NotImplementedError
     
+    def setMirrored(self, val=True):
+        """
+        If the widget has a side and a similarly named widget on the opposite side
+        is available, mirror it
+        """
+        if not val:
+            self._mirroring = ''
+            return
+        _logger.debug("Mirroring %s" % self)
+        other = self._getMirrorableWidget()
+        if not other:
+            _logger.info("No sibling widget with same part name and opposite side")
+            return
+        self._mirroring = 'source'
+        other._mirroring = 'target'
+        
+    def _getMirrorableWidget(self):
+        """Get the mirror-able sibling"""
+        siblings = [w for w in self.parent().children(recursive=False) if w is not self]
+        part = self.options.getValue('part')
+        side = self.options.getValue('side')
+        if side == 'lf':
+            findSide = 'rt'
+        elif side == 'rt':
+            findSide = 'lf'
+        else:
+            _logger.info("Cannot mirror 'center' widgets")
+            return
+        for sibling in siblings:
+            if sibling.options.getValue('part') == part and \
+               sibling.options.getValue('side') == findSide:
+                return sibling
+        return None
+    
+    def mirroredState(self): return self._mirroring
+    
+    @BuildCheck('layoutBuilt')
+    def mirror(self, other):
+        '''
+        Mirror this widget to another widget.  this assumes controls are in world space.
+        Templates mirrored controls
+        '''
+        thisCtlDct = self._differs['layout'].getObjs()
+        otherCtlDct = other._differs['layout'].getObjs()
+        thisRigDct = self._differs['rig'].getObjs()
+        otherRigDct = other._differs['rig'].getObjs()
+        
+        direct = ['tz', 'ty', 'rx', 'sx', 'sy', 'sz']
+        inverted = ['tx', 'ry', 'rz']
+        namer = Namer(c=self.options.getValue('char'),
+                      s=self.options.getValue('side'),
+                      p=self.options.getValue('part'))
+        
+        for thisDct, otherDct in [(thisCtlDct, otherCtlDct), (thisRigDct, otherRigDct)]:
+            for k, thisCtl in thisDct.items():
+                otherCtl = otherDct.get(k, None)
+                otherCtl.template.set(1)
+                if not otherCtl:
+                    _logger.warning("Cannot mirror '%s' - it is not in the other rig" % k)
+                    continue
+
+                for attr in direct:
+                    try:
+                        pm.connectAttr('%s.%s' % (thisCtl, attr),
+                                       '%s.%s' % (otherCtl, attr))
+                    except RuntimeError:
+                        pass
+                    except Exception, e:
+                        _logger.warning("Error during connection: %s" % str(e))                    
+
+                for attr in inverted:                                
+                    fromAttr = '%s.%s' % (thisCtl, attr)
+                    toAttr = '%s.%s' % (otherCtl, attr)
+                    char = self.options.getValue('char')
+                    side = self.options.getValue('char')
+                    mdn = pm.createNode('multiplyDivide',
+                                        n=namer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
+
+                    mdn.input2X.set(-1)
+                    mdn.operation.set(1)
+                    pm.connectAttr(fromAttr, mdn.input1X)
+                    try:
+                        pm.connectAttr(mdn.outputX, toAttr)                    
+                    except RuntimeError:
+                        pm.delete(mdn)                
+                    except Exception, e:
+                        _logger.warning("Error during connection: %s" % str(e))
+                        pm.delete(mdn)
+                    else:
+                        self._nodes.append(mdn)
+
+         
 class Root(Widget):
     """Builds a master control and main hierarchy of a rig"""
     def __init__(self, part='master'):
@@ -952,6 +1036,7 @@ class Root(Widget):
             NT.tagControl(ctl, uk=['tx', 'ty', 'tz', 'rx', 'ry', 'rz'])
         NT.tagControl(rigCtls['master'], uk=['uniformScale'])
         
+#TODO:  COG needs to catch child nodes with 'cog' category
 class CenterOfGravity(Widget):
     def __init__(self, part='cog', **kwargs):
         super(CenterOfGravity, self).__init__(part=part, **kwargs)
@@ -1002,7 +1087,7 @@ class CenterOfGravity(Widget):
         
     def _makeRig(self, namer, bndJnts, rigCtls):
         #set up the positions of the controls
-
+        
         ctlToks = rigCtls.keys()
 
         bndJnts['cog'].setParent(None)
@@ -1041,29 +1126,7 @@ class CenterOfGravity(Widget):
         
 WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'The widget under which all others should be parented')
 
-#    def setMirrored(self, widget):
-#        """
-#        If the widget has a side and a similarly named widget on the opposite side
-#        is available, mirror it
-#        """
-#        _logger.debug("Mirroring %s" % widget)
-#        siblings = [w for w in widget.parent.childWidgets(recursive=False) if w is not widget]
-#        part = widget.options.getValue('part')
-#        side = widget.options.getValue('side')
-#        if side == 'lf':
-#            findSide = 'rt'
-#        elif side == 'rt':
-#            findSide = 'lf'
-#        else:
-#            _logger.info("Cannot mirror center widgets")
-#            return
-#        for sibling in siblings:
-#            if sibling.options.getValue('part') == part and \
-#               sibling.options.getValue('side') == findSide:
-#                self._mirrored[widget] = sibling
-#                
-#    def setUnMirrored(self, widget):
-#        self._mirrored.pop(widget)
+
 
 class RigModel(QtCore.QAbstractItemModel):
     '''
@@ -1071,7 +1134,7 @@ class RigModel(QtCore.QAbstractItemModel):
     '''
     #a dummy object used as the 'root' of the rig
         
-    def __init__(self, parent=None):
+    def __init__(self, charname='mychar', parent=None):
         super(RigModel, self).__init__(parent=parent)
         self.root = Root()
         self.headers = ['Part', 'Side', 'Parent Part', 'Class', 'Mirrored']
@@ -1156,6 +1219,8 @@ class RigModel(QtCore.QAbstractItemModel):
                 return QtCore.QVariant(plug)
             if index.column() == self.headers.index('Class'):
                 return QtCore.QVariant(widget.__class__.__name__)
+            if index.column() == self.headers.index('Mirrored'):
+                return QtCore.QVariant(widget.mirroredState())
             
             
             return QtCore.QVariant("Test..")
@@ -1164,55 +1229,6 @@ class RigModel(QtCore.QAbstractItemModel):
         if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:
             return QtCore.QVariant(self.headers[section])
         return QtCore.QVariant()
-    @classmethod
-    def rigFromData(cls, data):
-        '''
-        Get a rig from a data dict
-        '''
-        #create a rig instance
-        data = copy.deepcopy(data)
-        rigOpts = data.pop('rigOptions')
-        skipCog = data.pop('skipCog')
-        
-        name = rigOpts['char']
-        rigType= rigOpts['rigType']
-        style = rigOpts['buildStyle']
-        
-        rig = cls(name, rigType=rigType, buildStyle=style, skipCog=skipCog)
-        
-        #create widgets
-        idWidgets = {}
-        registry = WidgetRegistry()        
-        for id, dct in data.items():
-            if dct['isCog']:
-                wdg = rig.cog
-            else:
-                wdg = registry.getInstance(dct['widgetName'])
-                idWidgets[id] = wdg
-
-            wdg.setDiffs(dct['diffs'])
-            wdg.options.setFromData(dct['options'])
-            
-
-        #parent them into rig
-        for id, wdg in idWidgets.items():
-            parentID = data[id]['parentID']
-            if parentID == 'None':
-                parentWidget = None
-            elif parentID == 'Cog':
-                parentWidget = rig.cog
-            else:
-                try:
-                    parentWidget = idWidgets[parentID]
-                except KeyError:
-                    _logger.warning("Cannot find parent widget for %s" % str(wdg))
-                    _logger.debug("idWidgetDct:\n%r" % idWidgets)
-                    parentWidget = None
-                    
-            parentPart = data[id]['parentPart']
-            rig.addWidget(wdg, parent = parentWidget, parentNode=parentPart)
-            
-        return rig
 
     def getBadNames(self):
         """
@@ -1230,92 +1246,71 @@ class RigModel(QtCore.QAbstractItemModel):
                 result.append(name)
         return result
     
-    def addWidget(self, widget, parent=None, parentNode=None):        
-        if parent is None:
-            parent = self.root
-            parentNode = ""
-        elif not parentNode:
-            parentNode = parent.listParentParts()[0]
-        _logger.debug('adding widget - parent: %r, parentNode: %s' % (parent, parentNode))
-        parent.insertChild(widget, parentNode)
-        widget.options.setValue('char', self.options.getValue('char'))        
-        parentIndex = self.indexFromWidget(parent)
-        if parentIndex is None:            
-            parentIndex = QtCore.QModelIndex()
-        self.emit(QtCore.SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
-
-    def rmWidget(self, widget, removeChildren=False):
-        parent = widget.parent
-        parentIndex = self.indexFromWidget(parent)
-        remove = not removeChildren        
-        parent.rmChild(widget, removeChildren=removeChildren)        
-        self.emit(QtCore.SIGNAL('dataChanged(QModelIndex, QModelIndex)'), parentIndex, parentIndex)
-        
-    def buildLayout(self):
-        badNames = self.getBadNames()
-        if badNames:
-            raise utils.BeingsError("Cannot build - duplicate or invalid IDs found:\n%s" \
-                                    % str(badNames))
-        
-        if self.state() in  ['rigged', 'built']:
-            self.delete()
-        self._stateFlag = 'built'
-        for wdg in self.root.childWidgets():
-            if wdg.state() == 'rigged':
-                wdg.delete()
-            wdg.buildLayout()
-        
-        #do mirroring
-        for wdg, tgt in self._mirrored.items():
-            wdg.mirror(tgt)
-
-            
-    def getSaveData(self):
-        '''
-        Get widget data needed to reconstruct the rig
-        starting at root, for each child get:
-        id: {parentWidgetID,
-             parentNode,
-             registered name,
-             optionData,
-             diffData}    
-        '''
-        result = {}
-        allWidgets = self.root.childWidgets()
-        for widget in allWidgets:
-            widget.cacheDiffs()
-        registry = WidgetRegistry()
-        
-        #determine whether the cog has been removed from the widget
-        result['skipCog'] = False
-        if self.cog not in self.root.childWidgets():
-            result['skipCog'] = True
-        
-        for widget in allWidgets:
-            wdata = {}
-            if widget == self.cog:
-                wdata['isCog'] = True
-            else:
-                wdata['isCog'] = False
-            
-            if widget.parent is self.root:
-                wdata['parentID'] = 'None'
-            elif widget.parent is self.cog:
-                wdata['parentID'] = 'Cog'
-            else:                
-                wdata['parentID'] = str(id(widget.parent))
-                
-            wdata['parentPart'] = str(widget.getData(2).toString())
-            wdata['options'] = widget.options.getData()
-            wdata['diffs'] = widget.getDiffs()
-            wdata['widgetName'] = registry.widgetName(widget)
-            result[str(id(widget))] = wdata
-            
-        result['rigOptions'] = self.options.getData()
-
-        return result
+def getSaveData(widget):
+    '''
+    Get widget data needed to reconstruct the rig
+    starting at root, for each child get:
+    id: {parentWidgetID,
+         parentNode,
+         registered name,
+         optionData,
+         diffData}    
+    '''
+    result = {}
+    allWidgets = widget.children() + [widget]
+    for widget in allWidgets:
+        widget.cacheDiffs()
+    registry = WidgetRegistry()
     
-
+    #determine whether the cog has been removed from the widget        
+    for widget in allWidgets:
+        wdata = {}
+        
+        if not widget.parent():
+            wdata['parentID'] = 'None'
+        else:                
+            wdata['parentID'] = str(id(widget.parent))            
+        wdata['plug'] = str(widget.parent().plugOfChild(widget))
+        wdata['options'] = widget.options.getData()
+        wdata['diffs'] = widget.getDiffs()
+        wdata['widgetName'] = registry.widgetName(widget)
+        result[str(id(widget))] = wdata
+        
+    return result
+    
+    
+def rigFromData(data):
+    '''
+    Get a rig from a data dict
+    '''
+    #create a rig instance
+    data = copy.deepcopy(data)
+    root = None
+    #create widgets
+    idWidgets = {}
+    registry = WidgetRegistry()        
+    for id_, dct in data.items():    
+        wdg = registry.getInstance(dct['widgetName'])
+        idWidgets[id_] = wdg
+        wdg.setDiffs(dct['diffs'])
+        wdg.options.setFromData(dct['options'])
+        
+    #parent them into rig
+    for id_, wdg in idWidgets.items():
+        parentID = data[id_]['parentID']
+        if parentID == 'None':
+            root = wdg                    
+        else:
+            try:
+                parentWidget = idWidgets[parentID]
+            except KeyError:
+                _logger.warning("Cannot find parent widget for %s" % str(wdg))
+                _logger.debug("idWidgetDct:\n%r" % idWidgets)                
+                
+        plug = data[id_]['plug']
+        parentWidget.addChild(wdg, plug=plug)        
+        
+    return root
 
 
 def _importAllWidgets(reloadThem=False):

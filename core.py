@@ -1195,9 +1195,10 @@ class RigModel(QtCore.QAbstractItemModel):
     def columnCount(self, parentIndex): return len(self.headers)
     def supportedDropActions(self):
         return QtCore.Qt.MoveAction | QtCore.Qt.CopyAction
+    
     def flags(self, index):        
-        if not index.isValid():
-            return 0
+#        if not index.isValid():
+#            return QtCore.Qt.ItemIsEnabled 
         flags =  QtCore.Qt.ItemIsEnabled | \
                 QtCore.Qt.ItemIsSelectable | \
                 QtCore.Qt.ItemIsEditable | \
@@ -1221,7 +1222,18 @@ class RigModel(QtCore.QAbstractItemModel):
         mimeData = QtCore.QMimeData()
         mimeData.setData("application/x-widgetlist", QtCore.QByteArray())
         return mimeData
-            
+    
+    def dropMimeData(self, mimedata, action, row, column, parentIndex):
+        if parentIndex.isValid():
+            newParent = parentIndex.internalPointer()
+        else:
+            newParent = self.root
+        
+        if mimedata.hasFormat('application/x-widgetlist'):
+            for widget in self._mimeDataWidgets:
+                widget.parent().rmChild(widget)
+                newParent.addChild(widget)
+        return True
     def data(self, index, role):
         if not index.isValid():
             return QtCore.QVariant()

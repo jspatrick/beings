@@ -48,8 +48,8 @@ class WidgetTree(QTreeView):
         self.setAnimated(True)
         self.connect(self.model(), SIGNAL("dataChanged(QModelIndex,QModelIndex)"),
                      self.change)
-        self.dragEnabled()
-        self.acceptDrops()
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
         self.showDropIndicator()
         self.setDragDropMode(QAbstractItemView.InternalMove)
         self.expandAll()

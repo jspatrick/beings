@@ -328,8 +328,7 @@ class TreeItem(QtCore.QObject):
         
     def plugs(self): return list(self.__plugs)
     def addPlug(self, plugName): 
-        self.__plugs.add(str(plugName))
-        
+        self.__plugs.add(str(plugName))        
     def rmPlug(self, plugName): self.__plugs.difference_update(str(plugName))
     def parent(self): return self.__parent    
     def _setParent(self, parent):
@@ -354,10 +353,11 @@ class TreeItem(QtCore.QObject):
     
     def addedChild(self, child):
         """Callback when a child is added"""
-        pass
+        self.root().emit(QtCore.SIGNAL('addedChildToHierarchy'), self, child)
+        
     def removedChild(self, child):
         """Callback after a child is removed"""
-        pass
+        self.root().emit(QtCore.SIGNAL('removedChildFromHierarchy'), self, child)
      
     def addChild(self, child, plug=""):        
         if not self.__plugs:
@@ -402,6 +402,12 @@ class TreeItem(QtCore.QObject):
         return child
     
     def plugOfChild(self, child): return self.__childPlugs[self.childIndex(child)]
+    def setChildPlug(self, child, plug):
+        if plug not in self.plugs():
+            _logger.warning("invalid plug '%s'" % plug)
+            return False
+        index = self.indexOfChild(child)
+        self.__childPlugs[index] = plug
         
 class Widget(TreeItem):
     '''
@@ -1140,8 +1146,20 @@ class RigModel(QtCore.QAbstractItemModel):
         self.root = Root()
         self.headers = ['Part', 'Side', 'Parent Part', 'Class', 'Mirrored']
         self._mimeDataWidgets = []
+        self.connect(self.root, QtCore.SIGNAL('addedChildToHierarchy'), 
+                     self._addedChild)
+        self.connect(self.root, QtCore.SIGNAL('removedChildFromHierarchy'), 
+                     self._removedChild)
         
-    #reimplement    
+    def _addedChild(self, parent, child):
+        _logger.debug("Added child %r under parent %s" % (child, parent))
+        #TODO: make this add rows
+        self.reset()
+    def _removedChild(self, parent, child):
+        _logger.debug("Removed child %r under parent %s" % (child, parent))
+        #TODO: make this rm rows
+        self.reset()
+
     def index(self, row, col, parentIndex):
 #        if not self.hasIndex(row, col, parentIndex):
 #            return QtCore.QModelIndex()
@@ -1225,6 +1243,29 @@ class RigModel(QtCore.QAbstractItemModel):
             
             
             return QtCore.QVariant("Test..")
+        
+    def setData(self, index, value, role=QtCore.Qt.EditRole):
+        if not index.isValid():
+            return False
+        
+        widget = index.internalPointer()        
+        header = self.headers[index.column()]
+        value = str(value.toString())
+        if header == 'Part':
+            widget.options.setValue('part', value)
+            
+        if header == 'Side':                        
+            if value not in widget.options.getPresets('side'):
+                _logger.warning('invalid side "%s"' % value)
+            else:
+                widget.options.setValue('side', value)
+                
+        if header == 'Parent Part':
+            parent = widget.parent()
+            parent.setChildPlug(widget, value)
+        
+        self.emit(QtCore.SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
+        return True
         
     def headerData(self, section, orientation, role):
         if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:

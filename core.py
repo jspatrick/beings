@@ -312,7 +312,7 @@ class TreeItem(QtCore.QObject):
     to a particular plug in the parent item.  Plugs must be configured on the TreeItem instances
     before children are added.
         
-    The root tree item may have a null plug ("").  As soon as the item is not a root, this null
+    The root tree item may have a null     plug ("").  As soon as the item is not a root, this null
     plug is removed.
     """
     def __init__(self, plugs=[]):
@@ -1035,6 +1035,7 @@ class Root(Widget):
         for ctl in rigCtls.values():
             NT.tagControl(ctl, uk=['tx', 'ty', 'tz', 'rx', 'ry', 'rz'])
         NT.tagControl(rigCtls['master'], uk=['uniformScale'])
+WidgetRegistry().register(Root, 'Root', 'The widget under which all others should be parented')
         
 #TODO:  COG needs to catch child nodes with 'cog' category
 class CenterOfGravity(Widget):
@@ -1124,7 +1125,7 @@ class CenterOfGravity(Widget):
         #setup info for parenting
         self.setNodeCateogry(rigCtls['body'], 'parent')
         
-WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'The widget under which all others should be parented')
+WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'Put body widgets under this')
 
 
 
@@ -1259,7 +1260,8 @@ def getSaveData(widget):
     result = {}
     allWidgets = widget.children() + [widget]
     for widget in allWidgets:
-        widget.cacheDiffs()
+        if widget.state() == 'layoutBuilt':
+            widget.cacheDiffs()
     registry = WidgetRegistry()
     
     #determine whether the cog has been removed from the widget        
@@ -1268,9 +1270,10 @@ def getSaveData(widget):
         
         if not widget.parent():
             wdata['parentID'] = 'None'
+            wdata['plug'] = 'None'
         else:                
-            wdata['parentID'] = str(id(widget.parent))            
-        wdata['plug'] = str(widget.parent().plugOfChild(widget))
+            wdata['parentID'] = str(id(widget.parent()))            
+            wdata['plug'] = str(widget.parent().plugOfChild(widget))
         wdata['options'] = widget.options.getData()
         wdata['diffs'] = widget.getDiffs()
         wdata['widgetName'] = registry.widgetName(widget)
@@ -1307,8 +1310,8 @@ def rigFromData(data):
                 _logger.warning("Cannot find parent widget for %s" % str(wdg))
                 _logger.debug("idWidgetDct:\n%r" % idWidgets)                
                 
-        plug = data[id_]['plug']
-        parentWidget.addChild(wdg, plug=plug)        
+            plug = data[id_]['plug']
+            parentWidget.addChild(wdg, plug=plug)        
         
     return root
 

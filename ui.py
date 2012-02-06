@@ -4,6 +4,7 @@ from PyQt4 import uic
 import beings.core as core
 import beings.utils as utils
 import logging, sys, os, json
+from functools import partial
 logging.basicConfig()
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
@@ -51,7 +52,7 @@ class WidgetTree(QTreeView):
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.showDropIndicator()
-        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
         self.expandAll()
         self.setItemDelegate(RigViewDelegate(self))
     
@@ -75,11 +76,15 @@ class WidgetList(QListWidget):
         super(WidgetList, self).__init__(parent=parent)
         self.setDragEnabled(True)
         
-    def startDrag(self, dropActions):
+    def startDrag(self, dropActions):        
         widgetName = str(self.currentItem().text())
-        widget = core.WidgetRegistry().getInstance(widgetName)
+        data = QByteArray()
+        stream = QDataStream(data, QIODevice.WriteOnly)
+        stream << QString(widgetName)
+        mimeData = QMimeData()
+        mimeData.setData("application/x-widget-classname", data)                        
         drag = QDrag(self)
-        drag.setMimeData(core.getWidgetMimeData(widget))
+        drag.setMimeData(mimeData)
         drag.start(Qt.CopyAction)
         
 
@@ -102,8 +107,8 @@ def staticKwargsFunc(func, **staticKwargs):
     Wrap a function with static kwargs, but allow for args and additional kwargs
     """
     def new(*args, **kwargs):
-       kwargs.update(staticKwargs)
-       return func(*args, **kwargs)
+        kwargs.update(staticKwargs)
+        return func(*args, **kwargs)
     new.__name__ = func.__name__
     doc = func.__doc__ or ""
     new.__doc__ = "<Wrapped with wrapFunc>%s" % doc
@@ -121,7 +126,7 @@ class RigViewDelegate(QItemDelegate):
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.MouseButtonPress and index.isValid():                        
             if event.button() == Qt.RightButton:
-                widget = model.widgetFromIndex(index)
+                widget = index.internalPointer()
                 menu = QMenu()
                 
                 if widget.children:
@@ -154,14 +159,20 @@ class RigViewDelegate(QItemDelegate):
     
     def createEditor(self, parent, option, index):
         model = index.model()
+        if index.isValid():
+            widget = index.internalPointer()
+        else:
+            widget = model.root
+        
         if index.column() == model.headers.index('Side'):
             combobox = QComboBox(parent)
-            combobox.addItems(['lf', 'rt', 'cn'])
+            sides = widget.options.getPresets('side')
+            combobox.addItems(sides)
             combobox.setEditable(False)
             return combobox
-        elif index.column() == model.headers.index('Parent Node'):
-            parentIndex = model.parent(index)
-            parts = model.widgetFromIndex(parentIndex).listParentParts()
+        
+        elif index.column() == model.headers.index('Parent Part'):            
+            parts = widget.parent().plugs()
             combobox = QComboBox(parent)
             combobox.addItems(parts)
             return combobox            
@@ -177,7 +188,7 @@ class RigViewDelegate(QItemDelegate):
     
     def setModelData(self, editor, model, index):
         if (index.column() == model.headers.index('Side')) or \
-               (index.column() == model.headers.index('Parent Node')):
+               (index.column() == model.headers.index('Parent Part')):
             model.setData(index, QVariant(editor.currentText()))
         else:
             QItemDelegate.setModelData(self, editor, model, index)

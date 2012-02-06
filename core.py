@@ -406,7 +406,7 @@ class TreeItem(QtCore.QObject):
         if plug not in self.plugs():
             _logger.warning("invalid plug '%s'" % plug)
             return False
-        index = self.indexOfChild(child)
+        index = self.childIndex(child)
         self.__childPlugs[index] = plug
         
 class Widget(TreeItem):
@@ -516,7 +516,7 @@ class Widget(TreeItem):
             name = '%s_%s' % (part, side)            
             if name in usedNames:
                 raise RuntimeError("Cannot build; part %s and side %s used in %r and %r" \
-                                   %(usedNames[name], child))
+                                   %(part, side, usedNames[name], child))
             else:
                 usedNames[name] = child
         
@@ -1217,7 +1217,7 @@ class RigModel(QtCore.QAbstractItemModel):
         widgets = []
         for i in range(len(indexList)):
             widgets.append(indexList[i].internalPointer())
-        self._mimeDataWidgets = widgets
+        self._mimeDataWidgets = list(set(widgets))
         
         mimeData = QtCore.QMimeData()
         mimeData.setData("application/x-widgetlist", QtCore.QByteArray())
@@ -1231,9 +1231,21 @@ class RigModel(QtCore.QAbstractItemModel):
         
         if mimedata.hasFormat('application/x-widgetlist'):
             for widget in self._mimeDataWidgets:
+                if widget.parent() is newParent:
+                    continue
+                
                 widget.parent().rmChild(widget)
                 newParent.addChild(widget)
+                    
+        elif mimedata.hasFormat('application/x-widget-classname'):
+            data = mimedata.data('application/x-widget-classname')
+            stream = QtCore.QDataStream(data, QtCore.QIODevice.ReadOnly)
+            classname = QtCore.QString()
+            stream >> classname        
+            widget = WidgetRegistry().getInstance(str(classname))
+            newParent.addChild(widget)
         return True
+    
     def data(self, index, role):
         if not index.isValid():
             return QtCore.QVariant()

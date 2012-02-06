@@ -392,7 +392,7 @@ class TreeItem(QtCore.QObject):
             
             for grandChild in grandChildren:
                 child.rmChild(grandChild)
-                self.insertChild(grandChild, plug=plug)
+                self.addChild(grandChild, plug=plug)
     
         index = self.childIndex(child)
         self.__children.pop(index)

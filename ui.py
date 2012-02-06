@@ -130,27 +130,30 @@ class RigViewDelegate(QItemDelegate):
                 menu = QMenu()
                 
                 if widget.children:
-                    rmAction = WidgetAction("Remove (preserve children)", self, widget=widget)
-                    self.connect(rmAction, SIGNAL('triggeredWidget'), self._rig.rmWidget)
+                    rmAction = QAction("Remove (preserve children)", self)
+                    self.connect(rmAction, SIGNAL('triggered()'), 
+                                 partial(widget.parent().rmChild, widget, reparentChildren=True ))
                     menu.addAction(rmAction)
-
-                    rmDeleteAction = WidgetAction("Remove (delete children)", self,
-                                                  widget=widget)
+                                        
+                    rmDeleteAction = QAction("Remove (delete children)", self)
+                    self.connect(rmAction, SIGNAL('triggered()'), 
+                                 partial(widget.parent().rmChild, widget))
                 else:
-                    rmDeleteAction = WidgetAction("Remove", self,
-                                                  widget=widget)
+                    rmDeleteAction = QAction("Remove", self)
                     
-                self.connect(rmDeleteAction, SIGNAL('triggeredWidget'),
-                             staticKwargsFunc(self._rig.rmWidget, removeChildren=True))
+                                        
+                self.connect(rmDeleteAction, SIGNAL('triggered()'), 
+                                 partial(widget.parent().rmChild, widget))
+                
                 menu.addAction(rmDeleteAction)
                       
                 
-                mirrorAction = WidgetAction("Mirror", self, widget=widget)                
-                self.connect(mirrorAction, SIGNAL('triggeredWidget'), self._rig.setMirrored)
+                mirrorAction = QAction("Mirror", self)                
+                self.connect(mirrorAction, SIGNAL('triggered()'), partial(widget.setMirrored, True))
                 menu.addAction(mirrorAction)
 
-                unmirrorAction = WidgetAction("Un-Mirror", self, widget=widget)
-                self.connect(unmirrorAction, SIGNAL('triggeredWidget'), self._rig.setUnMirrored)
+                unmirrorAction = QAction("Un-Mirror", self)
+                self.connect(unmirrorAction, SIGNAL('triggeredWidget'), partial(widget.setMirrored, False))
                 menu.addAction(unmirrorAction)
                 
                 menu.exec_(self.parent().viewport().mapToGlobal(event.pos()))
@@ -182,7 +185,7 @@ class RigViewDelegate(QItemDelegate):
     def setEditorData(self, editor, index):
         model = index.model()
         if index.column() == model.headers.index('Part'):
-            widget = model.widgetFromIndex(index)
+            widget = index.internalPointer()
             editor.setText(widget.options.getValue('part'))
         return QItemDelegate.setEditorData(self, editor, index)
     
@@ -244,7 +247,7 @@ class RigWidget(QWidget):
         self.__fileName = str(fname)
 
     def fileNew(self):
-        rig = core.Rig("mychar")
+        rig = core.RigModel("mychar")
         self.rigView.setModel(rig)
         
     def saveRig(self):
@@ -254,7 +257,7 @@ class RigWidget(QWidget):
                             "Beings - Save rig file", ".",
                             "Beings Database (*.brd)")
         if filePath:
-            data = self.rigView.rig.getSaveData()
+            data = core.getSaveData(self.rigView.model().root)
             with open(filePath, 'w') as f:
                 json.dump(data, f)
         self.__fileName = str(filePath)
@@ -263,25 +266,24 @@ class RigWidget(QWidget):
     def loadRig(self, data):
         """Load the rig data
         @param data:  a rig dictionary"""        
-        rig = core.Rig.rigFromData(data)
-        self.rigView.rig.delete()
-        self.rigView.setModel(rig)  
-
+        root = core.rigFromData(data)
+        self.rigView.model().root = root
+        self.rigView.model().reset()        
         
     @pyqtSlot()
     @PopupError()
     def on_buildLayoutBtn_released(self):
-        self.rigView.rig.buildLayout()
+        self.rigView.rig.root.buildLayout()
         
     @pyqtSlot()
     @PopupError()
     def on_buildRigBtn_released(self):
-        self.rigView.rig.buildRig()
+        self.rigView.rig.root.buildRig()
         
     @pyqtSlot()
     @PopupError()
     def on_deleteRigBtn_released(self):
-        self.rigView.rig.delete()
+        self.rigView.model().root.delete()
         
         
 _ui = None

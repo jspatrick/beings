@@ -456,7 +456,7 @@ class Widget(TreeItem):
         #when built, build nodes are added to categories if they need to be
         #operated upon by parents
         self._nodeCategories = {}
-        
+        self._nodeStatus = {}
         #nodes are added to catgories in a tuple of (node, 'unhandled')
         #or (node, 'handled') 
         for categoy in self.VALID_NODE_CATEGORIES:
@@ -464,7 +464,7 @@ class Widget(TreeItem):
             
         #is the widget mirrored?
         self._mirroring = ''
-        
+    
     def removedChild(self, child):
         child._mirroring = ''
         super(Widget, self).removedChild(child)
@@ -475,6 +475,9 @@ class Widget(TreeItem):
             raise RuntimeError("invalid plug '%s'" % part)
         self.__plugNodes[part] = node
         
+    def plugNode(self, plug):
+        return self.__plugNodes.get(plug, None)
+
     def addChild(self, child, plug=""):        
         result = super(Widget, self).addChild(child, plug=plug)
         try:
@@ -530,8 +533,6 @@ class Widget(TreeItem):
             if hasattr(child, 'parentCompletedBuild'):
                 child.parentCompletedBuild(self, buildType)
                 
-    def plugNode(self, plug):
-        return self.__plugNodes.get(plug, None)
     
     def childCompletedBuild(self, child, buildType):
         #do parenting
@@ -624,7 +625,7 @@ class Widget(TreeItem):
                 if category not in self._nodeCategories.keys():
                     raise utils.BeingsError("Invalid category %s" % category)
                 #return a copy of the list
-                nodes = [n for n in self._nodeCategories[category] if pm.objExists(n)]
+                nodes = [n for n in self._nodeCategories[category] if pm.objExists(n[0])]
                 self._nodeCategories[category] = copy.copy(nodes) # set it to the existing objs
 
                 if category == 'parent':
@@ -693,8 +694,10 @@ class Widget(TreeItem):
     
     def buildLayout(self, useCachedDiffs=True, altDiffs=None, children=True):
         if self.state() != 'unbuilt':
+            if self.state() == 'layoutBuilt':
+                self.cacheDiffs()            
             self.delete()
-            
+        
         self.__validateChildSettings()
         
         side = self.options.getValue('side')
@@ -760,7 +763,7 @@ class Widget(TreeItem):
         self._otherNodes = {}        
         for category in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[category] = []
-
+        self._nodeStatus = {}
         self.__state = 'unbuilt'
         
     @BuildCheck('layoutBuilt')    
@@ -770,7 +773,12 @@ class Widget(TreeItem):
         """
         self._cachedDiffs['rig'] = self._differs['rig'].getDiffs()
         self._cachedDiffs['layout'] = self._differs['layout'].getDiffs()
-        
+        #if this is mirrored, cache diffs on other rig too
+        if self.mirroredState() == 'source':
+            other = self._getMirrorableWidget()
+            if other:
+                other.cacheDiffs()
+                
     def setDiffs(self, diffDct):
         """Set diffs"""
         self._cachedDiffs = diffDct
@@ -811,6 +819,18 @@ class Widget(TreeItem):
         if category not in self._nodeCategories.keys():
             raise utils.BeingsError("invalid category %s" % category)
         self._nodeCategories[category].append(node)
+    
+    #TODO:  Move node statuses and categories into a new class - this one is
+    #way too big.
+    def nodeStatus(self, node):
+        """Set the status of a node."""
+        status = self._nodeStatus.get(node, 'unhandled')
+        
+    def setNodeStatus(self, node, status):
+        """Get the status of a node"""
+        if status not in  ['handled', 'unhandled']:
+            raise utils.BeingsError("Invalid status '%s'" % status)         
+        status = self._nodeStatus[node] = status
         
     def buildRig(self, altDiffs=None, returnBeforeBuild=False):
         """build the rig
@@ -981,7 +1001,8 @@ class Widget(TreeItem):
                     else:
                         self._nodes.append(mdn)
 
-         
+#TODO:  We need to be able to set node statuses so that parents
+#can ignore parenting nodes that have been 'handled' by children
 class Root(Widget):
     """Builds a master control and main hierarchy of a rig"""
     def __init__(self, part='master'):
@@ -990,14 +1011,25 @@ class Root(Widget):
         self.addParentPart('master')
         self.options.addOpt('rigType', 'core', presets=['core'])
         
-    def childFinishedBuild(self, child, buildType):
+    def childCompletedBuild(self, child, buildType):
+        pm.refresh()
         if buildType == 'rig':
             if self.root() == self:
-                children = child.children(recursive=True) + child
-                for child in children:                    
-                    pm.parent(child.getNodes('master'), self._otherNodes['top'])
-                    pm.parent(child.getNodes('dnt'), self._otherNodes['dnt'])
-                
+                children = child.children(recursive=True) + [child]
+                for child in children:                
+                    masterNodes = child.getNodes('master')
+                    if masterNodes:     
+                        pm.parent(masterNodes, self._otherNodes['top'])
+                    dntNodes = child.getNodes('dnt')
+                    if dntNodes:
+                        pm.parent(dntNodes, self._otherNodes['dnt'])
+                    ikNodes = child.getNodes('ik')
+                    for node in ikNodes:
+                        if child.nodeStatus(node) != 'handled':
+                            pm.parent(node, self.plugNode('master'))
+        pm.refresh()
+        super(Root, self).childCompletedBuild(child, buildType)
+               
     def _makeLayout(self, namer):
         #mkae the layout control
         masterLayoutCtl = control.makeControl(shape='circle',
@@ -1049,11 +1081,25 @@ class CenterOfGravity(Widget):
         super(CenterOfGravity, self).__init__(part=part, **kwargs)
         self.options.setPresets('side', 'cn')
         self.addParentPart('cog_bnd')
-        self.addParentPart('cog_ctl')
-        self.addParentPart('master_ctl')
+        self.addParentPart('cog_ctl')        
         self.addParentPart('body_ctl')
         self.addParentPart('pivot_ctl')
         
+    def childCompletedBuild(self, child, buildType):
+        """Find all child nodes set to 'cog' or 'ik'"""
+        pm.refresh()
+        if buildType == 'rig':
+            if self.root() == self:
+                children = child.children(recursive=True) + [child]
+                for child in children:            
+                    cogNodes = child.getNodes('ik')
+                    cogNodes.extend(child.getNodes('cog'))
+                    if cogNodes:            
+                        pm.parent(cogNodes, self.plugNode('cog_bnd'))
+                        for node in cogNodes:
+                            child.setNodeStatus(node, 'handled')
+        pm.refresh()
+        super(CenterOfGravity, self).childCompletedBuild(child, buildType)
         
     def _makeLayout(self, namer):
         
@@ -1118,8 +1164,6 @@ class CenterOfGravity(Widget):
         #constrain the cog jnt to the cog ctl        
         pm.pointConstraint(rigCtls['cog'], bndJnts['cog'])
         pm.orientConstraint(rigCtls['cog'], bndJnts['cog'])
-
-        
             
         #assign the nodes:
         for tok in ctlToks:
@@ -1323,7 +1367,7 @@ def getSaveData(widget):
          diffData}    
     '''
     result = {}
-    allWidgets = widget.children() + [widget]
+    allWidgets = widget.children(recursive=True) + [widget]
     for widget in allWidgets:
         if widget.state() == 'layoutBuilt':
             widget.cacheDiffs()

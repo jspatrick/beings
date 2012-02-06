@@ -214,6 +214,50 @@ def setShapePosList(shapePosList, nodeList):
 
     return setShapePos(d)
 
+def separateShapes(node):
+    """
+    for each shape node under a transform, duplicate the transform
+    and delete other shapes
+    """     
+    shapes = node.listRelatives(type='geometryShape')
+    result = []
+    for i in range(len(shapes)):
+        dup = pm.duplicate(node)[0]
+        subShapes = dup.listRelatives(type='geometryShape')
+        for j in range(len(shapes)):
+            if j != i:
+                pm.delete(subShapes[j])
+        result.append(dup)
+    return result
+
+def strokePath(node, radius=.1):
+    """
+    Create a nurbs surface from a curve control
+    """
+    curveNodes = separateShapes(node)
+    for curveNode in curveNodes:
+        shape = curveNode.listRelatives(type='nurbsCurve')[0]
+        t = pm.pointOnCurve(shape, p=0, nt=1)
+        pos = pm.pointOnCurve(shape, p=0)        
+        cir = pm.circle(r=radius)[0]
+        pm.xform(cir, t=pos, ws=1)
+        
+        #align the circule along the curve
+        l = pm.spaceLocator()
+        pm.xform(l, t=[pos[0]+t[0], pos[1]+t[1], pos[2]+t[2]], ws=1)
+        pm.delete(pm.aimConstraint(l, cir, aimVector=[0,0,1]))
+        pm.delete(l)
+
+        newxf = pm.extrude(cir, curveNode, rn=False, po=0, et=2, ucp=1,
+                            fpt=1, upn=1, scale=1, rsp=1, ch=1)[0]
+        pm.delete(cir)
+        pm.delete(curveNode.listRelatives(type='nurbsCurve'))
+        parentShape(curveNode, newxf)
+    if len(curveNodes) > 1:
+        for i in range(1, len(curveNodes)):
+            parentShape(curveNodes[0], curveNodes[i])
+    return curveNodes[0]
+     
 def parentShape(parent, child, deleteChildXform=True):
     """
     Parent the shape nodes of the children to the transform of the parent.  

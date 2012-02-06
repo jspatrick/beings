@@ -273,12 +273,12 @@ class RigWidget(QWidget):
     @pyqtSlot()
     @PopupError()
     def on_buildLayoutBtn_released(self):
-        self.rigView.rig.root.buildLayout()
+        self.rigView.model().root.buildLayout()
         
     @pyqtSlot()
     @PopupError()
     def on_buildRigBtn_released(self):
-        self.rigView.rig.root.buildRig()
+        self.rigView.model().root.buildRig()
         
     @pyqtSlot()
     @PopupError()

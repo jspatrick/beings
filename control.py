@@ -52,7 +52,8 @@ _handleData = {'scale': [1,1,1],
                'rot': [0,0,0],
                'pos': [0,0,0],
                'color': 'yellow',
-               'shape': 'cube'}
+               'shape': 'cube',
+               'type': 'curve'}
 
 COLOR_MAP = {'null':0,
            'black':1,
@@ -197,10 +198,12 @@ def makeControl(xform=None, xformType='transform', name=None, force=False, **kwa
     #create the shape according to the handleData
     with utils.NodeTracker() as nt:
         shapeFunc()
+        
         shapes = [n for n in nt.getObjects() if \
                   isinstance(n, pm.nt.GeometryShape) and n.exists()]
         xforms = [n for n in nt.getObjects() if \
                   isinstance(n, pm.nt.Transform) and n.exists()]
+        
         _logger.debug('Shapes: %s' % shapes)
         _logger.debug('Xforms: %s' % xforms)
         
@@ -208,7 +211,8 @@ def makeControl(xform=None, xformType='transform', name=None, force=False, **kwa
         shapeNode.rename("%sShape" % (xform.name()))
 
     #snap the tmp shape to the xform
-    utils.parentShapes(tmpXform, xforms)
+    utils.parentShapes(tmpXform, xforms)    
+        
     bbScale(tmpXform)
     utils.snap(xform, tmpXform, scale=True)
 
@@ -216,9 +220,15 @@ def makeControl(xform=None, xformType='transform', name=None, force=False, **kwa
     pm.xform(tmpXform, ro=handleData['rot'], r=1)
     pm.xform(tmpXform, t=handleData['pos'], r=1, os=1)
     tmpXform.s.set(handleData['scale'])
+    
+    if handleData.get('type') == 'surface':
+        tmp = utils.strokePath(tmpXform, radius=.1)
+        pm.delete(tmpXform)
+        tmpXform = tmp
         
-    utils.parentShape(xform, tmpXform)        
-    _setColor(xform, handleData['color'])
+    utils.parentShape(xform, tmpXform)
+    if handleData.get('type') != 'surface':
+        _setColor(xform, handleData['color'])
     return xform
 
 def bbCenter(shape, freeze=True):

@@ -156,6 +156,7 @@ class BasicLeg(core.Widget):
             except KeyError:
                 pass
         return fkCtls
+    
     def __blendJointChains(self, fkChain, ikChain, bindChain, fkIkAttr, reverse):
         for tok in bindChain.keys():
             if (tok not in fkChain) or (tok not in ikChain):
@@ -261,6 +262,8 @@ class BasicLeg(core.Widget):
     def _makeRig(self, namer, bndJnts, rigCtls):
         #add the parenting nodes - this is a required step.  It registers the actual nodes
         #the rig uses to parent widgets to each other
+        pm.delete(rigCtls['kneeIK'])
+        
         for tok in ['hip', 'knee', 'ankle']:
             self.setParentNode('bnd_%s' % tok, bndJnts[tok])
         
@@ -275,6 +278,8 @@ class BasicLeg(core.Widget):
         ikJnts = utils.dupJntDct(bndJnts, '_bnd_', '_ik_')
         ikCtl = rigCtls['ankleIK']
         ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)
+        
+        
         fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
         
         self.__blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, fkIkRev)
@@ -287,15 +292,26 @@ class BasicLeg(core.Widget):
         namer.setTokens(r='ik')
         
         
-        self.setNodeCateogry(ikCtl, 'ik')
+        
         utils.snap(bndJnts['ankle'], ikCtl, orient=False)
         ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'],
                                       ee=ikJnts['ankle'],
                                       solver='ikRPsolver',
                                       n=namer.name(x='ikh'))
         ikHandle.setParent(ikCtl)
-
+        
+        #use the no-flip setup
+        xp = utils.getXProductFromNodes(ikJnts['knee'],  ikJnts['hip'], ikJnts['ankle'])
+        sp = pm.xform(ikJnts['hip'], q=1, ws=1, t=1)        
+        l = pm.spaceLocator()        
+        pm.xform(l, t=[sp[0] + xp[0], sp[1]+xp[1], sp[2]+xp[2]], ws=1)        
+        pm.delete(pm.poleVectorConstraint(l, ikHandle))
+        pm.delete(l)        
+        ikHandle.twist.set(90)
+        
         revFootJnts = self._setupRevFoot(namer, ikJnts, rigCtls, ikCtl, o, ikHandle)
+        
+        self.setNodeCateogry(utils.insertNodeAbove(ikCtl, 'transform'), 'ik')
         return locals()
     
 def aimAt(master, slave, upRotObject, orientation, flipUp=False):

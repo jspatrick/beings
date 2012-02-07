@@ -625,7 +625,7 @@ class Widget(TreeItem):
                 if category not in self._nodeCategories.keys():
                     raise utils.BeingsError("Invalid category %s" % category)
                 #return a copy of the list
-                nodes = [n for n in self._nodeCategories[category] if pm.objExists(n[0])]
+                nodes = [n for n in self._nodeCategories[category] if pm.objExists(n)]
                 self._nodeCategories[category] = copy.copy(nodes) # set it to the existing objs
 
                 if category == 'parent':
@@ -646,7 +646,7 @@ class Widget(TreeItem):
                 self._nodes = copy.copy(nodes)
             
         return nodes
-    #TODO:  add node state handling
+    
     def state(self): return self.__state
 
     def registerBindJoint(self, name, jnt, parent=None):
@@ -832,7 +832,7 @@ class Widget(TreeItem):
             raise utils.BeingsError("Invalid status '%s'" % status)         
         status = self._nodeStatus[node] = status
         
-    def buildRig(self, altDiffs=None, returnBeforeBuild=False):
+    def buildRig(self, altDiffs=None, returnBeforeBuild=False, skipCallbacks=False):
         """build the rig
         @param altDiffs=None: Use the provided diff dict instead of the internal diffs
         @param returnBeforeBuild=False:  for developing rig methods.  Returns the args
@@ -900,10 +900,11 @@ class Widget(TreeItem):
         
         #build children
         for child in self.children():
-            child.buildRig()
+            child.buildRig(skipCallbacks=skipCallbacks)
         
         #notify relatives that build finished
-        self.notify('rig')
+        if not skipCallbacks:
+            self.notify('rig')
         
         return result
                             
@@ -1001,8 +1002,6 @@ class Widget(TreeItem):
                     else:
                         self._nodes.append(mdn)
 
-#TODO:  We need to be able to set node statuses so that parents
-#can ignore parenting nodes that have been 'handled' by children
 class Root(Widget):
     """Builds a master control and main hierarchy of a rig"""
     def __init__(self, part='master'):

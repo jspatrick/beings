@@ -283,7 +283,7 @@ class RigWidget(QWidget):
     @pyqtSlot()
     @PopupError()
     def on_deleteRigBtn_released(self):
-        self.rigView.model().root.delete()
+        self.rigView.model().root.delete(deleteChildren=True)
         
         
 _ui = None

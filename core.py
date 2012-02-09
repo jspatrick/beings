@@ -739,15 +739,26 @@ class Widget(TreeItem):
         """
         build the layout
         """
-        raise NotImplementedError    
+        raise NotImplementedError
+        
     @BuildCheck('layoutBuilt', 'rigBuilt')
-    def delete(self, cache=True):
+    def delete(self, cache=True, deleteChildren=False):
         """
         Delete nodes
         """
-        for child in self.children(recursive=True):
-            child.delete(cache=cache)
-
+        if deleteChildren:
+            for child in self.children(recursive=True):
+                child.delete(cache=cache)
+                
+        #if this widget is mirrored, we must cache and delete
+        #the mirrored widget 
+        if self.mirroredState() == 'source' and self.state() == 'layoutBuilt':
+            _logger.info("deleting a mirrored widget - deleteing the other side first")
+            other = self._getMirrorableWidget()
+            if other.state() == 'layoutBuilt':
+                _logger.debug("deleting mirrored target %r" % other)
+                other.delete()
+                
         if cache:
             if self.state() == 'rigBuilt':
                 _logger.debug('deleting a rig - skipping caching')

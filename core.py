@@ -239,6 +239,7 @@ class OptionCollection(QtCore.QObject):
         self.__options[optName] = optType(defaultVal)
         self.__defaults[optName] = optType(defaultVal)        
         self.__rules[optName] = {'optType': optType}        
+        self.__rules[optName] = {'provided': kwargs.get('provided', False)}
         presets = kwargs.get('presets')
         if presets:
             self.setPresets(optName, *presets)
@@ -248,7 +249,12 @@ class OptionCollection(QtCore.QObject):
     def _checkName(self, optName):
         if optName not in self.__options:
             raise utils.BeingsError("Invalid option %s") % optName
-    
+        
+    def setRule(self, opt, rule, value):
+        currentVal = self.__rules[opt].get(rule, None)
+        if currentVal is None:
+            raise utils.BeingsError("Invalid rule %s" % rule) 
+        
     def setPresets(self, optName, *args, **kwargs):
         self._checkName(optName)
         replace = kwargs.get('replace', False)        

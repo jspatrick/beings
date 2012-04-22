@@ -31,13 +31,28 @@ def cvCurveFromNodes(nodes, name='crv'):
     _logger.debug(cmd)
     return MM.eval(cmd)
 
-def bindControlsToCrv(ctls, crv):
+def bindControlsToShape(ctls, shape):
     """
     Cluster bind the controls to a curve.  Curve must have same num of points in u
     as num ctls
     """
-    for i, ctl in enumerate(ctls):        
-        cls, handle = MC.cluster('%s.cv[%i]' % (crv, i))
+    shape = MC.listRelatives(shape, type='geometryShape')
+    if shape is None:
+        shape = shape
+    else:
+        shape = shape[0]
+        
+    if MC.objectType(shape, isAType='nurbsSurface'):
+
+        dv = MC.getAttr('%s.degreeV' % shape)
+        suff = '[0:%i]' % dv
+    elif MC.objectType(shape, isAType='nurbsCurve'):
+        suff = ""
+    else:
+        raise RuntimeError("Bad input shape %s" % shape)
+    
+    for i, ctl in enumerate(ctls):
+        cls, handle = MC.cluster('%s.cv[%i]%s' % (shape, i, suff))
         handleShape  = MC.listRelatives(handle)[0]
 
         MC.disconnectAttr('%s.worldMatrix[0]' % handle, '%s.matrix' % cls)
@@ -106,10 +121,3 @@ def createIkSpineSystem(jnts, ctls):
         ikSpineNode.addAttr('spineScl%i' % i)
         
     
-if __name__  == "__main__":
-    print "hello world"
-    bndjnts = ['bnd_a', 'bnd_b', 'bnd_c', 'bnd_d', 'bnd_e']
-    ctls = ['ctl_a', 'ctl_b', 'ctl_c', 'ctl_d']
-    
-    crv = cvCurveFromNodes(ctls)
-    bindControlsToCrv(ctls, crv)

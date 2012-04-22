@@ -91,7 +91,8 @@ def surfaceFromNodes(nodes, name='jntsSrf', upAxis=0):
     cmd = " ".join(cmd)
     _logger.debug(cmd)    
     return MM.eval(cmd)
-        
+
+def getClosestPntOnCrv(obj, crv, paramAttr='closeParamCrv'):
     
 
 def createJntAttrs(jnt):
@@ -111,11 +112,52 @@ def closestPointOnSurface(node, surface, attr='closestPoint'):
     """
     pass
 
+def getShape(self, node):
+    shapes = MC.listRelatives(node)
+    if shapes:
+        if len(shapes) != 1 or not MC.objectType(shapes[0], isAType='geometryShape'):
+            raise RuntimeError('invalid node %s' % node)
+        else:
+            return shapes[0]
+        
+    else if MC.objectType(node, isAType='geometryShape'):
+        return node
+    
+    else:
+        raise RuntimeError('invalid node %s' % node)
+    
+def paramAtNode(crv, node, name='closePoint', keepNode=False):
+    """
+    Return param
+    """    
+    npoc = MC.createNode('nearestPointOnCurve', n=name)
+    
+    MC.connectAttr('%s.worldSpace[0]' % getShape(crv), '%s.inputCurve' % npoc)
+    pos = MC.xform(node, q=1, ws=1, rp=1)
+    MC.setAttr('%s.ip' % npoc, *pos)
+    p = MC.getAttr('%s.parameter' % npoc)
+    MC.delete(npoc)
+    return p
+                   
 def createIkSpineSystem(jnts, ctls):
+    origCurve = cvCurveFromNodes(ctls)
+    bindControlsToShape(ctls, origCurve)
+    uniCurve = MC.rebuildCurve(origCurve, kep=1, kt=1, d=7, rt=0, s=1, ch=1, rpo=False)[0]
+
+    surf = surfaceFromNodes(jnts)
+    bindControlsToShape(ctls. surf)
+    
+    pos = createNode('transform', n='ikSpine%i_pos' % i)
+    poci = MC.createNode('pointOnCurveInfo', n='ikSpine%i_pi' % i)
+    MC.connectAttr('%s.worldSpace[0]' % uniCurve, '%s.inputCurve' % poci)
+    
     ikSpineNode = PM.createNode('transform', n='ikSpineNode')
     ikSpineNode.addAttr('uniformStretch', k=1, dv=0, min=0, max=1)
     ikSpineNode.addAttr('stretchAmt', k=1, dv=1, min=0, max=1)
+    
     for i, jnt in enumerate(jnts):
+        npoc = MC.createNode('nearestPointOnCurve', n='ikSpine%i_npc' % i)
+        MC.connectAttr('%s.worldSpace[0]' % MC.listRelatives(uniCurve)[0],
         ikSpineNode.addAttr('spinePos%i' % i)
         ikSpineNode.addAttr('spineRot%i' % i)
         ikSpineNode.addAttr('spineScl%i' % i)

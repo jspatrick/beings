@@ -29,11 +29,55 @@ def cvCurveFromNodes(nodes, name='crv'):
         
     cmd = ' '.join(cmd)
     _logger.debug(cmd)
-    MM.eval(cmd)
+    return MM.eval(cmd)
 
+def bindControlsToCrv(ctls, crv):
+    """
+    Cluster bind the controls to a curve.  Curve must have same num of points in u
+    as num ctls
+    """
+    for i, ctl in enumerate(ctls):        
+        cls, handle = MC.cluster('%s.cv[%i]' % (crv, i))
+        handleShape  = MC.listRelatives(handle)[0]
 
-def surfaceFromJnts(jnts):
-    pass
+        MC.disconnectAttr('%s.worldMatrix[0]' % handle, '%s.matrix' % cls)
+        MC.disconnectAttr('%s.clusterTransforms[0]' % handleShape, '%s.clusterXforms' % cls)
+
+        MC.delete(handle)
+
+        MC.setAttr('%s.bindPreMatrix' % cls, MC.getAttr('%s.worldInverseMatrix[0]' % ctl), type='matrix')
+        MC.connectAttr('%s.worldMatrix[0]' % ctl, '%s.matrix' % cls)
+    
+def surfaceFromNodes(nodes, name='jntsSrf', upAxis=0):
+    inPos = [0,0,0]
+    outPos = [0,0,0]
+    inPos[upAxis] = -1
+    outPos[upAxis] = 1
+    
+    cmd = ['surface -du 2 -dv 1 -name "%s" ' % name]
+
+    cmd.append('-ku 0')
+    for i in range(len(nodes)-1):
+        cmd.append('-ku %i' % i)
+    cmd.append('-ku %i' % (len(nodes)-2))
+    
+    cmd.append('-kv 0 -kv 1')
+    
+    for node in nodes:
+        wsp = MC.xform(node, q=1, rp=1, ws=1)
+        cmd.append("-p %f %f %f" % (wsp[0] + inPos[0],
+                                    wsp[1] + inPos[1],
+                                    wsp[2] + inPos[2]))
+
+        cmd.append("-p %f %f %f" % (wsp[0] + outPos[0],
+                                    wsp[1] + outPos[1],
+                                    wsp[2] + outPos[2]))
+
+    cmd = " ".join(cmd)
+    _logger.debug(cmd)    
+    return MM.eval(cmd)
+        
+    
 
 def createJntAttrs(jnt):
     pass
@@ -67,4 +111,5 @@ if __name__  == "__main__":
     bndjnts = ['bnd_a', 'bnd_b', 'bnd_c', 'bnd_d', 'bnd_e']
     ctls = ['ctl_a', 'ctl_b', 'ctl_c', 'ctl_d']
     
-    cvCurveFromNodes(ctls)
+    crv = cvCurveFromNodes(ctls)
+    bindControlsToCrv(ctls, crv)

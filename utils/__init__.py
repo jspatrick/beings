@@ -28,6 +28,9 @@ reload(NodeTagging)
 import Orientation
 reload(Orientation)
 
+import Naming
+reload(Naming)
+
 from GeneralUtils import *
 from Exceptions import *
 from Types import *
@@ -38,3 +41,4 @@ from Decorators import *
 from NodeTracking import *
 from NodeTagging import *
 from Orientation import *
+from Naming import *

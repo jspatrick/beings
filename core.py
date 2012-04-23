@@ -8,6 +8,8 @@ from PyQt4 import QtCore
 import beings.control as control
 import beings.utils as utils
 
+from beings.utils.Naming import Namer
+
 import utils.NodeTagging as NT
 
 

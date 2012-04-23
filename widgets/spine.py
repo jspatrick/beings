@@ -5,7 +5,7 @@ import pymel.core as PM
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
 
-def arclenOfJoints(jnts, inclusive=True):
+def arclenOfJoints(jnts, crv, inclusive=True):
     pass
 
 def distanceOfJoints(jnts):
@@ -30,6 +30,7 @@ def cvCurveFromNodes(nodes, name='crv'):
     cmd = ' '.join(cmd)
     _logger.debug(cmd)
     return MM.eval(cmd)
+
 
 def bindControlsToShape(ctls, shape):
     """
@@ -92,36 +93,62 @@ def surfaceFromNodes(nodes, name='jntsSrf', upAxis=0):
     _logger.debug(cmd)    
     return MM.eval(cmd)
 
-def getClosestPntOnCrv(obj, crv, paramAttr='closeParamCrv'):
-    
-
 def createJntAttrs(jnt):
     pass
     #uniformStretchParam
     #stretchParam
     #noStretchParam
 
-def createSurfaceJnts(ikJnts):
-    pass
+#TODO:  make up vecs align to orig jnts
+def createCrvJnts(ikJnts, crv, upVec=[1,0,0], aimVec=[0,1,0]):
+    "from a set of joints, get the closest points and create new joints"
+    positions = []
+    for jnt in ikJnts:
+        positions.append(closestPointOnCurve(crv, jnt))
 
+    pm.select(cl=1)
 
-def closestPointOnSurface(node, surface, attr='closestPoint'):
-    """
-    Create a closest point on surface node.  Create an attr on the
-    joint that the closestPoint is wired to
-    """
-    pass
+    newJnts = []
+    for i in range(len(ikJnts)):
+        newJnts.append(pm.joint(p=positions[i]))
+    for jnt in newJnts:
+        utils.orientJnt(jnt, aimVec=aimVec, upVec=upVec)
 
-def getShape(self, node):
-    shapes = MC.listRelatives(node)
+    return newJnts
+
+#TODO:  get space other than local
+def closestPointOnNurbsObj(crv, node):
+    """Get closest point to a nurbs surface or curve"""
+    shape = getShape(crv)
+    fn = shape.__apimfn__()
+    
+    wsPos = pm.xform(node, q=1, rp=1, ws=1)
+    pnt = fn.closestPoint(OM.MPoint(*wsPos))
+    return [pnt.x, pnt.y, pnt.z]
+
+def closestParamOnCurve(crv, node):
+    pnt = closestPointOnCurve(crv, node)
+    crvFn = getShape(crv).__apimfn__()
+    su = OM.MScriptUtil()
+    pDouble = su.asDoublePtr()
+    
+    crvFn.getParamAtPoint(OM.MPoint(*pnt), pDouble)
+
+    return su.getDouble(pDouble)
+
+    
+
+def getShape(node):
+    node = pm.PyNode(node)
+    shapes = pm.listRelatives(node)
     if shapes:
-        if len(shapes) != 1 or not MC.objectType(shapes[0], isAType='geometryShape'):
+        if not pm.objectType(shapes[0], isAType='geometryShape'):
             raise RuntimeError('invalid node %s' % node)
         else:
-            return shapes[0]
+            return pm.PyNode(shapes[0])
         
-    else if MC.objectType(node, isAType='geometryShape'):
-        return node
+    elif pm.objectType(node, isAType='geometryShape'):
+        return pm.PyNode(node)
     
     else:
         raise RuntimeError('invalid node %s' % node)
@@ -157,7 +184,7 @@ def createIkSpineSystem(jnts, ctls):
     
     for i, jnt in enumerate(jnts):
         npoc = MC.createNode('nearestPointOnCurve', n='ikSpine%i_npc' % i)
-        MC.connectAttr('%s.worldSpace[0]' % MC.listRelatives(uniCurve)[0],
+        #MC.connectAttr('%s.worldSpace[0]' % MC.listRelatives(uniCurve)[0]
         ikSpineNode.addAttr('spinePos%i' % i)
         ikSpineNode.addAttr('spineRot%i' % i)
         ikSpineNode.addAttr('spineScl%i' % i)

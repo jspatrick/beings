@@ -618,7 +618,7 @@ def makeJntChain(char, widgetName, side, namePosList):
     pm.select(cl=1)
     return result
 
-def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 1], worldUpVec=[1,0,0], curAimAxis=None):
+def orientJnt(joint, aimVec=[0, 1, 0], upVec=[1, 0, 0], worldUpVec=[1,0,0], curAimAxis=None):
     #if either joint or loc not provided, query from selection
     joint = pm.PyNode(joint)
     try:

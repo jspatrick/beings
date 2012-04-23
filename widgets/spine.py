@@ -5,15 +5,6 @@ import pymel.core as PM
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
 
-def arclenOfJoints(jnts, crv, inclusive=True):
-    pass
-
-def distanceOfJoints(jnts):
-    pass
-
-def epCurveFromJnts(jnts):
-    pass
-
 
 def cvCurveFromNodes(nodes, name='crv'):
     cmd = ['curve -d 2 -k 0 -name "%s"' % name]
@@ -99,6 +90,42 @@ def createJntAttrs(jnt):
     #stretchParam
     #noStretchParam
 
+ORIG_ARC_LEN_ATTR = 'origArcLen'
+ORIG_ARC_PERCENTAGE_ATTR = 'origArcPercentage'
+ORIG_PARAM_ATTR = 'origParam'
+def arcLenOfJoints(jnts, crv, mkAttrs=True):
+    sc = pm.createNode('subCurve')
+    ci = pm.createNode('curveInfo')
+    crv = pm.PyNode(crv)
+    crv.worldSpace[0].connect(ci.inputCurve)
+    totalLen = ci.arcLength.get()
+    crv.worldSpace[0].disconnect(ci.inputCurve)
+    
+    sc.outputCurve.connect(ci.inputCurve, force=1)
+    
+    result = []
+    for jnt in jnts:
+        for attr in [ORIG_PARAM_ATTR,
+                     ORIG_ARC_LEN_ATTR,
+                     ORIG_PARAM_ATTR]:
+            pm.addAttr(jnt, ln=attr, k=1, dv=0)
+        
+        
+        jnt = pm.PyNode(jnt)
+        p = paramAtNode(crv, jnt)
+        pm.a
+        crv.worldSpace[0].connect(sc.inputCurve, force=1)
+        sc.max.set(paramAtNode(crv, jnt))
+        result.append(ci.arcLength.get())
+        if mkAttrs:
+            pm.addAttr(jnt, ln=ORIG_ARC_LEN_ATTR, dv=result[-1], k=1)
+            pm.addAttr(jnt, ln=ORIG_PARAM_ATTR, dv=p, k=1)
+            prc = result[-1]/totalLen
+            pm.addAttr(jnt, ln=ORIG_ARC_PERCENTAGE_ATTR, dv=prc, k=1)
+            
+    return result
+
+
 #TODO:  make up vecs align to orig jnts
 def createCrvJnts(ikJnts, crv, upVec=[1,0,0], aimVec=[0,1,0]):
     "from a set of joints, get the closest points and create new joints"
@@ -115,6 +142,7 @@ def createCrvJnts(ikJnts, crv, upVec=[1,0,0], aimVec=[0,1,0]):
         utils.orientJnt(jnt, aimVec=aimVec, upVec=upVec)
 
     return newJnts
+
 
 #TODO:  get space other than local
 def closestPointOnNurbsObj(crv, node):
@@ -153,7 +181,7 @@ def getShape(node):
     else:
         raise RuntimeError('invalid node %s' % node)
     
-def paramAtNode(crv, node, name='closePoint', keepNode=False):
+def paramAtNode(crv, node):
     """
     Return param
     """    
@@ -169,11 +197,28 @@ def paramAtNode(crv, node, name='closePoint', keepNode=False):
 def createIkSpineSystem(jnts, ctls):
     origCurve = cvCurveFromNodes(ctls)
     bindControlsToShape(ctls, origCurve)
-    uniCurve = MC.rebuildCurve(origCurve, kep=1, kt=1, d=7, rt=0, s=1, ch=1, rpo=False)[0]
+
+    #build a curve with a single span that has uniform parameterization
+    uniCurve = pm.rebuildCurve(origCurve, kep=1, kt=1, d=7, rt=0, s=1, ch=1, rpo=False)[0]
 
     surf = surfaceFromNodes(jnts)
-    bindControlsToShape(ctls. surf)
+    bindControlsToShape(ctls, surf)
+
+    #get an arclength to measure the whole curve
+    curveAL = pm.createNode('curveInfo')
     
+    uniCurve.connect(curveAL.inputCurve)
+    totalAL = curveAL.arcLength.get()
+    ###FOR EACH JOINT
+    #get the percentage arclen
+    percentAL = jnt.origArcLen.get()/totalAL
+    nsMDN = pm.createNode('multiplyDivide')
+    #mult the 
+    nsMDN.
+    #get a stretchpointOnCurveInfo at the orig param for stretch
+    #get a pointOnCurveInfo 
+    #get original arc length of joints
+    #
     pos = createNode('transform', n='ikSpine%i_pos' % i)
     poci = MC.createNode('pointOnCurveInfo', n='ikSpine%i_pi' % i)
     MC.connectAttr('%s.worldSpace[0]' % uniCurve, '%s.inputCurve' % poci)

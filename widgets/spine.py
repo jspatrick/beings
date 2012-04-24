@@ -287,7 +287,9 @@ def getExtensionPointOnCurveInfo(curve):
     
     
     
-    
+def getLoc(infoNode, name, i=None):
+    pass
+
 def createIkSpineSystem(jnts, ctls, namer=None):
     if namer is None:
         namer = utils.Namer(character='char', part='spine')
@@ -325,20 +327,28 @@ def createIkSpineSystem(jnts, ctls, namer=None):
     ikSpineNode.addAttr('stretchAmt', k=1, dv=1, min=0, max=1)
 
     finalPosLocs = []
+    origCurve = getShape(origCurve)
+    uniCurve = getShape(uniCurve)
+    surf = getShape(surf)
     for i, jnt in enumerate(crvJnts):
+        # for each joint, get a param value along the original curve.
+        p = closestParamOnCurve(jnt, origCurve)
+        pci = pm.createNode('pointOnCurveInfo', name=namer('stretch', s='pci', alphaSuf=i))
+        origCurve.worldSpace[0].connect(pci.inputCurve)
+        pci.pr.set(p)
+        
+        # nsMultMDN = pm.createNode('multiplyDivide', name=namer('ns_param_mult', s='mdn', alphaSuf=i))
+        # pm.connectAttr('%s.%s' % (jnt, ORIG_ARC_PERCENTAGE_ATTR), '%s.input1X' % nsMultMDN)
+        # arcLenDiffInverseMDN.outputX.connect(nsMultMDN.input2X)
 
-        nsMultMDN = pm.createNode('multiplyDivide', name=namer('ns_param_mult', s='mdn', alphaSuf=i))
-        pm.connectAttr('%s.%s' % (jnt, ORIG_ARC_PERCENTAGE_ATTR), '%s.input1X' % nsMultMDN)
-        arcLenDiffInverseMDN.outputX.connect(nsMultMDN.input2X)
+        # #get the parameter alone the unforim curve.  From there, get closest point on non-uni curve
+        # nsParamMDN = pm.createNode('multiplyDivide', name=namer('ns_param', s='mdn', alphaSuf=i))
+        # nsMultMDN.outputX.connect(nsParamMDN.input1X)
+        # nsParamMDN.input2X.set(curveMaxParam)
 
-        #get the parameter alone the unforim curve.  From there, get closest point on non-uni curve
-        nsParamMDN = pm.createNode('multiplyDivide', name=namer('ns_param', s='mdn', alphaSuf=i))
-        nsMultMDN.outputX.connect(nsParamMDN.input1X)
-        nsParamMDN.input2X.set(curveMaxParam)
-
-        nsPosPCI = pm.createNode('pointOnCurveInfo', n=namer('ns_pos', s='pci', alphaSuf=i))        
-        nsPosLoc = pm.spaceLocator(name=namer('ns_pos', s='loc', alphaSuf=i))
-        nsPosLoc.v.set(0)
+        # nsPosPCI = pm.createNode('pointOnCurveInfo', n=namer('ns_pos', s='pci', alphaSuf=i))        
+        # nsPosLoc = pm.spaceLocator(name=namer('ns_pos', s='loc', alphaSuf=i))
+        # nsPosLoc.v.set(0)
         
         uniCurve.worldSpace[0].connect(nsPosPCI.inputCurve)
         

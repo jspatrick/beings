@@ -156,7 +156,7 @@ def addJointAttrs(jnts, crv, mkAttrs=True):
 
 
 #TODO:  make up vecs align to orig jnts
-def createCrvJnts(ikJnts, crv, upVec=[1,0,0], aimVec=[0,1,0]):
+def createCrvJnts(ikJnts, crv, upVec=[1,0,0], aimVec=[0,1,0], asLocs=False):
     "from a set of joints, get the closest points and create new joints"
     positions = []
     for jnt in ikJnts:
@@ -166,9 +166,32 @@ def createCrvJnts(ikJnts, crv, upVec=[1,0,0], aimVec=[0,1,0]):
 
     newJnts = []
     for i in range(len(ikJnts)):
-        newJnts.append(pm.joint(p=positions[i]))
-    for jnt in newJnts:
-        utils.orientJnt(jnt, aimVec=aimVec, upVec=upVec)
+        if asLocs:
+            loc = pm.spaceLocator()
+            newJnts.append(loc)
+            loc.t.set(positions[i])
+            
+        else:
+            newJnts.append(pm.joint(p=positions[i]))
+    if asLocs:
+        for i in range(len(newJnts)):
+            if i == len(newJnts) - 1 :
+                nl = newJnts[i-1]
+                aimVec = [0,-1,0]
+            else:
+                nl = newJnts[i+1]
+                aimVec = [0,1,0]
+                
+            l = newJnts[i]
+            pm.delete(pm.aimConstraint(nl, l,
+                                       aimVector=aimVec,
+                                       upVector=[1,0,0],
+                                       worldUpVector=[1,0,0]))
+            
+            
+    else:
+        for jnt in newJnts:
+            utils.orientJnt(jnt, aimVec=aimVec, upVec=upVec)
 
     return newJnts
 
@@ -224,12 +247,53 @@ def paramAtNode(crv, node):
     return p
 
 
+g_epociNodes = {}
+def getExtensionPointOnCurveInfo(curve):
+    #we can reuse some nodes
+    shape = getShape(curve)
+    
+    global g_epociNodes
+    nodes = g_epociNodes.get(str(shape), {})    
+    if not nodes:        
+        endPoci = pm.createNode('pointOnCurveInfo')
+        endPoci.pr.set(shape.maxValue.get())
+        shape.worldSpace[0].connect(endPoci.ic)
+        nodes['endPoci'] = endPoci
+
+        cvi = pm.createNode('curveInfo')
+        shape.worldSpace[0].conenct(cvi.inputCurve)
+        nodes['cvi'] = cvi
+        
+    else:
+        cvi = nodes['cvi']
+        endPoci = nodes['endPoci']
+
+    epoci =  pm.createNode(type='network')
+    epoci.addAttr(ln = 'inputCurve', sn='ic', dt='nurbsCurve')
+    epoci.addAttr(ln = 'parameter', sn='pr', at='double', dv=0)
+    epoci.addAttr(ln = 'position', sn='p', at='double')    
+    shape.worldSpace[0].connect(epoci.ic)
+    
+    
+    paramMult = pm.createNode('multiplyDivide')
+    epoci.parameter.connect(paramMult.input1X)
+    paramMult.input2X.get(curve.maxValue.get())
+    paramMult.operation.set(2)
+
+    magMult = pm.createNode('multipyDivide')
+    paramMult.outputX.connect(magMult.input1X)
+    cvi.arcLength.connect(paramMult.input2X)
+    
+    
+    
+    
+    
 def createIkSpineSystem(jnts, ctls, namer=None):
     if namer is None:
         namer = utils.Namer(character='char', part='spine')
         
     origCurve = cvCurveFromNodes(ctls)
-    bindControlsToShape(ctls, origCurve)
+    bindControlsToShape(ctls, str(origCurve))
 
     #build a curve with a single span that has uniform parameterization
     uniCurve = pm.rebuildCurve(origCurve, kep=1, kt=1, d=7, rt=0, s=1, ch=1, rpo=False)[0]
@@ -244,6 +308,7 @@ def createIkSpineSystem(jnts, ctls, namer=None):
     uniCurve.worldSpace[0].connect(curveAL.inputCurve)
     totalOrigAL = curveAL.arcLength.get()
     
+    #crvJnts = createCrvJnts(jnts, uniCurve, asLocs=True)
     crvJnts = createCrvJnts(jnts, uniCurve)
     crvJnts = [pm.rename(j, namer(d='ikcrv', alphaSuf=i)) for i, j in enumerate(crvJnts)]
     addJointAttrs(crvJnts, uniCurve)
@@ -261,59 +326,87 @@ def createIkSpineSystem(jnts, ctls, namer=None):
 
     finalPosLocs = []
     for i, jnt in enumerate(crvJnts):
-        
+
         nsMultMDN = pm.createNode('multiplyDivide', name=namer('ns_param_mult', s='mdn', alphaSuf=i))
         pm.connectAttr('%s.%s' % (jnt, ORIG_ARC_PERCENTAGE_ATTR), '%s.input1X' % nsMultMDN)
         arcLenDiffInverseMDN.outputX.connect(nsMultMDN.input2X)
 
+        #get the parameter alone the unforim curve.  From there, get closest point on non-uni curve
         nsParamMDN = pm.createNode('multiplyDivide', name=namer('ns_param', s='mdn', alphaSuf=i))
         nsMultMDN.outputX.connect(nsParamMDN.input1X)
         nsParamMDN.input2X.set(curveMaxParam)
 
+        nsPosPCI = pm.createNode('pointOnCurveInfo', n=namer('ns_pos', s='pci', alphaSuf=i))        
         nsPosLoc = pm.spaceLocator(name=namer('ns_pos', s='loc', alphaSuf=i))
         nsPosLoc.v.set(0)
-        nsPosPCI = pm.createNode('pointOnCurveInfo', n=namer('ns_pos', s='pci', alphaSuf=i))
+        
         uniCurve.worldSpace[0].connect(nsPosPCI.inputCurve)
+        
         nsParamMDN.outputX.connect(nsPosPCI.parameter)
+        
         nsPosPCI.p.connect(nsPosLoc.t)
         #TODO:  get result position when curve is squashed
 
         #get non-uniform stretch
-        nusPosLoc = pm.spaceLocator(name=namer('nus_pos', s='loc', alphaSuf=i))
-        nusPosLoc.v.set(0)
+        stretchLoc = pm.spaceLocator(name=namer('nus_pos', s='loc', alphaSuf=i))
         nusPosPCI = pm.createNode('pointOnCurveInfo', n=namer('ns_pos', s='pci', alphaSuf=i))
         uniCurve.worldSpace[0].connect(nusPosPCI.inputCurve)
         MC.connectAttr('%s.%s' % (jnt, ORIG_PARAM_ATTR), str(nusPosPCI.parameter))
-        nusPosPCI.p.connect(nusPosLoc.t)
-
-        #get uniform stretch
-        usPosLoc = pm.spaceLocator(name=namer('us_pos', s='loc', alphaSuf=i))
-        usPosLoc.v.set(0)
-        #TODO:  actually set this up
-        nusPosPCI.p.connect(usPosLoc.t)
-
-        posLoc = pm.spaceLocator(name=namer('final_pos', s='loc', alphaSuf=i))
-        stretchBlendPos = pm.createNode('blendColors', name=namer('stretch', s='blc', alphaSuf=i))
-        nsBlendPos = pm.createNode('blendColors', name=namer('ns', s='blc', alphaSuf=i))
-
-        ikSpineNode.uniformStretch.connect(stretchBlendPos.b)        
-        usPosLoc.t.connect(stretchBlendPos.c1)
-        nusPosLoc.t.connect(stretchBlendPos.c2)
-
-        ikSpineNode.stretchAmt.connect(nsBlendPos.b)        
-        nsPosLoc.t.connect(nsBlendPos.c2)
-        stretchBlendPos.op.connect(nsBlendPos.c1)
-
-        nsBlendPos.op.connect(posLoc.t)
         
-        finalPosLocs.append(posLoc)
+        npc = pm.createNode('nearestPointOnCurve', n=namer('ns_pos', s='npc', alphaSuf=i))
+        origCurve = getShape(origCurve)
+        origCurve.worldSpace[0].connect(npc.inputCurve)
+        nusPosPCI.p.connect(npc.ip)
+
+        npc.p.connect(stretchLoc.t)
+
+        #result param = npc.pr
+                            
         
+        #nusPosLoc.v.set(0)
+        
+        
+        
+        
+        
+
+        # #get uniform stretch
+        # usPosLoc = pm.spaceLocator(name=namer('us_pos', s='loc', alphaSuf=i))
+        # #usPosLoc.v.set(0)
+        
+        # #TODO:  actually set this up
+        # nusPosPCI.p.connect(usPosLoc.t)
+
+        # posLoc = pm.spaceLocator(name=namer('final_pos', s='loc', alphaSuf=i))
+        # stretchBlendPos = pm.createNode('blendColors', name=namer('stretch', s='blc', alphaSuf=i))
+        # nsBlendPos = pm.createNode('blendColors', name=namer('ns', s='blc', alphaSuf=i))
+
+        # ikSpineNode.uniformStretch.connect(stretchBlendPos.b)        
+        # usPosLoc.t.connect(stretchBlendPos.c1)
+        # nusPosLoc.t.connect(stretchBlendPos.c2)
+
+        # ikSpineNode.stretchAmt.connect(nsBlendPos.b)        
+        # nsPosLoc.t.connect(nsBlendPos.c2)
+        # stretchBlendPos.op.connect(nsBlendPos.c1)
+
+        # nsBlendPos.op.connect(posLoc.t)
+        
+        # finalPosLocs.append(posLoc)
+    return
     addDistanceAttrs(finalPosLocs, keepConnection=True)
 
     upVecLocs = []
-    for i in range(len(finalPosLocs)-1):
+    for i in range(len(finalPosLocs)):
+        
         loc = finalPosLocs[i]
-        nextLoc = finalPosLocs[i+1]
+        end=False
+        if i == (len(finalPosLocs)-1):
+            end=True
+            nextLoc = finalPosLocs[i-1]
+            aimVec = [0,-1,0]
+        else:
+            nextLoc = finalPosLocs[i+1]
+            aimVec=[0,1,0]
         
         cps = pm.createNode('closestPointOnSurface', n=namer('final_pos_up', s='cps'))
         upLoc = pm.spaceLocator(name=namer('final_pos_up', s='loc'))
@@ -326,27 +419,19 @@ def createIkSpineSystem(jnts, ctls, namer=None):
         posi.v.set(cps.v.get() + .1)
         posi.p.connect(upLoc.t)
 
-        scaleMDN = pm.createNode('multiplyDivide', n=namer('scl', s='mdn'))
-        loc.distToNext.connect(scaleMDN.input1X)
-        crvJnts[i].distToNext.connect(scaleMDN.input2X)
-        scaleMDN.operation.set(2)
-        
-        scaleMDN.outputX.connect(crvJnts[i].sy)
+        if not end:
+            scaleMDN = pm.createNode('multiplyDivide', n=namer('scl', s='mdn'))
+            loc.distToNext.connect(scaleMDN.input1X)
+            crvJnts[i].distToNext.connect(scaleMDN.input2X)
+            scaleMDN.operation.set(2)        
+            scaleMDN.outputX.connect(crvJnts[i].sy)
         
         pm.pointConstraint(loc, crvJnts[i])
-        pm.aimConstraint(nextLoc, crvJnts[i], aimVector=[0,1,0], upVector=[1,0,0],
+        
+        pm.aimConstraint(nextLoc, crvJnts[i], aimVector=aimVec, upVector=[1,0,0],
                          worldUpType='object', worldUpObject=str(upLoc))
         
-    #get the percentage arclen
-    
-    
-    #curve param - minValue/maxValue
-    #srf param - crv.maxRangeU.get()
-    
-    #get a stretchpointOnCurveInfo at the orig param for stretch
-    #get a pointOnCurveInfo 
-    #get original arc length of joints
-    #
+
     return
         
     

@@ -1,5 +1,6 @@
 import logging
 import maya.cmds as MC
+import maya.mel as MM
 import maya.OpenMaya as OM
 import pymel.core as pm
 import beings.utils as utils
@@ -22,7 +23,7 @@ def cvCurveFromNodes(nodes, name='crv'):
         
     cmd = ' '.join(cmd)
     _logger.debug(cmd)
-    return MM.eval(cmd)
+    return pm.PyNode(MM.eval(cmd))
 
 
 def bindControlsToShape(ctls, shape):
@@ -31,31 +32,29 @@ def bindControlsToShape(ctls, shape):
     as num ctls
     """
     _logger.debug('binding %s' % shape)
-    s = MC.listRelatives(shape, type='geometryShape')
-    if s:       
-        shape = s[0]
-        
-    if MC.objectType(shape, isAType='nurbsSurface'):
+    shape = getShape(shape)
+    if pm.objectType(shape, isAType='nurbsSurface'):
 
-        dv = MC.getAttr('%s.degreeV' % shape)
+        dv = pm.getAttr('%s.degreeV' % shape)
         suff = '[0:%i]' % dv
-    elif MC.objectType(shape, isAType='nurbsCurve'):
+    elif pm.objectType(shape, isAType='nurbsCurve'):
         suff = ""
     else:
         raise RuntimeError("Bad input shape %s" % shape)
     
     for i, ctl in enumerate(ctls):
-        cls, handle = MC.cluster('%s.cv[%i]%s' % (shape, i, suff))
-        handleShape  = MC.listRelatives(handle)[0]
+        cls, handle = pm.cluster('%s.cv[%i]%s' % (shape, i, suff))
+        handleShape  = pm.listRelatives(handle)[0]
 
-        MC.disconnectAttr('%s.worldMatrix[0]' % handle, '%s.matrix' % cls)
-        MC.disconnectAttr('%s.clusterTransforms[0]' % handleShape, '%s.clusterXforms' % cls)
+        pm.disconnectAttr('%s.worldMatrix[0]' % handle, '%s.matrix' % cls)
+        pm.disconnectAttr('%s.clusterTransforms[0]' % handleShape, '%s.clusterXforms' % cls)
 
-        MC.delete(handle)
+        pm.delete(handle)
 
-        MC.setAttr('%s.bindPreMatrix' % cls, MC.getAttr('%s.worldInverseMatrix[0]' % ctl), type='matrix')
-        MC.connectAttr('%s.worldMatrix[0]' % ctl, '%s.matrix' % cls)
+        pm.setAttr('%s.bindPreMatrix' % cls, pm.getAttr('%s.worldInverseMatrix[0]' % ctl), type='matrix')
+        pm.connectAttr('%s.worldMatrix[0]' % ctl, '%s.matrix' % cls)
     
+
 def surfaceFromNodes(nodes, name='jntsSrf', upAxis=0):
     inPos = [0,0,0]
     outPos = [0,0,0]
@@ -295,48 +294,78 @@ def createIkSpineSystem(jnts, ctls, namer=None):
         namer = utils.Namer(character='char', part='spine')
         
     origCurve = cvCurveFromNodes(ctls)
+    origCurve = getShape(origCurve)
     bindControlsToShape(ctls, str(origCurve))
 
     #build a curve with a single span that has uniform parameterization
     uniCurve = pm.rebuildCurve(origCurve, kep=1, kt=1, d=7, rt=0, s=1, ch=1, rpo=False)[0]
     uniCurve = uniCurve.listRelatives(type='nurbsCurve')[0]
+    uniCurve = getShape(uniCurve)
     
     surf = surfaceFromNodes(ctls)
     bindControlsToShape(ctls, surf)
-
+    surf = getShape(surf)
+    
     #get an arclength to measure the whole curve
     curveAL = pm.createNode('curveInfo')
     
-    uniCurve.worldSpace[0].connect(curveAL.inputCurve)
+    origCurve.worldSpace[0].connect(curveAL.inputCurve)
     totalOrigAL = curveAL.arcLength.get()
     
     #crvJnts = createCrvJnts(jnts, uniCurve, asLocs=True)
-    crvJnts = createCrvJnts(jnts, uniCurve)
-    crvJnts = [pm.rename(j, namer(d='ikcrv', alphaSuf=i)) for i, j in enumerate(crvJnts)]
-    addJointAttrs(crvJnts, uniCurve)
+    crvJnts = createCrvJnts(jnts, origCurve)
+    for i, jnt in enumerate(crvJnts):
+        jnt.rename(namer(d='ikcrv', x='jnt', alphaSuf=i))
+        
+    addJointAttrs(crvJnts, origCurve)
 
-    arcLenDiffInverseMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', s='mdn'))
-    arcLenDiffInverseMDN.operation.set(2)
-    curveAL.arcLength.connect(arcLenDiffInverseMDN.input2X)
-    arcLenDiffInverseMDN.input1X.set(totalOrigAL)
+    arcLenMultMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', s='mdn'))
+    arcLenMultMDN.operation.set(2)
+    curveAL.arcLength.connect(arcLenMultMDN.input1X)
+    arcLenMultMDN.input2X.set(totalOrigAL)
     
-    curveMaxParam = uniCurve.maxValue.get()
+    curveMaxParam = origCurve.maxValue.get()
+
     
     ikSpineNode = pm.createNode('transform', n=namer('ikspine'))
     ikSpineNode.addAttr('uniformStretch', k=1, dv=0, min=0, max=1)
     ikSpineNode.addAttr('stretchAmt', k=1, dv=1, min=0, max=1)
 
     finalPosLocs = []
-    origCurve = getShape(origCurve)
-    uniCurve = getShape(uniCurve)
-    surf = getShape(surf)
+
     for i, jnt in enumerate(crvJnts):
         # for each joint, get a param value along the original curve.
-        p = closestParamOnCurve(jnt, origCurve)
-        pci = pm.createNode('pointOnCurveInfo', name=namer('stretch', s='pci', alphaSuf=i))
+
+        #blend between two parameter values on the original curve - uniform and non uniform stretch
+        stretchParamBlend = pm.createNode('blendColors', name=namer('stretch_param', x='blc', alphaSuf=i))
+        ikSpineNode.uniformStretch.connect(stretchParamBlend.b)
+        poci = pm.createNode('pointOnCurveInfo', name=namer('stretch_result', x='pci', alphaSuf=i))
+        origCurve.worldSpace[0].connect(poci.inputCurve)
+        stretchParamBlend.opr.connect(poci.pr)
+
+        resultLoc = pm.spaceLocator(name=namer('stretch_result', x='loc', alphaSuf=i))
+        poci.p.connect(resultLoc.t)
+        
+        #get the param for the non-uniform stretch - 
+        p = closestParamOnCurve(origCurve, jnt)
+        pci = pm.createNode('pointOnCurveInfo', name=namer('stretch', x='pci', alphaSuf=i))
         origCurve.worldSpace[0].connect(pci.inputCurve)
         pci.pr.set(p)
+        pci.pr.connect(stretchParamBlend.c2r)
+
+        #get the point in space along the uniform curve
+        p = closestParamOnCurve(uniCurve, jnt)
+        pci = pm.createNode('pointOnCurveInfo', name=namer('unistretch', x='pci', alphaSuf=i))
+        uniCurve.worldSpace[0].connect(pci.inputCurve)
+        pci.pr.set(p)
+        #get the param on the non-uniform curve to that point
+        npc = pm.createNode('nearestPointOnCurve', name=namer('unistretch_point_to_orig', x='npc', alphaSuf=i))
+        origCurve.worldSpace[0].connect(npc.inputCurve)
+        pci.p.connect(npc.ip)
         
+        npc.pr.connect(stretchParamBlend.c1r)
+
+        continue
         # nsMultMDN = pm.createNode('multiplyDivide', name=namer('ns_param_mult', s='mdn', alphaSuf=i))
         # pm.connectAttr('%s.%s' % (jnt, ORIG_ARC_PERCENTAGE_ATTR), '%s.input1X' % nsMultMDN)
         # arcLenDiffInverseMDN.outputX.connect(nsMultMDN.input2X)
@@ -444,8 +473,16 @@ def createIkSpineSystem(jnts, ctls, namer=None):
 
     return
         
+def _doIt():
+    import maya.cmds as MC
+    import pymel.core as pm
     
-if __name__ == '__main__':  
+    path = '/Users/jspatrick/Documents/maya/projects/beingsTests/scenes/spineJnts.mb'
+    MC.file(path, f=1, o=1)
+
     ctls = [pm.PyNode(n) for n in [u'ctl_a', u'ctl_b', u'ctl_c', u'ctl_d']]
     jnts = [pm.PyNode(n) for n in [u'bnd_a', u'bnd_b', u'bnd_c', u'bnd_d', u'bnd_e']]
     createIkSpineSystem(jnts, ctls)
+    
+if __name__ == '__main__':
+    _doIt()

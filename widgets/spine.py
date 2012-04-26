@@ -85,10 +85,10 @@ def surfaceFromNodes(nodes, name='jntsSrf', upAxis=0):
     return MM.eval(cmd)
 
 
-ORIG_ARC_LEN_ATTR = 'origArcLen'
-ORIG_ARC_PERCENTAGE_ATTR = 'origArcPercentage'
-ORIG_PARAM_ATTR = 'origParam'
-DIST_TO_NEXT = 'distToNext'
+ORIG_ARC_LEN_ATTR = 'origArcLen%i'
+ORIG_ARC_PERCENTAGE_ATTR = 'origArcPercentage%i'
+ORIG_PARAM_ATTR = 'origParam%i'
+DIST_TO_NEXT = 'distToNext%i'
 
 def addDistanceAttrs(nodes, keepConnection=True):
     result = []
@@ -111,13 +111,12 @@ def addDistanceAttrs(nodes, keepConnection=True):
         result.append(dist) 
     return result
     
-def addJointAttrs(jnts, crv, mkAttrs=True):
+def addJointAttrs(jnts, crv, node):
     """
     Add the following attributes to a set of joints:
-    origArcLen
-    origArcLenPercentage
-    origParam
-    distToNext
+    origArcLen<i>
+    origArcLenPercentage<i>
+    origParam<i>    
     """
     sc = pm.createNode('subCurve')
     ci = pm.createNode('curveInfo')
@@ -129,7 +128,7 @@ def addJointAttrs(jnts, crv, mkAttrs=True):
     sc.outputCurve.connect(ci.inputCurve, force=1)
     
     result = []
-    for jnt in jnts:
+    for i, jnt in enumerate(jnts):
         
         jnt = pm.PyNode(jnt)
         p = closestParamOnCurve(crv, jnt)
@@ -142,14 +141,14 @@ def addJointAttrs(jnts, crv, mkAttrs=True):
             sc.max.set(p)
             result.append(ci.arcLength.get())
             
-        if mkAttrs:
 
-            prc = result[-1]/totalLen            
-            pm.addAttr(jnt, ln=ORIG_ARC_LEN_ATTR, dv=result[-1], k=1)
-            pm.addAttr(jnt, ln=ORIG_PARAM_ATTR, dv=p, k=1)            
-            pm.addAttr(jnt, ln=ORIG_ARC_PERCENTAGE_ATTR, dv=prc, k=1)
+
+        prc = result[-1]/totalLen            
+        pm.addAttr(node, ln=ORIG_ARC_LEN_ATTR % i, dv=result[-1], k=1)
+        pm.addAttr(node, ln=ORIG_PARAM_ATTR % i, dv=p, k=1)            
+        pm.addAttr(node, ln=ORIG_ARC_PERCENTAGE_ATTR % i, dv=prc, k=1)
             
-    addDistanceAttrs(jnts, keepConnection=False)
+    #addDistanceAttrs(jnts, keepConnection=False)
         
     return result
 
@@ -293,7 +292,13 @@ def createIkSpineSystem(jnts, ctls, namer=None):
     if namer is None:
         namer = utils.Namer(character='char', part='spine')
         
+    ikSpineNode = pm.createNode('transform', n=namer('ikspine'))
+    ikSpineNode.addAttr('uniformStretch', k=1, dv=0, min=0, max=1)
+    ikSpineNode.addAttr('stretchAmt', k=1, dv=1, min=0, max=1)
+        
     origCurve = cvCurveFromNodes(ctls)
+    pm.parent(origCurve, ikSpineNode)
+    
     origCurve = getShape(origCurve)
     bindControlsToShape(ctls, str(origCurve))
 
@@ -303,6 +308,8 @@ def createIkSpineSystem(jnts, ctls, namer=None):
     uniCurve = getShape(uniCurve)
     
     surf = surfaceFromNodes(ctls)
+    pm.parent(surf, ikSpineNode)
+    
     bindControlsToShape(ctls, surf)
     surf = getShape(surf)
     
@@ -317,7 +324,7 @@ def createIkSpineSystem(jnts, ctls, namer=None):
     for i, jnt in enumerate(crvJnts):
         jnt.rename(namer(d='ikcrv', x='jnt', alphaSuf=i))
         
-    addJointAttrs(crvJnts, origCurve)
+    
 
     arcLenMultMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', s='mdn'))
     arcLenMultMDN.operation.set(2)
@@ -327,23 +334,24 @@ def createIkSpineSystem(jnts, ctls, namer=None):
     curveMaxParam = origCurve.maxValue.get()
 
     
-    ikSpineNode = pm.createNode('transform', n=namer('ikspine'))
-    ikSpineNode.addAttr('uniformStretch', k=1, dv=0, min=0, max=1)
-    ikSpineNode.addAttr('stretchAmt', k=1, dv=1, min=0, max=1)
 
-    finalPosLocs = []
-
+    addJointAttrs(crvJnts, origCurve, ikSpineNode)
+    stretchPosLocs = []
     for i, jnt in enumerate(crvJnts):
         # for each joint, get a param value along the original curve.
 
         #blend between two parameter values on the original curve - uniform and non uniform stretch
         stretchParamBlend = pm.createNode('blendColors', name=namer('stretch_param', x='blc', alphaSuf=i))
         ikSpineNode.uniformStretch.connect(stretchParamBlend.b)
-        poci = pm.createNode('pointOnCurveInfo', name=namer('stretch_result', x='pci', alphaSuf=i))
+        poci = pm.createNode('pointOnCurveInfo', name=namer('stretch_result_pos', x='pci', alphaSuf=i))
         origCurve.worldSpace[0].connect(poci.inputCurve)
         stretchParamBlend.opr.connect(poci.pr)
 
-        resultLoc = pm.spaceLocator(name=namer('stretch_result', x='loc', alphaSuf=i))
+        resultLoc = pm.spaceLocator(name=namer('stretch_result_pos', x='loc', alphaSuf=i))
+        resultLoc.setParent(ikSpineNode)
+        
+        stretchPosLocs.append(resultLoc)
+        
         poci.p.connect(resultLoc.t)
         
         #get the param for the non-uniform stretch - 
@@ -365,73 +373,71 @@ def createIkSpineSystem(jnts, ctls, namer=None):
         
         npc.pr.connect(stretchParamBlend.c1r)
 
-        continue
-        # nsMultMDN = pm.createNode('multiplyDivide', name=namer('ns_param_mult', s='mdn', alphaSuf=i))
-        # pm.connectAttr('%s.%s' % (jnt, ORIG_ARC_PERCENTAGE_ATTR), '%s.input1X' % nsMultMDN)
-        # arcLenDiffInverseMDN.outputX.connect(nsMultMDN.input2X)
-
-        # #get the parameter alone the unforim curve.  From there, get closest point on non-uni curve
-        # nsParamMDN = pm.createNode('multiplyDivide', name=namer('ns_param', s='mdn', alphaSuf=i))
-        # nsMultMDN.outputX.connect(nsParamMDN.input1X)
-        # nsParamMDN.input2X.set(curveMaxParam)
-
-        # nsPosPCI = pm.createNode('pointOnCurveInfo', n=namer('ns_pos', s='pci', alphaSuf=i))        
-        # nsPosLoc = pm.spaceLocator(name=namer('ns_pos', s='loc', alphaSuf=i))
-        # nsPosLoc.v.set(0)
-        
-        uniCurve.worldSpace[0].connect(nsPosPCI.inputCurve)
-        
-        nsParamMDN.outputX.connect(nsPosPCI.parameter)
-        
-        nsPosPCI.p.connect(nsPosLoc.t)
-        #TODO:  get result position when curve is squashed
-
-        #get non-uniform stretch
-        stretchLoc = pm.spaceLocator(name=namer('nus_pos', s='loc', alphaSuf=i))
-        nusPosPCI = pm.createNode('pointOnCurveInfo', n=namer('ns_pos', s='pci', alphaSuf=i))
-        uniCurve.worldSpace[0].connect(nusPosPCI.inputCurve)
-        MC.connectAttr('%s.%s' % (jnt, ORIG_PARAM_ATTR), str(nusPosPCI.parameter))
-        
-        npc = pm.createNode('nearestPointOnCurve', n=namer('ns_pos', s='npc', alphaSuf=i))
-        origCurve = getShape(origCurve)
-        origCurve.worldSpace[0].connect(npc.inputCurve)
-        nusPosPCI.p.connect(npc.ip)
-
-        npc.p.connect(stretchLoc.t)
-
-        #result param = npc.pr
-                            
-        
-        #nusPosLoc.v.set(0)
-        
-        
-        
-        
         
 
-        # #get uniform stretch
-        # usPosLoc = pm.spaceLocator(name=namer('us_pos', s='loc', alphaSuf=i))
-        # #usPosLoc.v.set(0)
+    #use splineIK for non-stretching joints
+    nsCurveJnts = utils.makeDuplicatesAndHierarchy(crvJnts, toReplace='ikcrv', replaceWith='ns_ikcrv')
+    handle, ee = pm.ikHandle(solver='ikSplineSolver', sj=nsCurveJnts[0], ee=nsCurveJnts[-1], curve=origCurve,
+                simplifyCurve=False, parentCurve=False, createCurve=False)
+    handle.v.set(0)
+    
+    nsPosLocs = []    
+    for i, jnt in enumerate(nsCurveJnts):
+        loc = pm.spaceLocator(name=namer('ns_result_pos', x='loc', alphaSuf=i))
+
+        pm.pointConstraint(jnt, loc)
+        nsPosLocs.append(loc)
+        jnt.v.set(0)
         
-        # #TODO:  actually set this up
-        # nusPosPCI.p.connect(usPosLoc.t)
+        loc.setParent(ikSpineNode)
 
-        # posLoc = pm.spaceLocator(name=namer('final_pos', s='loc', alphaSuf=i))
-        # stretchBlendPos = pm.createNode('blendColors', name=namer('stretch', s='blc', alphaSuf=i))
-        # nsBlendPos = pm.createNode('blendColors', name=namer('ns', s='blc', alphaSuf=i))
 
-        # ikSpineNode.uniformStretch.connect(stretchBlendPos.b)        
-        # usPosLoc.t.connect(stretchBlendPos.c1)
-        # nusPosLoc.t.connect(stretchBlendPos.c2)
-
-        # ikSpineNode.stretchAmt.connect(nsBlendPos.b)        
-        # nsPosLoc.t.connect(nsBlendPos.c2)
-        # stretchBlendPos.op.connect(nsBlendPos.c1)
-
-        # nsBlendPos.op.connect(posLoc.t)
+    #create up vector locs for the no stretch joints.  For each joint, if the arc length
+    #of the curve is less than the original arc length, use the max param value in U.  Otherwise,
+    #use the U val of the closest point on the surface.  The V will always be .9 (near the edge)
+    
+    nsUpLocs = []
+    for i, loc in enumerate(nsPosLocs):
+        cps = pm.createNode('closestPointOnSurface', n=namer('ns_up_pos', x='cps', alphaSuf=i))
+        surf.worldSpace[0].connect(cps.inputSurface)
+        loc.t.connect(cps.ip)
         
-        # finalPosLocs.append(posLoc)
+        cnd = pm.createNode('condition', n=namer('ns_up_arclen', x='cnd', alphaSuf=i))
+        origArcLen = getattr(ikSpineNode, 'origArcLen%i' % i)
+        origArcLen.connect(cnd.secondTerm)
+        curveAL.al.connect(cnd.firstTerm)
+        cnd.operation.set(5)
+        cnd.colorIfTrueR.set(curveMaxParam)
+        cps.u.connect(cnd.colorIfFalseR)
+
+        posi = pm.createNode('pointOnSurfaceInfo', n=namer('ns_up_pos', x='psi', alphaSuf=i))
+        surf.worldSpace[0].connect(posi.inputSurface)
+        cnd.outColorR.connect(posi.u)
+        posi.v.set(.9)
+
+        upLoc = pm.spaceLocator(name=namer('ns_result_up', x='loc', alphaSuf=i))
+        posi.p.connect(upLoc.t)
+        
+    #blend the non-stretch and stretch positions to get the final position
+    finalLocs = []
+    finalPosBlends = []
+    for i in range(len(nsPosLocs)):
+        blend = pm.createNode('blendColors', n=namer('pos_result', x='blc'))
+        stretchPosLocs[i].t.connect(blend.c1)
+        nsPosLocs[i].t.connect(blend.c2)
+        ikSpineNode.stretchAmt.connect(blend.blender)
+        
+        nsPosLocs[i].v.set(0)
+        stretchPosLocs[i].v.set(0)
+
+        loc = pm.spaceLocator(name=namer('result', x='loc', alphaSuf=i))
+        blend.op.connect(loc.t)
+        
+        finalLocs.append(loc)
+        finalPosBlends.append(blend)
+        
     return
+
     addDistanceAttrs(finalPosLocs, keepConnection=True)
 
     upVecLocs = []
@@ -473,11 +479,12 @@ def createIkSpineSystem(jnts, ctls, namer=None):
 
     return
         
-def _doIt():
+def _doIt(path =  None):
     import maya.cmds as MC
     import pymel.core as pm
-    
-    path = '/Users/jspatrick/Documents/maya/projects/beingsTests/scenes/spineJnts.mb'
+    if not path:
+        path = '/Users/jspatrick/Documents/maya/projects/beingsTests/scenes/spineJnts.mb'
+        
     MC.file(path, f=1, o=1)
 
     ctls = [pm.PyNode(n) for n in [u'ctl_a', u'ctl_b', u'ctl_c', u'ctl_d']]

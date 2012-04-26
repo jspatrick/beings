@@ -377,7 +377,7 @@ def makeDuplicatesAndHierarchy(nodes, toReplace=None, replaceWith=None):
     if toReplace and replaceWith:
         for i, item in enumerate(newList):
             #rename it based on the original nodes, since the new ones will have numbers
-            item.rename(replaceInName(nodes[i].name(), toReplace, replaceWith))
+            item.rename(re.sub(toReplace, replaceWith, nodes[i].name()))
 
     #parent to the world; if already a child of world, getParent() returns empty string
     if newList[0].getParent():

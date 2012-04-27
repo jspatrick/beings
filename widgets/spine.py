@@ -1,12 +1,19 @@
 import logging
+from string import ascii_lowercase
 import maya.cmds as MC
 import maya.mel as MM
 import maya.OpenMaya as OM
 import pymel.core as pm
+
+import beings.core as core
 import beings.utils as utils
+import beings.control as CTL
+
 reload(utils)
+
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
+
 
 
 def cvCurveFromNodes(nodes, name='crv'):
@@ -219,7 +226,8 @@ def getShape(node):
     
     else:
         raise RuntimeError('invalid node %s' % node)
-    
+
+
 def paramAtNode(crv, node):
     """
     Return param
@@ -271,11 +279,6 @@ def getExtensionPointOnCurveInfo(curve):
     paramMult.outputX.connect(magMult.input1X)
     cvi.arcLength.connect(paramMult.input2X)
     
-    
-    
-    
-def getLoc(infoNode, name, i=None):
-    pass
 
 def createAimedLocs(posLocs, upLocs, name, namer):
     result = []
@@ -517,8 +520,55 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     return    
         
 
-
+class Spine(core.Widget):
+    def __init__(self, part='spine', **kwargs):
+        super(Spine, self).__init__(part=part, **kwargs)
+        self.options.setPresets('side', 'cn')
+        self.options.addOpt('numBndJnts', 5, optType=int, min=3, max=24)
+        self.options.addOpt('numIkCtls', 4, optType=int, min=2)
         
+        self.addParentPart('chest_bnd')
+        self.addParentPart('chest_ik_ctl')
+        
+    def childCompletedBuild(self, child, buildType):            
+        super(Spine, self).childCompletedBuild(child, buildType)
+
+    def _makeLayout(self, namer):
+        numJnts = self.options.getValue('numBndJnts')
+        toks = []
+        positions = []
+        maxHeight = (numJnts-1) * 2
+        
+        for i in range(numJnts):
+            toks.append(ascii_lowercase[i])
+            positions.append([0,i*2,0])
+            
+        spineJoints = {}
+        spineCtls = {}
+        pm.select(cl=1)
+        for i, tok in enumerate(toks):
+            spineJoints[tok] = jnt = pm.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
+            self.registerBindJoint(tok, spineJoints[tok])
+            spineCtls['fk_%s' % tok] = fkctl = control.makeControl(shape='square',
+                                               scale=[0.3, 0.3, 0.3],
+                                               name = namer.name(x='ctl', d=tok, r='rig'))
+            
+            self.registerControl(tok, spineCtls[tok], ctlType='rig')
+            utils.snap(spineJoints[tok], spineCtls[tok], orient=False)
+            zero = utils.insertNodeAbove(fkctl)
+            pm.parentConstraint(jnt, fkctl)
+            pm.select(jnt)
+
+        baseLayoutCtl = CTL.makeControl(shape='circle',
+                        color='yellow',
+                        scale=[4,4,4],
+                        namer = namer('base_layout', x='ctl'))
+        
+        self.registerControl('base', baseLayoutCtl)
+        spineJoints['a'].setParent(baseLayoutCtl)
+        
+core.WidgetRegistry().register(Spine, 'Spine', 'An ik/fk spine')
+
 def _doIt(path =  None):
     import maya.cmds as MC
     import pymel.core as pm

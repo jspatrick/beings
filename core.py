@@ -242,6 +242,8 @@ class OptionCollection(QtCore.QObject):
         self.__defaults[optName] = optType(defaultVal)        
         self.__rules[optName] = {'optType': optType}        
         self.__rules[optName] = {'provided': kwargs.get('provided', False)}
+        self.__rules[optName] = {'min': kwargs.get('min', None)}
+        self.__rules[optName] = {'max': kwargs.get('max', None)}
         presets = kwargs.get('presets')
         if presets:
             self.setPresets(optName, *presets)
@@ -286,6 +288,17 @@ class OptionCollection(QtCore.QObject):
             if changed:
                 self.emit(QtCore.SIGNAL('optAboutToChange'), optName, oldVal, val)
 
+        #validate the new value
+        presets = self.getPresets()
+        if presets and val not in presets:
+            raise ValueError('Invalid value "%r"' % val)
+        min_ = self.__rules[optName]['min']
+        max_ = self.__rules[optName]['max']
+        if min_ is not None and val < min_:
+            raise ValueError('Minimum val is %; got %s' % (min_, val))
+        if max_ is not None and val > max:
+            raise ValueError('Maximum val is %; got %s' % (max_, val))
+            
         self.__options[optName] = val
         
         if not quiet:

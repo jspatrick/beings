@@ -228,18 +228,18 @@ def getShape(node):
         raise RuntimeError('invalid node %s' % node)
 
 
-def paramAtNode(crv, node):
-    """
-    Return param
-    """    
-    npoc = pm.createNode('nearestPointOnCurve', n=name)
+# def paramAtNode(crv, node):
+#     """
+#     Return param
+#     """    
+#     npoc = pm.createNode('nearestPointOnCurve')
     
-    pm.connectAttr('%s.worldSpace[0]' % getShape(crv), '%s.inputCurve' % npoc)
-    pos = pm.xform(node, q=1, ws=1, rp=1)
-    pm.setAttr('%s.ip' % npoc, *pos)
-    p = pm.getAttr('%s.parameter' % npoc)
-    pm.delete(npoc)
-    return p
+#     pm.connectAttr('%s.worldSpace[0]' % getShape(crv), '%s.inputCurve' % npoc)
+#     pos = pm.xform(node, q=1, ws=1, rp=1)
+#     pm.setAttr('%s.ip' % npoc, *pos)
+#     p = pm.getAttr('%s.parameter' % npoc)
+#     pm.delete(npoc)
+#     return p
 
 
 g_epociNodes = {}
@@ -280,12 +280,16 @@ def getExtensionPointOnCurveInfo(curve):
     cvi.arcLength.connect(paramMult.input2X)
     
 
-def createAimedLocs(posLocs, upLocs, name, namer):
+def createAimedLocs(posLocs, upLocs, name, namer, singleUpNode=None, upType='object'):
     result = []
     for i in range (len(posLocs)):
         upVec = [1,0,0]
         posLoc = posLocs[i]
-        upLoc = upLocs[i]
+        if singleUpNode:
+            upLoc = singleUpNode
+        else:
+            upLoc = upLocs[i]
+            
         finalLoc = pm.spaceLocator(name=namer(name, x='loc', alphaSuf=i))
         
         #final loc
@@ -304,7 +308,7 @@ def createAimedLocs(posLocs, upLocs, name, namer):
             mdn.outputX.connect(finalLoc.sy)
         
         aimCst = pm.aimConstraint(aimLoc, finalLoc, aimVector=aimVec, upVector=upVec,
-                                  worldUpType='object', worldUpObject=upLoc)
+                                  worldUpType=upType, worldUpObject=upLoc)
         posLocs[i].t.connect(finalLoc.t)
         result.append(finalLoc)
         
@@ -539,6 +543,11 @@ class Spine(core.Widget):
 
     def _makeLayout(self, namer):
         
+        baseLayoutCtl = CTL.makeControl(shape='circle',
+                        color='yellow',
+                        scale=[4,4,4],
+                        name = namer('base_layout', x='ctl', r='lyt'))        
+        self.registerControl('base', baseLayoutCtl)
         
         spineJnts = []
         spineCtls = {}
@@ -547,8 +556,9 @@ class Spine(core.Widget):
         
         pm.select(cl=1)
 
-         #create fk rig controls
-        for i in range(numJnts):            
+        #create fk rig controls
+        fkCtls = []
+        for i in range(numJnts):
             tok = ascii_lowercase[i]
             fkTok = 'fk_%s' % tok
             
@@ -558,14 +568,13 @@ class Spine(core.Widget):
             self.registerBindJoint(tok, jnt)
             fkCtl = CTL.makeControl(shape='square',
                                     scale=[1, 0.3, 0.5],
-                                    name = namer.name(fkTok, x='ctl', r='rig'))
-            
+                                    name = namer.name(fkTok, x='ctl', r='rig'))            
+            fkCtls.append(fkCtl)
             self.registerControl(fkTok, fkCtl, ctlType='rig')
             utils.snap(jnt, fkCtl, orient=False)
             zero = utils.insertNodeAbove(fkCtl)
-            pm.parentConstraint(jnt, fkCtl)
+            pm.parentConstraint(jnt, zero)
             pm.select(jnt)
-
         
         #create ik rig and layout controls
         maxHeight = (numJnts-1) * jntSpacing
@@ -592,18 +601,64 @@ class Spine(core.Widget):
             utils.snap(ikLayoutCtl, ikRigCtl)
             ikRigCtl.setParent(ikLayoutCtl)
             ikCtls.append(ikLayoutCtl)
+            
+            zero.setParent(baseLayoutCtl)
 
-        ikCrv = namer.rename(cvCurveFromNodes(ikCtls), 'ctlguide', x='crv', r='lyt')
-        handle, ee = pm.ikHandle(solver='ikSplineSolver', sj=spineJnts[0], ee=spineJnts[-1], curve=ikCrv,
-                simplifyCurve=False, parentCurve=False, createCurve=False)
-        bindControlsToShape(ikCtls, ikCrv)
-        baseLayoutCtl = CTL.makeControl(shape='circle',
-                        color='yellow',
-                        scale=[4,4,4],
-                        name = namer('base_layout', x='ctl', r='lyt'))
+            #lock some stuff
+            pm.setAttr(ikLayoutCtl.tx.name(), l=1, k=0, cb=0)
+            pm.setAttr(ikLayoutCtl.r.name(), l=1, k=0, cb=0)
+            pm.setAttr(ikLayoutCtl.s.name(), l=1, k=0, cb=0)
         
-        self.registerControl('base', baseLayoutCtl)
-        spineJnts[0].setParent(baseLayoutCtl)
+        #get closest param to jnt
+        #get poci node
+        
+        ikCrv = namer.rename(cvCurveFromNodes(ikCtls), 'ctlguide', x='crv', r='lyt')
+        upCrv = namer.rename(pm.duplicate(ikCrv)[0], 'up_ctlguide', x='crv', r='lyt')
+        upCrv.tx.set(1)
+        ikCrv = getShape(ikCrv)
+        upCrv = getShape(upCrv)
+        
+        ikCrv.template.set(1)
+        upCrv.v.set(0)
+        bindControlsToShape(ikCtls, ikCrv)
+        bindControlsToShape(ikCtls, upCrv)
+        #uniCrv = rebuildCurve(ikCrv, kep=1, kt=1, d=7, rt=0, s=1, ch=1, rpo=False)[0]
+
+        locs = []
+        upLocs = []
+        for i, jnt in enumerate(spineJnts):
+            param = closestParamOnCurve(ikCrv, jnt)
+            
+            fkCtls[i].addAttr('param',dv=param, at='double', k=1, max=ikCrv.maxValue.get())                        
+            
+            poci = pm.createNode('pointOnCurveInfo', n=namer('crvinfo', r='lyt', x='pci',alphaSuf = i))
+            ikCrv.worldSpace[0].connect(poci.inputCurve)
+
+            pociUp = pm.createNode('pointOnCurveInfo', n=namer('crvinfo_up', r='lyt', x='pci',alphaSuf = i))
+            upCrv.worldSpace[0].connect(pociUp.inputCurve)
+            
+            
+            loc = pm.spaceLocator(name=namer('crvinfo', r='lyt', x='loc', alphaSuf=i))
+            loc.v.set(0)
+            locs.append(loc)
+
+            upLoc = pm.spaceLocator(name=namer('up_crvinfo', r='lyt', x='upLoc', alphaSuf=i))
+            upLoc.v.set(0)
+            upLocs.append(upLoc)
+            
+            fkCtls[i].param.connect(poci.pr)
+            fkCtls[i].param.connect(pociUp.pr)
+            poci.p.connect(loc.t)
+            pociUp.p.connect(upLoc.t)
+
+        # up = pm.createNode('transform', n=namer('spline_up', x='grp', r='lyt'))
+        # up.tx.set(5)
+        # up.setParent(baseLayoutCtl)
+        aimLocs = createAimedLocs(locs, upLocs, 'layout', namer)
+        
+        for i, loc in enumerate(aimLocs):
+            pm.parentConstraint(loc, spineJnts[i])
+            loc.v.set(0)
         
     def _makeRig(self, namer, jnts, ctls):
         for k, v in jnts.items():
@@ -612,10 +667,12 @@ class Spine(core.Widget):
         for i in range(self.options.getValue('numIkCtls')):
             l = ascii_lowercase[i]
             self.setParentNode('ikCtl_%s' % l, ctls['fk_%s' % l])
-            
+        return (namer, jnts, ctls)
+
 core.WidgetRegistry().register(Spine, 'Spine', 'An ik/fk spine')
 
-def _doIt(path =  None):
+
+def _testSpine(path =  None):
     import maya.cmds as MC
     import pymel.core as pm
     if not path:
@@ -628,4 +685,20 @@ def _doIt(path =  None):
     createIkSpineSystem(jnts, ctls)
     
 if __name__ == '__main__':
-    _doIt()
+    import maya.cmds as MC
+    import maya.mel as MM
+    import os, sys
+    import pymel.core as pm
+    import beings.core as C
+    import beings.widgets.spine as S
+
+    reload(C)    
+    reload(S)
+    
+    pm.newFile(f=1)
+
+    s = S.Spine()
+    s.buildLayout()
+
+    s.buildRig()
+    

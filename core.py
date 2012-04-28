@@ -175,7 +175,7 @@ class OptionCollection(QtCore.QObject):
                 self.emit(QtCore.SIGNAL('optAboutToChange'), optName, oldVal, val)
 
         #validate the new value
-        presets = self.getPresets()
+        presets = self.getPresets(optName)
         if presets and val not in presets:
             raise ValueError('Invalid value "%r"' % val)
         min_ = self.__rules[optName]['min']

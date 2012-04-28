@@ -147,3 +147,8 @@ class Namer(object):
             newName = '%s_%s' % (replaceWith, newName)
         return newName
 
+    def rename(self, node, *args, **kwargs):
+        node = pm.PyNode(node)
+        new = self.name(*args, **kwargs)
+        node.rename(new)
+        return node

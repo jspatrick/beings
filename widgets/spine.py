@@ -527,47 +527,92 @@ class Spine(core.Widget):
         self.options.addOpt('numBndJnts', 5, optType=int, min=3, max=24)
         self.options.addOpt('numIkCtls', 4, optType=int, min=2)
         
-        self.addParentPart('chest_bnd')
-        self.addParentPart('chest_ik_ctl')
+        for i in range(self.options.getValue('numBndJnts')):
+            self.addParentPart('bnd_%s' % ascii_lowercase[i])
+            self.addParentPart('fkCtl_%s' % ascii_lowercase[i])
+            
+        for i in range(self.options.getValue('numIkCtls')):
+            self.addParentPart('ikCtl_%s' % ascii_lowercase[i])
         
     def childCompletedBuild(self, child, buildType):            
         super(Spine, self).childCompletedBuild(child, buildType)
 
     def _makeLayout(self, namer):
-        numJnts = self.options.getValue('numBndJnts')
-        toks = []
-        positions = []
-        maxHeight = (numJnts-1) * 2
         
-        for i in range(numJnts):
-            toks.append(ascii_lowercase[i])
-            positions.append([0,i*2,0])
-            
-        spineJoints = {}
+        
+        spineJnts = []
         spineCtls = {}
+        jntSpacing = 2
+        numJnts = self.options.getValue('numBndJnts')
+        
         pm.select(cl=1)
-        for i, tok in enumerate(toks):
+
+         #create fk rig controls
+        for i in range(numJnts):            
+            tok = ascii_lowercase[i]
             fkTok = 'fk_%s' % tok
-            spineJoints[tok] = jnt = pm.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
-            self.registerBindJoint(tok, spineJoints[tok])
-            spineCtls[fkTok] = fkctl = CTL.makeControl(shape='square',
-                                               scale=[0.3, 0.3, 0.3],
-                                               name = namer.name(x='ctl', d=tok, r='rig'))
             
-            self.registerControl(fkTok, spineCtls[fkTok], ctlType='rig')
-            utils.snap(spineJoints[tok], spineCtls[fkTok], orient=False)
-            zero = utils.insertNodeAbove(fkctl)
-            pm.parentConstraint(jnt, fkctl)
+            jnt = pm.joint(p=[0, i*jntSpacing, 0], n = namer.name(r='bnd', d=tok))
+            spineJnts.append(jnt)
+            
+            self.registerBindJoint(tok, jnt)
+            fkCtl = CTL.makeControl(shape='square',
+                                    scale=[1, 0.3, 0.5],
+                                    name = namer.name(fkTok, x='ctl', r='rig'))
+            
+            self.registerControl(fkTok, fkCtl, ctlType='rig')
+            utils.snap(jnt, fkCtl, orient=False)
+            zero = utils.insertNodeAbove(fkCtl)
+            pm.parentConstraint(jnt, fkCtl)
             pm.select(jnt)
 
+        
+        #create ik rig and layout controls
+        maxHeight = (numJnts-1) * jntSpacing
+        numIkCtls = self.options.getValue('numIkCtls')
+        ikSpacing = float(maxHeight)/(numIkCtls-1)
+        ikCtls = []
+        for i in range(numIkCtls):
+            tok = ascii_lowercase[i]
+            ikTok = 'ik_%s' % tok
+            ikRigCtl = CTL.makeControl(shape='cube',
+                                       scale=[1.5, 0.2, 1.5],
+                                       color='lite blue',
+                                       name = namer.name(ikTok, x='ctl', r='rig'))            
+            self.registerControl(ikTok, ikRigCtl, ctlType='rig')
+            
+            
+            ikLayoutCtl = CTL.makeControl(shape='cube',
+                                          scale=[2, 0.3, 2],
+                                          color='green',
+                                          name = namer.name(ikTok, x='ctl', r='lyt'))
+            self.registerControl(ikTok, ikLayoutCtl, ctlType='layout')
+            ikLayoutCtl.ty.set(ikSpacing * i)
+            zero = utils.insertNodeAbove(ikLayoutCtl)
+            utils.snap(ikLayoutCtl, ikRigCtl)
+            ikRigCtl.setParent(ikLayoutCtl)
+            ikCtls.append(ikLayoutCtl)
+
+        ikCrv = namer.rename(cvCurveFromNodes(ikCtls), 'ctlguide', x='crv', r='lyt')
+        handle, ee = pm.ikHandle(solver='ikSplineSolver', sj=spineJnts[0], ee=spineJnts[-1], curve=ikCrv,
+                simplifyCurve=False, parentCurve=False, createCurve=False)
+        bindControlsToShape(ikCtls, ikCrv)
         baseLayoutCtl = CTL.makeControl(shape='circle',
                         color='yellow',
                         scale=[4,4,4],
-                        namer = namer('base_layout', x='ctl'))
+                        name = namer('base_layout', x='ctl', r='lyt'))
         
         self.registerControl('base', baseLayoutCtl)
-        spineJoints['a'].setParent(baseLayoutCtl)
+        spineJnts[0].setParent(baseLayoutCtl)
         
+    def _makeRig(self, namer, jnts, ctls):
+        for k, v in jnts.items():
+            self.setParentNode('bnd_%s' % k, v)
+            self.setParentNode('fkCtl_%s' % k, ctls['fk_%s' % k])
+        for i in range(self.options.getValue('numIkCtls')):
+            l = ascii_lowercase[i]
+            self.setParentNode('ikCtl_%s' % l, ctls['fk_%s' % l])
+            
 core.WidgetRegistry().register(Spine, 'Spine', 'An ik/fk spine')
 
 def _doIt(path =  None):

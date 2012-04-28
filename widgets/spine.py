@@ -547,14 +547,15 @@ class Spine(core.Widget):
         spineCtls = {}
         pm.select(cl=1)
         for i, tok in enumerate(toks):
+            fkTok = 'fk_%s' % tok
             spineJoints[tok] = jnt = pm.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
             self.registerBindJoint(tok, spineJoints[tok])
-            spineCtls['fk_%s' % tok] = fkctl = control.makeControl(shape='square',
+            spineCtls[fkTok] = fkctl = CTL.makeControl(shape='square',
                                                scale=[0.3, 0.3, 0.3],
                                                name = namer.name(x='ctl', d=tok, r='rig'))
             
-            self.registerControl(tok, spineCtls[tok], ctlType='rig')
-            utils.snap(spineJoints[tok], spineCtls[tok], orient=False)
+            self.registerControl(fkTok, spineCtls[fkTok], ctlType='rig')
+            utils.snap(spineJoints[tok], spineCtls[fkTok], orient=False)
             zero = utils.insertNodeAbove(fkctl)
             pm.parentConstraint(jnt, fkctl)
             pm.select(jnt)

@@ -155,9 +155,13 @@ class OptionCollection(QtCore.QObject):
             presets = presets.union(args)
             self.__presets[optName] = presets
             
-    def getPresets(self, optName):
+    def getPresets(self, optName):        
         self._checkName(optName)
-        return sorted(list(self.__presets[optName]))
+        r = self.__presets.get(optName, None)
+        if r:            
+            return sorted(list(r))
+        else:
+            return None
     
     def getValue(self, optName):
         self._checkName(optName)
@@ -178,8 +182,8 @@ class OptionCollection(QtCore.QObject):
         presets = self.getPresets(optName)
         if presets and val not in presets:
             raise ValueError('Invalid value "%r"' % val)
-        min_ = self.__rules[optName]['min']
-        max_ = self.__rules[optName]['max']
+        min_ = self.__rules[optName].get('min', None)
+        max_ = self.__rules[optName].get('max', None)
         if min_ is not None and val < min_:
             raise ValueError('Minimum val is %; got %s' % (min_, val))
         if max_ is not None and val > max:
@@ -796,7 +800,8 @@ class Widget(TreeItem):
         with utils.NodeTracker() as nt:            
             #re-create the rig controls
             #TODO:  we should really pass a namer in here
-            rigCtls = control.buildCtlsFromData(rigCtlData, prefix='%s_' % namer.getToken('c'))
+            rigCtls = control.buildCtlsFromData(rigCtlData, prefix='%s_' % namer.getToken('c'),
+                                                flushLocalXforms=True)
 
             #kwarg for debugging
             if returnBeforeBuild:

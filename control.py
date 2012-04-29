@@ -388,20 +388,31 @@ def getRebuildData(ctlDct):
         result[ctlName] = _getStateDct(ctl)
         result[ctlName]['nodeName'] = ctl.nodeName()
         result[ctlName]['nodeType'] = pm.objectType(ctl)
-        result[ctlName].pop('localMatrix')
     return result
 
-def buildCtlsFromData(ctlData, prefix='', flushScale=True):
+def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=False):
     '''
     Rebuild controls in world space
     @param prefix=None: apply this prefix to node names of controls    
     '''
     ctlData = copy.deepcopy(ctlData)
     result = {}
+
     for ctlName, data in ctlData.items():
+
+        #gather data
         origNodeName = '%s%s' % (prefix, data.pop('nodeName'))        
         nodeType = data.pop('nodeType')
         worldMatrix = data.pop('worldMatrix')
+
+        if flushLocalXforms:
+            inverseLocalMatrix = utils.Matrix4x4(data.pop('localMatrix')).inverse()
+            snapMatrix = (utils.Matrix4x4(worldMatrix) * inverseLocalMatrix).flatList()
+
+        else:
+            data.pop('localMatrix')
+
+        #set the name of the new ctl node
         i = 1
         nodeName = origNodeName
         while pm.objExists(nodeName):
@@ -410,9 +421,10 @@ def buildCtlsFromData(ctlData, prefix='', flushScale=True):
         if nodeName != origNodeName:
             _logger.warning("Warning - %s exists.  Setting name to %s" % \
                             (origNodeName, nodeName))
+            
         ctl = makeControl(xformType = nodeType, name=nodeName, **data)
-        pm.xform(ctl, m=worldMatrix, ws=True)
-
+        pm.xform(ctl, m=worldMatrix, ws=True)        
+            
         #flush the scale down to the shape level
         if flushScale:
             xfScale = ctl.scale.get()
@@ -421,7 +433,15 @@ def buildCtlsFromData(ctlData, prefix='', flushScale=True):
                 shapeScale[i] = shapeScale[i] * xfScale[i]
             ctl.scale.set([1,1,1])
             makeControl(xform=ctl, scale=shapeScale)        
+        
+
+        if flushLocalXforms:
+            tmp = pm.createNode('transform', n='SNAP_TMP')
+            pm.xform(tmp, m=snapMatrix, ws=True)
+            snapKeepShape(tmp, ctl)
+
         result[ctlName] = ctl
+                          
     return result
 
 class Differ(object):
@@ -432,13 +452,30 @@ class Differ(object):
         self.__controls = {}
         self.__initialState = {}
         self.__wasSetup = False
+        
     def getObjs(self):
         result = {}
         for ctlName, ctlTup in self.__controls.items():
             result[ctlName] = ctlTup[0]
         return result
+
+    def getRebuildData(self):
+        """
+        Get data to completely rebuild controls
+        """
+
+        result = {}
+        for ctlName, ctl in self.getObjs().items():
+            result[ctlName] = _getStateDct(ctl)
+            result[ctlName]['nodeName'] = ctl.nodeName()
+            result[ctlName]['nodeType'] = pm.objectType(ctl)                
+        
+        return result
+    
+        
     def addObj(self, name, ctl, ignore=[], skip=[]):
         return self.addObjs({name:ctl}, ignore=ignore, skip=skip)
+    
     def addObjs(self, objDct, ignore=[], skip=[]):
         """
         Add Control objects to the differ.

@@ -157,18 +157,6 @@ class BasicLeg(core.Widget):
                 pass
         return fkCtls
     
-    def __blendJointChains(self, fkChain, ikChain, bindChain, fkIkAttr, reverse):
-        for tok in bindChain.keys():
-            if (tok not in fkChain) or (tok not in ikChain):
-                _logger.debug("Skipping blending %s" % tok)
-                continue
-            for cstType in ['point', 'orient', 'scale']:
-                fnc = getattr(pm, '%sConstraint' % cstType)
-                cst = fnc(fkChain[tok], ikChain[tok], bindChain[tok])
-                fkAttr = getattr(cst, '%sW0' % fkChain[tok].nodeName())
-                ikAttr = getattr(cst, '%sW1' % ikChain[tok].nodeName())
-                reverse.outputX.connect(fkAttr)
-                fkIkAttr.connect(ikAttr)
 
     def _setupRevFoot(self, namer, ikJnts, rigCtls, ikCtl, orientation, ankleIKH):
             
@@ -280,9 +268,7 @@ class BasicLeg(core.Widget):
         ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)
         
         
-        fkIkRev = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
-        
-        self.__blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, fkIkRev)
+        fkIkRev = utils.blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, namer)[0]
         
         ikCtl.fkIk.connect(fkIkRev.inputX)
         for tok, jnt in ikJnts.items():                        

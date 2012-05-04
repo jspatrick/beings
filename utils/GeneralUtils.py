@@ -38,6 +38,58 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     mdn.operation.set(2) #divide
     mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
     
+def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer, directChannelBlend=True):
+    """
+    Blend an ik and fk joint chain into a bind joint chain.
+    @params fkChain, ikChain, bindChain: list of jnts
+    @param fkIkAttr: an attr that is in fk when set to 0 and ik when at 1
+    @param directChannelBlend=True:  use blend color nodes instead of constraints
+    
+    @return: the reverse node created
+    """
+    reverse = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
+    fkIkAttr.connect(reverse.inputX)
+    
+    fkJntList = []
+    ikJntList = []
+    bindJntList = []
+    
+    if isinstance(bindChain, dict):
+        for tok in bindChain.keys():
+            if (tok not in fkChain) or (tok not in ikChain):
+                _logger.debug("Skipping blending %s" % tok)
+                continue
+            bindJntList = bindChain[tok]
+            fkJntList = fkChain[tok]
+            ikJntList = ikChain[tok]
+    else:
+        fkJntList = fkChain
+        ikJntList = ikChain
+        bindJntList = bindChain
+        
+    result = []
+    for i in range(len(bindJntList)):
+        if not directChannelBlend:
+            for cstType in ['point', 'orient', 'scale']:
+                fnc = getattr(pm, '%sConstraint' % cstType)
+                cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])
+                fkAttr = getattr(cst, '%sW0' % fkJntList[i].nodeName())
+                ikAttr = getattr(cst, '%sW1' % ikJntList[i].nodeName())
+                reverse.outputX.connect(fkAttr)
+                fkIkAttr.connect(ikAttr)
+                result.append(reverse)
+        else:
+            for chan in ['translate', 'rotate', 'scale']:
+                blc = pm.createNode('blendColors')
+                blc.rename(namer(d='%s_fkikblend' % chan, x='blc'))
+                getattr(ikJntList[i], chan).connect(blc.color1)
+                getattr(fkJntList[i], chan).connect(blc.color2)
+                blc.op.connect(getattr(bindJntList[i], chan))
+                fkIkAttr.connect(blc.b)
+                result.append(blc)
+                
+    return result
+
 def freeze(*args):
     """
     freeze every provided node.  Don't freeze joint orients

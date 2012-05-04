@@ -10,6 +10,8 @@ import beings.utils as utils
 import beings.control as CTL
 
 reload(utils)
+reload(CTL)
+reload(core)
 
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)

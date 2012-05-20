@@ -21,6 +21,41 @@ class SilencePymelLogger(object):
         self.pmLogger.propagate = 1
         self.pmLogger.setLevel(self.level)
         
+def setupExplicitScaleCompensation(jnts):
+    """
+    Take an existing joint chain and add additional nodes that mimic
+    joint scale compensation.  Do this to allow orient and aim constraints
+    on joint chians with scaling, as they do not compute correctly when
+    scale compensation is used    
+    """
+    result = []
+    for jnt in jnts:
+        child = jnt.listRelatives(type='joint')
+        if not child:
+            break
+        else:
+            child = child[0]
+        dup = pm.duplicate(jnt)[0]
+        pm.delete(dup.listRelatives())
+        snap(child, dup, point=True, orient=False, scale=False)
+        jnt.segmentScaleCompensate.set(0)
+        dup.segmentScaleCompensate.set(0)
+        child.setParent(dup)
+        dup.setParent(jnt)
+        dup.rename("%s_scale_comp_end" % jnt.name())
+
+        mdn = pm.createNode('multiplyDivide', n='%s_scane_comp_mdn' % jnt.name())
+        jnt.scale.connect(mdn.input2)
+        mdn.input1.set([1,1,1])
+        mdn.operation.set(2)
+        mdn.output.connect(dup.scale)
+        #this isn't really necessary anymore, but do this to be consistent
+        #so debugging other issues is easier
+        fixInverseScale([dup, child])
+        result.append(dup)
+        
+    return result
+        
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
     Create a stretch

@@ -8,7 +8,7 @@ import pymel.core as pm
 import beings.core as core
 import beings.utils as utils
 import beings.control as CTL
-
+from PyQt4 import QtCore
 reload(utils)
 
 _logger = logging.getLogger(__name__)
@@ -525,10 +525,20 @@ class Spine(core.Widget):
             
         for i in range(self.options.getValue('numIkCtls')):
             self.addParentPart('ikCtl_%s' % ascii_lowercase[i])
+            
+        self.connect(self.options, QtCore.SIGNAL('optSet'), self._setParentParts)
         
     def childCompletedBuild(self, child, buildType):            
         super(Spine, self).childCompletedBuild(child, buildType)
 
+    def _setParentParts(self):
+        for part in self.plugs():
+            self.rmPlug(part)
+            
+        for i in range(self.options.getValue('numBndJnts')):
+            self.addParentPart('bnd_%s' % ascii_lowercase[i])
+            self.addParentPart('fkCtl_%s' % ascii_lowercase[i])
+            
     def _makeLayout(self, namer):
         
         baseLayoutCtl = CTL.makeControl(shape='circle',

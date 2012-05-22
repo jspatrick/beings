@@ -10,6 +10,8 @@ import beings.utils as utils
 import beings.control as CTL
 from PyQt4 import QtCore
 reload(utils)
+reload(CTL)
+reload(core)
 
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
@@ -316,6 +318,20 @@ def createAimedLocs(posLocs, upLocs, name, namer, singleUpNode=None, upType='obj
         
 
 def createIkSpineSystem(jnts, ctls, namer=None, part=None):
+    """
+    Create an ik spine setup.
+    @return ikSpineNode
+
+    Notes
+    -----
+
+    The returned node should be put in dnt.  It has attrs that control the solve:
+    
+    stretchAmt
+    uniformStretch
+    """
+    
+    
     if namer is None:
         if part is None:
             part = 'spine'
@@ -509,7 +525,7 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
         pm.orientConstraint(crvJnts[i], jnts[i], mo=True)
         crvJnts[i].sy.connect(jnts[i].sy)
         
-    return    
+    return ikSpineNode
         
 
 class Spine(core.Widget):
@@ -638,7 +654,6 @@ class Spine(core.Widget):
             pociUp = pm.createNode('pointOnCurveInfo', n=namer('crvinfo_up', r='lyt', x='pci',alphaSuf = i))
             upCrv.worldSpace[0].connect(pociUp.inputCurve)
             
-            
             loc = pm.spaceLocator(name=namer('crvinfo', r='lyt', x='loc', alphaSuf=i))
             loc.v.set(0)
             locs.append(loc)
@@ -662,27 +677,67 @@ class Spine(core.Widget):
             loc.v.set(0)
         
     def _makeRig(self, namer, jnts, ctls):
-        ikCtls = []
-        orderedJnts = []
-        
-        for k, v in jnts.items():
-            self.setParentNode('bnd_%s' % k, v)
-            self.setParentNode('fkCtl_%s' % k, ctls['fk_%s' % k])
+
+        jntList = []
+        ikCtlList = []
+        fkCtlList = []
+
+        numJnts = self.options.getValue('numBndJnts')
+        numIkCtls = self.options.getValue('numIkCtls')
+
+        for i in range(numJnts):
+            l = ascii_lowercase[i]
+            fkCtl = ctls['fk_%s' % l]
+            self.setParentNode('bnd_%s' % l, jnts[l])
+            self.setParentNode('fkCtl_%s' % l, fkCtl)
+            jntList.append(jnts[l])
+            fkCtlList.append(fkCtl)
+            utils.insertNodeAbove(fkCtl)
             
-        for i in range(self.options.getValue('numIkCtls')):
+        for i in range(numIkCtls):
             l = ascii_lowercase[i]
             ikCtl = ctls['ik_%s' % l]
+            utils.insertNodeAbove(ikCtl)
             self.setParentNode('ikCtl_%s' % l, ikCtl)
-            ikCtls.append(ikCtl)
+            ikCtlList.append(ikCtl)
 
-        for i in range(self.options.getValue('numBndJnts')):
-            l = ascii_lowercase[i]
-            orderedJnts.append(jnts[l])
 
-        createIkSpineSystem(orderedJnts, ikCtls)
+
+        numOthers = numIkCtls-2        
+        for i in range(int(numOthers)/2):
+            ikCtlList[i+1].getParent().setParent(ikCtlList[i])
+            ikCtlList[-2-i].getParent().setParent(ikCtlList[-1-i])
+        if numOthers % 2 == 0:
+            pass
         
-        return (namer, jnts.values(), ctls.values())
+        tipIkCtl = ikCtlList[-1]                
+        tipIkCtl.addAttr('fkIkBlend', dv=1, max=1, min=0, k=1, at='double')
+        tipIkCtl.addAttr('ikStretchAmt', dv=1, max=1, min=0, k=1, at='double')
+        tipIkCtl.addAttr('uniformIkStretch', dv=1, max=1, min=0, k=1, at='double')
+        
+        
+        ikJnts = utils.makeDuplicatesAndHierarchy(jntList, toReplace='bnd', replaceWith='ik')
+        fkJnts = utils.makeDuplicatesAndHierarchy(jntList, toReplace='bnd', replaceWith='fk')
+        
+        ikSpineNode = createIkSpineSystem(ikJnts, ikCtlList, namer=namer)
+        
+        ikSpineNode.v.set(0)
+        tipIkCtl.ikStretchAmt.connect(ikSpineNode.stretchAmt)
+        tipIkCtl.uniformIkStretch.connect(ikSpineNode.uniformStretch)
+        
+        
+        
+        reverse = utils.blendJointChains(fkJnts, ikJnts, jntList, tipIkCtl.fkIkBlend, namer)
 
+
+        for jnt in ikJnts:
+            jnt.v.set(0)
+            
+        for jnt in fkJnts:
+            jnt.v.set(0)
+            
+        return (namer, jnts, ctls)
+    
 core.WidgetRegistry().register(Spine, 'Spine', 'An ik/fk spine')
 
 

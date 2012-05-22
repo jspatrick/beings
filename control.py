@@ -376,6 +376,7 @@ def _getStateDct(node):
     
     result['localMatrix'] = pm.xform(node, q=1, m=1)
     result['worldMatrix'] = pm.xform(node, q=1, m=1, ws=1)
+    result['parentMatrix'] = utils.toList(node.parentMatrix.get())
     return result
 
 def getRebuildData(ctlDct):
@@ -404,13 +405,8 @@ def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=Fals
         origNodeName = '%s%s' % (prefix, data.pop('nodeName'))        
         nodeType = data.pop('nodeType')
         worldMatrix = data.pop('worldMatrix')
-
-        if flushLocalXforms:
-            inverseLocalMatrix = utils.Matrix4x4(data.pop('localMatrix')).inverse()
-            snapMatrix = (utils.Matrix4x4(worldMatrix) * inverseLocalMatrix).flatList()
-
-        else:
-            data.pop('localMatrix')
+        localMatrix = data.pop('localMatrix')
+        parentMatrix = data.pop('parentMatrix')        
 
         #set the name of the new ctl node
         i = 1
@@ -424,7 +420,7 @@ def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=Fals
             
         ctl = makeControl(xformType = nodeType, name=nodeName, **data)
         pm.xform(ctl, m=worldMatrix, ws=True)        
-            
+
         #flush the scale down to the shape level
         if flushScale:
             xfScale = ctl.scale.get()
@@ -433,14 +429,20 @@ def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=Fals
                 shapeScale[i] = shapeScale[i] * xfScale[i]
             ctl.scale.set([1,1,1])
             makeControl(xform=ctl, scale=shapeScale)        
-        
 
+            
         if flushLocalXforms:
             tmp = pm.createNode('transform', n='SNAP_TMP')
-            pm.xform(tmp, m=snapMatrix, ws=True)
+            pm.xform(tmp, m=parentMatrix, ws=True)
             snapKeepShape(tmp, ctl)
             pm.delete(tmp)
+<<<<<<< HEAD
             
+=======
+        
+        
+
+>>>>>>> 9311ef6de8d73e4b76786de072f93e1fdad7a8e2
         result[ctlName] = ctl
                           
     return result
@@ -560,6 +562,7 @@ class Differ(object):
             #apply and discard the matricies from the diff dict
             worldmatrix = diffs.pop('worldMatrix', None)
             localmatrix = diffs.pop('localMatrix', None)
+            parentMatrix = diffs.pop('parentMatrix', None)
             #remaining kwargs are shapes, so apply them
             if diffs:
                 makeControl(ctl, **diffs)

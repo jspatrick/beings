@@ -357,8 +357,7 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     
     for i, jnt in enumerate(crvJnts):
         jnt.rename(namer(d='ikcrv', x='jnt', alphaSuf=i))
-        
-    
+            
 
     arcLenMultMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', s='mdn'))
     arcLenMultMDN.operation.set(2)
@@ -479,43 +478,32 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     pm.parent(nsFinalLocs, ikSpineNode)
 
 
-    #blend the non-stretch and stretch final locs to get the final position and orientation
-    finalLocs = []
+    
     #the scale constraints have some odd bugs when used with orient/aim constraints on joints..
     #this is a work-around for it
-    interCrvJnts = utils.makeDuplicatesAndHierarchy(crvJnts, toReplace='ikcrv', replaceWith='intermediate_ikcrv')
-    interCrvJnts[0].setParent(ikSpineNode)
+    # interCrvJnts = utils.makeDuplicatesAndHierarchy(crvJnts, toReplace='ikcrv', replaceWith='intermediate_ikcrv')
+    # interCrvJnts[0].setParent(ikSpineNode)
+    utils.setupExplicitScaleCompensation(crvJnts)
+
+
+    rev = pm.createNode('reverse', name=namer('stretch_amt', x='rev'))
+    ikSpineNode.stretchAmt.connect(rev.inputX)
     
-    for i in range(len(nsFinalLocs)):        
-        blends = {}
-        blends['t'] = pm.createNode('blendColors', n=namer('final_pos', x='blc', alphaSuf=i))
-        blends['r'] = pm.createNode('blendColors', n=namer('final_rot', x='blc', alphaSuf=i))
-        blends['s'] = pm.createNode('blendColors', n=namer('final_scl', x='blc', alphaSuf=i))
-        pm.select(cl=1)
-        loc = pm.spaceLocator(name=namer('final', x='loc', alphaSuf=i))
-        loc.v.set(0)
-        loc.setParent(ikSpineNode)
-        
-        for attr, blend in blends.items():
-            ikSpineNode.stretchAmt.connect(blend.blender)
-            getattr(stretchFinalLocs[i], attr).connect(blend.c1)
-            getattr(nsFinalLocs[i], attr).connect(blend.c2)
-            blend.output.connect(getattr(loc, attr))
+    for i in range(len(nsFinalLocs)):
+        csts = {}
+        csts['pc'] = pm.pointConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])        
+        csts['oc'] = pm.orientConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])
+        csts['sc'] = pm.scaleConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])
+        for cstType, cst in csts.items():
+            stretchWtAttr  = pm.PyNode('%s.%sW0' % (cst.name(), stretchFinalLocs[i].name()))
+            nsWtAttr  = pm.PyNode('%s.%sW1' % (cst.name(), nsFinalLocs[i].name()))
 
-        stretchFinalLocs[i].v.set(0)
-        nsFinalLocs[i].v.set(0)
-
-        pm.pointConstraint(loc, interCrvJnts[i])
-        pm.orientConstraint(loc, interCrvJnts[i])
-        interCrvJnts[i].r.connect(crvJnts[i].r)
-        loc.sy.connect(crvJnts[i].sy)
-        interCrvJnts[i].v.set(0)
-        
-        #if i != (len(nsFinalLocs)-1):
-            #loc.sy.connect(crvJnts[i].sy)
-            #pm.scaleConstraint(loc, crvJnts[i])
+            ikSpineNode.stretchAmt.connect(stretchWtAttr)
+            rev.outputX.connect(nsWtAttr)
+            
     
     #constrain the original input joints to the crvJnts
+    utils.setupExplicitScaleCompensation(jnts)
     for i in range(len(crvJnts)):
         pm.pointConstraint(crvJnts[i], jnts[i], mo=True)
         pm.orientConstraint(crvJnts[i], jnts[i], mo=True)
@@ -626,6 +614,9 @@ class Spine(core.Widget):
 
         locs = []
         upLocs = []
+
+
+        
         for i, jnt in enumerate(spineJnts):
             param = closestParamOnCurve(ikCrv, jnt)
             
@@ -661,13 +652,26 @@ class Spine(core.Widget):
             loc.v.set(0)
         
     def _makeRig(self, namer, jnts, ctls):
+        ikCtls = []
+        orderedJnts = []
+        
         for k, v in jnts.items():
             self.setParentNode('bnd_%s' % k, v)
             self.setParentNode('fkCtl_%s' % k, ctls['fk_%s' % k])
+            
         for i in range(self.options.getValue('numIkCtls')):
             l = ascii_lowercase[i]
-            self.setParentNode('ikCtl_%s' % l, ctls['fk_%s' % l])
-        return (namer, jnts, ctls)
+            ikCtl = ctls['ik_%s' % l]
+            self.setParentNode('ikCtl_%s' % l, ikCtl)
+            ikCtls.append(ikCtl)
+
+        for i in range(self.options.getValue('numBndJnts')):
+            l = ascii_lowercase[i]
+            orderedJnts.append(jnts[l])
+
+        createIkSpineSystem(orderedJnts, ikCtls)
+        
+        return (namer, jnts.values(), ctls.values())
 
 core.WidgetRegistry().register(Spine, 'Spine', 'An ik/fk spine')
 
@@ -680,8 +684,8 @@ def _testSpine(path =  None):
         
     MC.file(path, f=1, o=1)
 
-    ctls = [pm.PyNode(n) for n in [u'ctl_a', u'ctl_b', u'ctl_c', u'ctl_d']]
-    jnts = [pm.PyNode(n) for n in [u'bnd_a', u'bnd_b', u'bnd_c', u'bnd_d', u'bnd_e']]
+    ctls = [pm.PyNode(n) for n in [u'defaultchar_rig_cn_spine_ik_a_ctl', u'defaultchar_rig_cn_spine_ik_b_ctl', u'defaultchar_rig_cn_spine_ik_c_ctl', u'defaultchar_rig_cn_spine_ik_d_ctl']]
+    jnts = [pm.PyNode(n) for n in [u'defaultchar_bnd_cn_spine_a', u'defaultchar_bnd_cn_spine_b', u'defaultchar_bnd_cn_spine_c', u'defaultchar_bnd_cn_spine_d', u'defaultchar_bnd_cn_spine_e']]
     createIkSpineSystem(jnts, ctls)
     
 if __name__ == '__main__':

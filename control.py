@@ -439,7 +439,8 @@ def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=Fals
             tmp = pm.createNode('transform', n='SNAP_TMP')
             pm.xform(tmp, m=snapMatrix, ws=True)
             snapKeepShape(tmp, ctl)
-
+            pm.delete(tmp)
+            
         result[ctlName] = ctl
                           
     return result

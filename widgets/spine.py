@@ -254,7 +254,7 @@ def getExtensionPointOnCurveInfo(curve):
     if not nodes:        
         endPoci = pm.createNode('pointOnCurveInfo')
         endPoci.pr.set(shape.maxValue.get())
-        shape.worldSpace[0].connect(endPoci.ic)
+        #shape.worldSpace[0].connect(endPoci.ic)
         nodes['endPoci'] = endPoci
 
         cvi = pm.createNode('curveInfo')
@@ -351,6 +351,7 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     #build a curve with a single span that has uniform parameterization
     uniCurve = pm.rebuildCurve(origCurve, kep=1, kt=1, d=7, rt=0, s=1, ch=1, rpo=False)[0]
     uniCurve.rename(namer('ns', x='crv'))
+    uniCurve.setParent(ikSpineNode)
     uniCurve = uniCurve.listRelatives(type='nurbsCurve')[0]
     uniCurve = getShape(uniCurve)
     
@@ -375,7 +376,7 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
         jnt.rename(namer(d='ikcrv', x='jnt', alphaSuf=i))
             
 
-    arcLenMultMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', s='mdn'))
+    arcLenMultMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', x='mdn'))
     arcLenMultMDN.operation.set(2)
     curveAL.arcLength.connect(arcLenMultMDN.input1X)
     arcLenMultMDN.input2X.set(totalOrigAL)
@@ -438,7 +439,7 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     pm.parent(stretchFinalLocs, ikSpineNode)
     
     #use splineIK for non-stretching joints
-    nsCurveJnts = utils.makeDuplicatesAndHierarchy(crvJnts, toReplace='ikcrv', replaceWith='ns_ikcrv')
+    nsCurveJnts = utils.duplicateHierarchy(crvJnts, toReplace='ikcrv', replaceWith='ns_ikcrv')
     nsCurveJnts[0].setParent(ikSpineNode)
     
     handle, ee = pm.ikHandle(solver='ikSplineSolver', sj=nsCurveJnts[0], ee=nsCurveJnts[-1], curve=origCurve,
@@ -497,9 +498,9 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     
     #the scale constraints have some odd bugs when used with orient/aim constraints on joints..
     #this is a work-around for it
-    # interCrvJnts = utils.makeDuplicatesAndHierarchy(crvJnts, toReplace='ikcrv', replaceWith='intermediate_ikcrv')
+    # interCrvJnts = utils.duplicateHierarchy(crvJnts, toReplace='ikcrv', replaceWith='intermediate_ikcrv')
     # interCrvJnts[0].setParent(ikSpineNode)
-    utils.setupExplicitScaleCompensation(crvJnts)
+    #utils.setupExplicitScaleCompensation(crvJnts)
 
 
     rev = pm.createNode('reverse', name=namer('stretch_amt', x='rev'))
@@ -510,6 +511,7 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
         csts['pc'] = pm.pointConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])        
         csts['oc'] = pm.orientConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])
         csts['sc'] = pm.scaleConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])
+        utils.fixJntConstraints(crvJnts[i])
         for cstType, cst in csts.items():
             stretchWtAttr  = pm.PyNode('%s.%sW0' % (cst.name(), stretchFinalLocs[i].name()))
             nsWtAttr  = pm.PyNode('%s.%sW1' % (cst.name(), nsFinalLocs[i].name()))
@@ -519,12 +521,14 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
             
     
     #constrain the original input joints to the crvJnts
-    utils.setupExplicitScaleCompensation(jnts)
+    #utils.setupExplicitScaleCompensation(jnts)
     for i in range(len(crvJnts)):
-        pm.pointConstraint(crvJnts[i], jnts[i], mo=True)
+        #pm.pointConstraint(crvJnts[i], jnts[i], mo=True)
         pm.orientConstraint(crvJnts[i], jnts[i], mo=True)
-        crvJnts[i].sy.connect(jnts[i].sy)
-        
+        pm.scaleConstraint(crvJnts[i], jnts[i], mo=False)
+        utils.fixJntConstraints(jnts[i])
+        #crvJnts[i].sy.connect(jnts[i].sy)
+       
     return ikSpineNode
         
 
@@ -562,6 +566,7 @@ class Spine(core.Widget):
                         scale=[4,4,4],
                         name = namer('base_layout', x='ctl', r='lyt'))        
         self.registerControl('base', baseLayoutCtl)
+
         
         spineJnts = []
         spineCtls = {}
@@ -587,14 +592,17 @@ class Spine(core.Widget):
             self.registerControl(fkTok, fkCtl, ctlType='rig')
             utils.snap(jnt, fkCtl, orient=False)
             zero = utils.insertNodeAbove(fkCtl)
+            zero.setParent(baseLayoutCtl)
             pm.parentConstraint(jnt, zero)
             pm.select(jnt)
-        
+        spineJnts[0].setParent(baseLayoutCtl)
+
         #create ik rig and layout controls
         maxHeight = (numJnts-1) * jntSpacing
         numIkCtls = self.options.getValue('numIkCtls')
         ikSpacing = float(maxHeight)/(numIkCtls-1)
         ikCtls = []
+        ikRigCtls = []
         for i in range(numIkCtls):
             tok = ascii_lowercase[i]
             ikTok = 'ik_%s' % tok
@@ -614,7 +622,9 @@ class Spine(core.Widget):
             zero = utils.insertNodeAbove(ikLayoutCtl)
             utils.snap(ikLayoutCtl, ikRigCtl)
             ikRigCtl.setParent(ikLayoutCtl)
+            
             ikCtls.append(ikLayoutCtl)
+            ikRigCtls.append(ikRigCtl)
             
             zero.setParent(baseLayoutCtl)
 
@@ -640,13 +650,18 @@ class Spine(core.Widget):
 
         locs = []
         upLocs = []
-
-
-        
+        for i in [0, -1]:
+            ctl = ikRigCtls[i]
+            jnt = spineJnts[i]
+            zero = utils.insertNodeAbove(ctl)
+            pm.orientConstraint(jnt, zero)
+            
         for i, jnt in enumerate(spineJnts):
+            
+                
             param = closestParamOnCurve(ikCrv, jnt)
             
-            fkCtls[i].addAttr('param',dv=param, at='double', k=1, max=ikCrv.maxValue.get())                        
+            fkCtls[i].addAttr('param',dv=param, at='double', k=1, max=ikCrv.maxValue.get())                       
             
             poci = pm.createNode('pointOnCurveInfo', n=namer('crvinfo', r='lyt', x='pci',alphaSuf = i))
             ikCrv.worldSpace[0].connect(poci.inputCurve)
@@ -667,9 +682,6 @@ class Spine(core.Widget):
             poci.p.connect(loc.t)
             pociUp.p.connect(upLoc.t)
 
-        # up = pm.createNode('transform', n=namer('spline_up', x='grp', r='lyt'))
-        # up.tx.set(5)
-        # up.setParent(baseLayoutCtl)
         aimLocs = createAimedLocs(locs, upLocs, 'layout', namer)
         
         for i, loc in enumerate(aimLocs):
@@ -681,34 +693,36 @@ class Spine(core.Widget):
         jntList = []
         ikCtlList = []
         fkCtlList = []
-
+        toks = []
         numJnts = self.options.getValue('numBndJnts')
         numIkCtls = self.options.getValue('numIkCtls')
 
+        
         for i in range(numJnts):
             l = ascii_lowercase[i]
+            toks.append(l)
+            
             fkCtl = ctls['fk_%s' % l]
             self.setParentNode('bnd_%s' % l, jnts[l])
             self.setParentNode('fkCtl_%s' % l, fkCtl)
             jntList.append(jnts[l])
             fkCtlList.append(fkCtl)
-            utils.insertNodeAbove(fkCtl)
             
         for i in range(numIkCtls):
             l = ascii_lowercase[i]
             ikCtl = ctls['ik_%s' % l]
             utils.insertNodeAbove(ikCtl)
             self.setParentNode('ikCtl_%s' % l, ikCtl)
-            ikCtlList.append(ikCtl)
-
-
-
+            ikCtlList.append(ikCtl)                    
+        
+        #parent the ik controls to each other - 
         numOthers = numIkCtls-2        
         for i in range(int(numOthers)/2):
             ikCtlList[i+1].getParent().setParent(ikCtlList[i])
             ikCtlList[-2-i].getParent().setParent(ikCtlList[-1-i])
+            
         if numOthers % 2 == 0:
-            pass
+            _logger.warning("non-even num ik ctls - implement a solution for mid ctl")
         
         tipIkCtl = ikCtlList[-1]                
         tipIkCtl.addAttr('fkIkBlend', dv=1, max=1, min=0, k=1, at='double')
@@ -716,25 +730,25 @@ class Spine(core.Widget):
         tipIkCtl.addAttr('uniformIkStretch', dv=1, max=1, min=0, k=1, at='double')
         
         
-        ikJnts = utils.makeDuplicatesAndHierarchy(jntList, toReplace='bnd', replaceWith='ik')
-        fkJnts = utils.makeDuplicatesAndHierarchy(jntList, toReplace='bnd', replaceWith='fk')
-        
+        ikJnts = utils.duplicateHierarchy(jntList, toReplace='bnd', replaceWith='ik')
         ikSpineNode = createIkSpineSystem(ikJnts, ikCtlList, namer=namer)
         
         ikSpineNode.v.set(0)
         tipIkCtl.ikStretchAmt.connect(ikSpineNode.stretchAmt)
         tipIkCtl.uniformIkStretch.connect(ikSpineNode.uniformStretch)
         
+        #move shapes in controls to joints
+        fkCtls = CTL.setupFkCtls(jntList, fkCtlList, toks, namer)
+                
+                
+        reverse = utils.blendJointChains(fkCtls, ikJnts, jntList, tipIkCtl.fkIkBlend, namer,
+                                         directChannelBlend=False)
         
         
-        reverse = utils.blendJointChains(fkJnts, ikJnts, jntList, tipIkCtl.fkIkBlend, namer)
 
-
-        for jnt in ikJnts:
-            jnt.v.set(0)
+        #set visibility
+        ikJnts[0].v.set(0)
             
-        for jnt in fkJnts:
-            jnt.v.set(0)
             
         return (namer, jnts, ctls)
     

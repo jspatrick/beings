@@ -4,6 +4,7 @@ utilities, it should be defined here.
 '''
 import logging, inspect, sys, re, string
 import pymel.core as pm
+import maya.cmds as MC
 from beings.utils.Exceptions import * #@UnusedWildImport
 _logger = logging.getLogger(__name__)
 
@@ -20,7 +21,109 @@ class SilencePymelLogger(object):
     def __exit__(self, exctype, excval, exctb):
         self.pmLogger.propagate = 1
         self.pmLogger.setLevel(self.level)
+
         
+
+def setupFkCtls(bndJnts, rigCtls, fkToks, namer):
+    """Set up fk controls from bndJnts.
+
+    This will delete the original controls that were passed
+    in and rebuild the control shapes on a duplicate of the bind joints
+    @return: dict of {tok:ctl}
+    """
+    if len(bndJnts) != len(rigCtls) or len(bndJnts) != len(fkToks):
+        _logger.warning("bind joint length must match rig ctls")
+    
+    fkCtls = duplicateHierarchy(bndJnts, toReplace='_bnd_', replaceWith='_fk_')
+    for i in range(len(fkCtls)):            
+        newCtl = fkCtls[i]
+        oldCtl = rigCtls[i]
+        info = control.getInfo(oldCtl)
+        control.setInfo(newCtl, control.getInfo(oldCtl))
+        utils.parentShape(newCtl, oldCtl)
+        newCtl.rename(namer(fkToks[i], r='fk'))
+        
+    pm.delete(rigCtls)
+    
+    return fkCtls
+
+
+def breakCncts(attr, s=1, d=1):
+    if s:
+        n=MC.connectionInfo(attr, sfd=1)
+        if n:
+            MC.disconnectAttr(n, attr)
+    if d:
+        for n in MC.connectionInfo(attr, dfs=1):
+            MC.disconnectAttr(attr, n)
+            
+def createParentMatrixNode(node):
+    """Get a transform node representing the parent matrix of the node without scaling
+    or shearing"""
+    PM_MESSAGE_ATTR = 'parentMatrixNode'
+
+    #see if it already exists
+    nsParentMatrixXform = None    
+    messageCncts = MC.connectionInfo("%s.message" % node, dfs=1)
+    for c in messageCncts:
+        if c.split('.')[-1] == PM_MESSAGE_ATTR:
+            return MC.ls(c, o=1)[0]
+        
+    
+    nsParentMatrixXform = MC.createNode('transform', n='%s_ns_parentmatrix' % node)    
+    MC.addAttr(nsParentMatrixXform, ln=PM_MESSAGE_ATTR, at='message')
+    MC.connectAttr("%s.message" % node, "%s.%s" % (nsParentMatrixXform, PM_MESSAGE_ATTR))
+    
+    dcm = MC.listConnections("%s.parentMatrix" % node, type='decomposeMatrix', s=1, d=0)
+    if not dcm:
+        dcm = MC.createNode('decomposeMatrix', n='%s_parentmatrix_dcm' % node)    
+    else:
+        dcm= dcm[0]
+    MC.connectAttr('%s.parentMatrix' % node, '%s.inputMatrix' % dcm)        
+    MC.connectAttr('%s.outputRotate' % dcm, '%s.r' % nsParentMatrixXform)
+    MC.connectAttr('%s.outputTranslate' % dcm, '%s.t' % nsParentMatrixXform)
+
+    return nsParentMatrixXform
+
+def fixJntConstraints(slaveNode):
+    """
+    Constraints take connections from the parentMatrix attribute on joints. The output
+    matrix from this attribute does not take the scale compensation of joints into account,
+    though, which breaks the constraints in a hierarchy of joints.
+
+    To fix this, build a matrix that has the scaling subtracted, and replace connections to
+    matrix attributes in the constraint with our custom matrices
+    """
+    slaveNode = str(slaveNode)
+    
+    csts = MC.listConnections(slaveNode, s=1, d=0, type='constraint')
+    if not csts:
+        return
+    for cst in csts:        
+        indices = MC.getAttr('%s.target' % cst, mi=1)
+        for index in indices:
+            tgtPM = '%s.target[%i].targetParentMatrix' % (cst, index)
+            nodeCnct = MC.connectionInfo(tgtPM, sfd=1)
+            if not nodeCnct:
+                continue
+            node = MC.ls(nodeCnct, o=1)[0]
+            if not MC.objectType(node, isAType='joint'):
+                continue
+            
+            
+            slaveScaleCmp = createParentMatrixNode(node)
+            
+            breakCncts(tgtPM, s=1)
+            MC.connectAttr('%s.matrix' % slaveScaleCmp, tgtPM)
+            
+        if MC.objectType(slaveNode, isAType='joint'):
+            
+            slaveScaleCmp = createParentMatrixNode(slaveNode)
+            cstPIM = '%s.constraintParentInverseMatrix' % cst
+            breakCncts(cstPIM)
+            MC.connectAttr('%s.inverseMatrix' % slaveScaleCmp, cstPIM)
+        
+    
 def setupExplicitScaleCompensation(jnts):
     """
     Take an existing joint chain and add additional nodes that mimic
@@ -107,12 +210,13 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer, directChannel
         if not directChannelBlend:
             for cstType in ['point', 'orient', 'scale']:
                 fnc = getattr(pm, '%sConstraint' % cstType)
-                cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])
+                cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])                
                 fkAttr = getattr(cst, '%sW0' % fkJntList[i].nodeName())
                 ikAttr = getattr(cst, '%sW1' % ikJntList[i].nodeName())
                 reverse.outputX.connect(fkAttr)
                 fkIkAttr.connect(ikAttr)
                 result.append(reverse)
+                fixJntConstraints(bindJntList[i])
         else:
             for chan in ['translate', 'rotate', 'scale']:
                 blc = pm.createNode('blendColors')
@@ -445,7 +549,7 @@ def changeCrvColors(ctlList, colorNum):
     #return crv
 
 
-def makeDuplicatesAndHierarchy(nodes, toReplace=None, replaceWith=None):
+def duplicateHierarchy(nodes, toReplace=None, replaceWith=None):
     """Duplicate the pymel objects in the list, and return them as a hierarchy in the order of the list.
     If the objects are joints, make sure that the scale of the previous joint is connected to the inverse scale
     of the next joint."""

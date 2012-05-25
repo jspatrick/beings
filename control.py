@@ -123,13 +123,6 @@ def getShapeNodes(xform):
     
     nodes = xform.listRelatives(shapes=1)
     return [n for n in nodes if isinstance(n, pm.nt.GeometryShape)]
-    # sortedNodes = {}
-    # for node in nodes:
-    #     i = int(utils.NodeTag(SHAPE_ORDER_TAG, node=node)['order'])
-    #     sortedNodes[i] = node
-    # sortedKeys = sortedNodes.keys()
-    # sortedKeys.sort()
-    # return [sortedNodes[i] for i in sortedKeys]
 
 def _setColor(xform, color):
     if color not in COLOR_MAP:
@@ -269,66 +262,6 @@ def snapKeepShape(target, ctl, scaleTo1=True, **kwargs):
     utils.snap(target, ctl, **kwargs)
     utils.parentShape(ctl, tmpXform)
     
-# def scaleDownBone(xf, child=None):
-#     """
-#     Move and scale a shape so that it starts at the xform pivot and
-#     ends at the tip.
-#     """
-#     children = xf.listRelatives(type='transform')
-    
-#     if child is not None:
-#         child = pm.PyNode(child)
-#     else:
-#         try:
-#             child = children[0]
-#             if len(children) > 1:
-#                 _logger.warning('multiple children found - scaling to %s' % children[0])
-            
-#         except IndexError:
-#             _logger.error('no children found to scale to, returning')
-#             return
-    
-#     worldVector = pm.dt.Vector(pm.xform(child, t=1, ws=1, q=1)) - \
-#                   pm.dt.Vector(pm.xform(xf, t=1, ws=1, q=1))
-#     wm = xf.worldMatrix.get()
-#     localVector = wm * worldVector
-
-#     #make sure that the scale of the local vector is in world space, since we're moving
-#     #a node outside of the hierarchy
-#     if not pm.pluginInfo('decomposeMatrix', q=1, loaded=1):
-#         pm.loadPlugin('decomposeMatrix')
-#     dcm = pm.createNode('decomposeMatrix')
-#     xf.worldMatrix.connect(dcm.inputMatrix)
-#     pm.select(dcm)
-#     scale = dcm.outputScale.get()
-#     localVector = localVector / scale
-#     pm.delete(dcm)
-
-#     #get scale amount
-#     scale = localVector/pm.dt.Vector(2,2,2)
-#     scale = [abs(scale.x), abs(scale.y), abs(scale.z)]
-
-#     #for axes that aren't the maximum, use the original scale values.
-#     #usually we're scaling a cube right down it's axis, so the results
-#     #are predictable.  Otherwise they might get weird, so warn
-#     maxScale = max(scale)
-#     handleData = eval(pm.getAttr('%s.%s' % (xf, INFO_ATTR)))
-#     origScale = handleData['scale']
-#     finalScale = []
-#     for i, val in enumerate(scale):
-#         if maxScale != val:
-#             if scale[i] > 0.01:
-#                 _logger.warning("warning - performing a skewing scale.")
-#             finalScale.append(origScale[i])
-#         else:
-#             finalScale.append(val)
-            
-#     pos = localVector/pm.dt.Vector(2,2,2)
-#     pos = [pos.x, pos.y, pos.z]
-
-#     #modify shapes
-#     makeControl(xf, pos=pos, scale=finalScale)
-#     return {'pos': pos, 'scale': finalScale}
 
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     zero = utils.insertNodeAbove(ctl)
@@ -366,6 +299,7 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     scaleAttr = o.getAttr(zero, 'aim', type='scale')
     mdn.outputX.connect(scaleAttr)
 
+    
 def _getStateDct(node):
     """ Get a dict representing the state of the node """
     node = pm.PyNode(node)
@@ -379,6 +313,7 @@ def _getStateDct(node):
     result['parentMatrix'] = utils.toList(node.parentMatrix.get())
     return result
 
+
 def getRebuildData(ctlDct):
     '''
     Get data to rebuild all controls in the differ in worldSpace
@@ -390,6 +325,7 @@ def getRebuildData(ctlDct):
         result[ctlName]['nodeName'] = ctl.nodeName()
         result[ctlName]['nodeType'] = pm.objectType(ctl)
     return result
+
 
 def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=False):
     '''
@@ -436,16 +372,39 @@ def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=Fals
             pm.xform(tmp, m=parentMatrix, ws=True)
             snapKeepShape(tmp, ctl)
             pm.delete(tmp)
-<<<<<<< HEAD
-            
-=======
-        
-        
-
->>>>>>> 9311ef6de8d73e4b76786de072f93e1fdad7a8e2
         result[ctlName] = ctl
                           
     return result
+
+
+def setupFkCtls(bndJnts, oldFkCtls, fkToks, namer):
+    """Set up fk controls from bndJnts.
+
+    This will delete the original controls that were passed
+    in and rebuild the control shapes on a duplicate of the bind joints
+    @return: dict of {tok:ctl}
+    """
+    if len(bndJnts) != len(oldFkCtls) or len(bndJnts) != len(fkToks):
+        _logger.warning("bind joint length must match rig ctls")
+    
+    newFkCtls = utils.duplicateHierarchy(bndJnts, toReplace='_bnd_', replaceWith='_fk_')
+    for i in range(len(newFkCtls)):            
+        newCtl = newFkCtls[i]
+        oldCtl = oldFkCtls[i]
+        info = getInfo(oldCtl)
+        setInfo(newCtl, getInfo(oldCtl))
+        utils.parentShape(newCtl, oldCtl)
+        newCtl.rename(namer(fkToks[i], r='fk'))
+        if newCtl.overrideDisplayType.get():
+            newCtl.overrideDisplayType.set(0)
+
+    with utils.SilencePymelLogger():
+        for ctl in oldFkCtls:        
+            if ctl.exists():
+                pm.delete(ctl)
+    
+    return newFkCtls
+
 
 class Differ(object):
     """

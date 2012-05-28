@@ -197,14 +197,17 @@ def getTaggedNodesTags(nodeList, tag, getChildren=True):
     parseList = copy.copy(nodeList)
     if getChildren:
         for node in nodeList:
-            parseList.extend([node for node in node.listRelatives(ad=True) if \
-                              node not in parseList])
+            try:
+                rels = node.listRelatives(ad=True)
+            except RuntimeError:
+                rels = []                
+            parseList.extend([node for node in rels if node not in parseList])
 
     result = {}
     tagAttr = TAG_PREFIX + tag
     for node in parseList:
         if node.hasAttr(tagAttr):
-            result[node] = DctNodeTag(node, tag)
+            result[node] = NodeTag(tag, node=node)
 
     return result
 

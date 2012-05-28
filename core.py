@@ -1,7 +1,7 @@
 """
 The core widget and rig objects that custom widgets should inherit
 """
-import logging, re, copy, os, sys, __builtin__
+import logging, re, copy, os, sys, __builtin__, json
 import pymel.core as pm
 from PyQt4 import QtCore
 
@@ -501,8 +501,12 @@ class Widget(TreeItem):
         for key, jntPair in self._bindJoints.items():
             jnt = jntPair[0]
             name = jnt.nodeName()
-            result[key] = pm.duplicate(jnt, po=True)[0]
-            result[key].setParent(world=True)
+            #result[key] = pm.duplicate(jnt, po=True)[0]
+            pm.select(cl=1)
+            result[key] = pm.joint()
+            utils.snap(jnt, result[key])
+            pm.makeIdentity(result[key], r=1, t=0, s=0, n=0, apply=True)
+            #result[key].setParent(world=True)
             result[key].rename(name) # try and name it back to the original name
         #do parenting
         for key, jntPair in self._bindJoints.items():
@@ -927,6 +931,17 @@ class Widget(TreeItem):
 
 class Root(Widget):
     """Builds a master control and main hierarchy of a rig"""
+    
+    @staticmethod
+    def tagInputScaleAttr(node, attrName):
+        """Add a uniform scale input attr to a node.
+        It will be detected and connected to the master uniform scale
+        attribute"""
+        
+        tag = utils.NodeTag("uniformScaleInput")
+        tag['attr'] = attrName
+        tag.setTag(node)
+        
     def __init__(self, part='master'):
         super(Root, self).__init__(part=part)
         self.options.setPresets('side', 'cn')
@@ -938,7 +953,15 @@ class Root(Widget):
         if buildType == 'rig':
             if self.root() == self:
                 children = child.children(recursive=True) + [child]
-                for child in children:                
+                for child in children:
+
+                    #connect input scale
+                    nodeTags = utils.getTaggedNodesTags(child.getNodes(), 'uniformScaleInput', getChildren=False)
+                    for node, tag in nodeTags.items():
+                        _logger.debug("Connecting uniform scale to %s" % node.name())                        
+                        inputAttr = pm.PyNode('%s.%s' % (node.name(), tag['attr']))
+                        self._otherNodes['master'].uniformScale.connect(inputAttr)
+                        
                     masterNodes = child.getNodes('master')
                     if masterNodes:     
                         pm.parent(masterNodes, self._otherNodes['top'])
@@ -984,7 +1007,8 @@ class Root(Widget):
                                                 s='', x='dnt', force=True))
             dnt.setParent(top)
             self._otherNodes['dnt'] = dnt
-            
+
+            self._otherNodes['master'] = rigCtls['master']
         
             rigCtls['master'].setParent(top)
             
@@ -995,6 +1019,8 @@ class Root(Widget):
         for ctl in rigCtls.values():
             NT.tagControl(ctl, uk=['tx', 'ty', 'tz', 'rx', 'ry', 'rz'])
         NT.tagControl(rigCtls['master'], uk=['uniformScale'])
+
+        
 WidgetRegistry().register(Root, 'Root', 'The widget under which all others should be parented')
         
 #TODO:  COG needs to catch child nodes with 'cog' category
@@ -1312,6 +1338,20 @@ def getSaveData(widget):
         
     return result
     
+
+def buildRig(fromPath=None, skipBuild=False):
+    _importAllWidgets(reloadThem=True)
+    if fromPath:
+        if not os.path.exists(fromPath):
+            raise RuntimeError("%s does not exist" % fromPath)
+        
+        with open(fromPath) as f:
+            data = json.load(f)
+        rig  = rigFromData(data)
+        if not skipBuild:
+            rig.buildRig()
+            
+    return rig
     
 def rigFromData(data):
     '''

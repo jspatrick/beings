@@ -276,8 +276,7 @@ class BasicLeg(core.Widget):
             if fkJnts.get(tok):
                 fkIkRev.outputX.connect(fkJnts[tok].v)
         namer.setTokens(r='ik')
-        
-        
+                
         
         utils.snap(bndJnts['ankle'], ikCtl, orient=False)
         ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'],

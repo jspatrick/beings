@@ -7,11 +7,9 @@ import pymel.core as pm
 
 import beings.core as core
 import beings.utils as utils
+reload(utils)
 import beings.control as CTL
 from PyQt4 import QtCore
-reload(utils)
-reload(CTL)
-reload(core)
 
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
@@ -109,7 +107,7 @@ def getDistanceNode(startNode, endNode, name, namer, num):
 
     return dd
     
-def addJointAttrs(jnts, crv, node):
+def addJointAttrs(jnts, crv, node, inputScaleAttr, namer):
     """
     Add the following attributes to a set of joints:
     origArcLen<i>
@@ -134,15 +132,22 @@ def addJointAttrs(jnts, crv, node):
         #otherwise subcurve will build a full curve
         if p == 0:
             result.append(0)
+            pm.addAttr(node, ln=ORIG_ARC_LEN_ATTR % i, dv=result[-1], k=1)
         else:
             crv.worldSpace[0].connect(sc.inputCurve, force=1)
             sc.max.set(p)
+            mdn = pm.createNode('multiplyDivide', n=namer('orig_arclen_scale_compensate', alphaSuf=i, x='mdn'))
+            mdn.input1X.set(ci.arcLength.get())
+            inputScaleAttr.connect(mdn.input2X)            
             result.append(ci.arcLength.get())
+            pm.addAttr(node, ln=ORIG_ARC_LEN_ATTR % i, dv=result[-1], k=1)
+            attr = pm.PyNode('%s.%s' % (node, ORIG_ARC_LEN_ATTR % i))
+            mdn.outputX.connect(attr)
             
 
 
         prc = result[-1]/totalLen            
-        pm.addAttr(node, ln=ORIG_ARC_LEN_ATTR % i, dv=result[-1], k=1)
+        
         pm.addAttr(node, ln=ORIG_PARAM_ATTR % i, dv=p, k=1)            
         pm.addAttr(node, ln=ORIG_ARC_PERCENTAGE_ATTR % i, dv=prc, k=1)
             
@@ -282,7 +287,7 @@ def getExtensionPointOnCurveInfo(curve):
     cvi.arcLength.connect(paramMult.input2X)
     
 
-def createAimedLocs(posLocs, upLocs, name, namer, singleUpNode=None, upType='object'):
+def createAimedLocs(posLocs, upLocs, name, namer, singleUpNode=None, uniScaleAttr=None, upType='object'):
     result = []
     for i in range (len(posLocs)):
         upVec = [1,0,0]
@@ -307,8 +312,19 @@ def createAimedLocs(posLocs, upLocs, name, namer, singleUpNode=None, upType='obj
             dist.distance.connect(mdn.input1X)
             mdn.input2X.set(dist.distance.get())
             mdn.operation.set(2)
-            mdn.outputX.connect(finalLoc.sy)
-        
+            
+            if uniScaleAttr:
+                compMdn = pm.createNode('multiplyDivide',
+                                    n=namer('%s_parent_scl_compensate' % name, x='mdn', alphaSuf=i))
+                mdn.outputX.connect(compMdn.input1X)
+                uniScaleAttr.connect(compMdn.input2X)
+                compMdn.operation.set(2)
+                compMdn.outputX.connect(finalLoc.sy)
+                
+            else:
+                
+                mdn.outputX.connect(finalLoc.sy)
+                
         aimCst = pm.aimConstraint(aimLoc, finalLoc, aimVector=aimVec, upVector=upVec,
                                   worldUpType=upType, worldUpObject=upLoc)
         posLocs[i].t.connect(finalLoc.t)
@@ -340,7 +356,10 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     ikSpineNode = pm.createNode('transform', n=namer('ikspine'))
     ikSpineNode.addAttr('uniformStretch', k=1, dv=0, min=0, max=1)
     ikSpineNode.addAttr('stretchAmt', k=1, dv=1, min=0, max=1)
-    ikSpineNode.addAttr('inputScale', k=1, dv=1)    
+    
+    ikSpineNode.addAttr('inputScale', k=1, dv=1)
+    core.Root.tagInputScaleAttr(ikSpineNode, 'inputScale')
+    
     origCurve = cvCurveFromNodes(ctls)
     pm.rename(origCurve, namer('crv', x='crv'))
     pm.parent(origCurve, ikSpineNode)
@@ -376,14 +395,14 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
         jnt.rename(namer(d='ikcrv', x='jnt', alphaSuf=i))
             
 
-    arcLenMultMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', x='mdn'))
-    arcLenMultMDN.operation.set(2)
-    curveAL.arcLength.connect(arcLenMultMDN.input1X)
-    arcLenMultMDN.input2X.set(totalOrigAL)
+    #arcLenMultMDN = pm.createNode('multiplyDivide', name=namer('arclen_diff', x='mdn'))
+    #arcLenMultMDN.operation.set(2)
+    #curveAL.arcLength.connect(arcLenMultMDN.input1X)
+    #arcLenMultMDN.input2X.set(totalOrigAL)
     
     curveMaxParam = origCurve.maxValue.get()
 
-    addJointAttrs(crvJnts, origCurve, ikSpineNode)
+    addJointAttrs(crvJnts, origCurve, ikSpineNode, ikSpineNode.inputScale, namer)
     stretchPosLocs = []
     stretchUpLocs = []    
     for i, jnt in enumerate(crvJnts):
@@ -435,7 +454,9 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
         
         npc.pr.connect(stretchParamBlend.c1r)
         
-    stretchFinalLocs = createAimedLocs(stretchPosLocs, stretchUpLocs, 'stretch_result', namer)
+    stretchFinalLocs = createAimedLocs(stretchPosLocs, stretchUpLocs, 'stretch_result', namer,
+                                       uniScaleAttr=ikSpineNode.inputScale)
+    
     pm.parent(stretchFinalLocs, ikSpineNode)
     
     #use splineIK for non-stretching joints
@@ -495,23 +516,17 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
     pm.parent(nsFinalLocs, ikSpineNode)
 
 
-    
-    #the scale constraints have some odd bugs when used with orient/aim constraints on joints..
-    #this is a work-around for it
-    # interCrvJnts = utils.duplicateHierarchy(crvJnts, toReplace='ikcrv', replaceWith='intermediate_ikcrv')
-    # interCrvJnts[0].setParent(ikSpineNode)
-    #utils.setupExplicitScaleCompensation(crvJnts)
-
-
     rev = pm.createNode('reverse', name=namer('stretch_amt', x='rev'))
     ikSpineNode.stretchAmt.connect(rev.inputX)
+
+    createdNodes = set()
     
     for i in range(len(nsFinalLocs)):
         csts = {}
         csts['pc'] = pm.pointConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])        
         csts['oc'] = pm.orientConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])
         csts['sc'] = pm.scaleConstraint(stretchFinalLocs[i], nsFinalLocs[i], crvJnts[i])
-        utils.fixJntConstraints(crvJnts[i])
+        createdNodes.update(utils.fixJntConstraints(crvJnts[i]))
         for cstType, cst in csts.items():
             stretchWtAttr  = pm.PyNode('%s.%sW0' % (cst.name(), stretchFinalLocs[i].name()))
             nsWtAttr  = pm.PyNode('%s.%sW1' % (cst.name(), nsFinalLocs[i].name()))
@@ -520,15 +535,31 @@ def createIkSpineSystem(jnts, ctls, namer=None, part=None):
             rev.outputX.connect(nsWtAttr)
             
     
-    #constrain the original input joints to the crvJnts
-    #utils.setupExplicitScaleCompensation(jnts)
     for i in range(len(crvJnts)):
-        #pm.pointConstraint(crvJnts[i], jnts[i], mo=True)
-        pm.orientConstraint(crvJnts[i], jnts[i], mo=True)
+        if i == 0:
+            pm.pointConstraint(crvJnts[i], jnts[i], mo=True)
+
+        #add an attr to the end control to orient to it
+        if i == (len(crvJnts) -1):
+            oc = pm.orientConstraint(crvJnts[i], ctls[-1], jnts[i], mo=True)
+            jntWtAttr = '%s.%sW0' % (oc.nodeName(), crvJnts[i].nodeName())
+            ctlWtAttr = '%s.%sW1' % (oc.nodeName(), ctls[-1].nodeName())
+            ctls[-1].addAttr('matchOrientation', dv=1, max=1, min=0, k=1)
+            rev = pm.createNode('reverse', name=namer('tip_orient_match', x='rev'))
+            ctls[-1].matchOrientation.connect(rev.inputX)                                            
+            ctls[-1].matchOrientation.connect(ctlWtAttr)
+            rev.outputX.connect(jntWtAttr)
+        else:
+            pm.orientConstraint(crvJnts[i], jnts[i], mo=True)
         pm.scaleConstraint(crvJnts[i], jnts[i], mo=False)
-        utils.fixJntConstraints(jnts[i])
-        #crvJnts[i].sy.connect(jnts[i].sy)
-       
+        createdNodes.update(utils.fixJntConstraints(jnts[i]))
+
+    grp = pm.createNode('transform', name=namer('jnt_cst_parentmatrix', r='ik', x='grp'))
+    grp.setParent(ikSpineNode)
+    _logger.debug("Created parentmatrix nodes: %r" % createdNodes)
+    for node in createdNodes:
+        pm.parent(node, grp)        
+    
     return ikSpineNode
         
 
@@ -721,7 +752,7 @@ class Spine(core.Widget):
             ikCtlList[i+1].getParent().setParent(ikCtlList[i])
             ikCtlList[-2-i].getParent().setParent(ikCtlList[-1-i])
             
-        if numOthers % 2 == 0:
+        if numOthers % 2 != 0:
             _logger.warning("non-even num ik ctls - implement a solution for mid ctl")
         
         tipIkCtl = ikCtlList[-1]                
@@ -732,6 +763,7 @@ class Spine(core.Widget):
         
         ikJnts = utils.duplicateHierarchy(jntList, toReplace='bnd', replaceWith='ik')
         ikSpineNode = createIkSpineSystem(ikJnts, ikCtlList, namer=namer)
+        self.setNodeCateogry(ikSpineNode, 'dnt')
         
         ikSpineNode.v.set(0)
         tipIkCtl.ikStretchAmt.connect(ikSpineNode.stretchAmt)
@@ -741,10 +773,12 @@ class Spine(core.Widget):
         fkCtls = CTL.setupFkCtls(jntList, fkCtlList, toks, namer)
                 
                 
-        reverse = utils.blendJointChains(fkCtls, ikJnts, jntList, tipIkCtl.fkIkBlend, namer,
+        extraNodes = utils.blendJointChains(fkCtls, ikJnts, jntList, tipIkCtl.fkIkBlend, namer,
                                          directChannelBlend=False)
-        
-        
+        _logger.debug("Extra nodes: %s" % extraNodes)
+        for node in extraNodes:
+            if not pm.listRelatives(node, parent=1):
+                pm.parent(node, ikSpineNode)
 
         #set visibility
         ikJnts[0].v.set(0)

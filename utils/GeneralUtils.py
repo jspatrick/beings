@@ -94,6 +94,7 @@ def fixJntConstraints(slaveNode):
     To fix this, build a matrix that has the scaling subtracted, and replace connections to
     matrix attributes in the constraint with our custom matrices
     """
+    result = []
     slaveNode = str(slaveNode)
     
     csts = MC.listConnections(slaveNode, s=1, d=0, type='constraint')
@@ -112,6 +113,7 @@ def fixJntConstraints(slaveNode):
             
             
             slaveScaleCmp = createParentMatrixNode(node)
+            result.append(slaveScaleCmp)
             
             breakCncts(tgtPM, s=1)
             MC.connectAttr('%s.matrix' % slaveScaleCmp, tgtPM)
@@ -119,11 +121,14 @@ def fixJntConstraints(slaveNode):
         if MC.objectType(slaveNode, isAType='joint'):
             
             slaveScaleCmp = createParentMatrixNode(slaveNode)
+            result.append(slaveScaleCmp)
             cstPIM = '%s.constraintParentInverseMatrix' % cst
             breakCncts(cstPIM)
             MC.connectAttr('%s.inverseMatrix' % slaveScaleCmp, cstPIM)
-        
-    
+            
+    return result
+
+
 def setupExplicitScaleCompensation(jnts):
     """
     Take an existing joint chain and add additional nodes that mimic
@@ -215,8 +220,7 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer, directChannel
                 ikAttr = getattr(cst, '%sW1' % ikJntList[i].nodeName())
                 reverse.outputX.connect(fkAttr)
                 fkIkAttr.connect(ikAttr)
-                result.append(reverse)
-                fixJntConstraints(bindJntList[i])
+                result.extend(fixJntConstraints(bindJntList[i]))
         else:
             for chan in ['translate', 'rotate', 'scale']:
                 blc = pm.createNode('blendColors')

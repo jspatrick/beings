@@ -8,6 +8,107 @@ import maya.cmds as MC
 from beings.utils.Exceptions import * #@UnusedWildImport
 _logger = logging.getLogger(__name__)
 
+g_xformShortAttrs = ['tx', 'ty', 'tz', 'rx', 'ry', 'rz', 'sx', 'sy', 'sz']
+g_xformLongAttrs = ['translateX', 'translateY', 'translateZ',
+                    'rotateX', 'rotateY', 'rotateZ',
+                    'scaleX', 'scaleY', 'scaleZ']
+
+def getConstraintTargets(cst):
+    """
+    Return a dict of {index: tagetNode}
+    """
+    
+    cst= str(cst)
+    indices = MC.getAttr('%s.target' % cst, mi=1)
+    
+    targets = {}
+    
+    for index in indices:
+        attrs = MC.attributeQuery('target', listChildren=1, n=cst)
+        nonMatrixAttrs = [x for x in attrs if 'Matrix' not in x]
+        cnct = pm.connectionInfo("%s.target[%i].%s" % (cst, index, nonMatrixAttrs[0]), sfd=1)
+        if cnct:
+            node = cnct.split('.')[0]
+            targets[index] = pm.PyNode(node)
+            
+    return targets
+
+def getConstraintSlave(cst):
+    
+    cst= str(cst)    
+    for cnct in MC.listConnections(cst, s=0, d=1, p=1):        
+        
+        parts = cnct.split('.')
+        node = parts[0]
+        attr = parts[-1]
+        if attr in g_xformLongAttrs:
+            return pm.PyNode(node)
+
+def breakCncts(attr, s=1, d=1):
+    if s:
+        n=MC.connectionInfo(attr, sfd=1)
+        if n:
+            MC.disconnectAttr(n, attr)
+    if d:
+        for n in MC.connectionInfo(attr, dfs=1):
+            MC.disconnectAttr(attr, n)
+
+        
+def getScaleCompJnt(jnt):
+    jnt = str(jnt)
+    
+    par = MC.listRelatives(jnt, type='joint', parent=1)
+    if not par:
+        return None
+    
+    if MC.attributeQuery('scaleCompJnt', n=jnt, ex=1):
+        cnct = MC.listConnections('%s.scaleCompJnt' % jnt, s=1, d=0)
+        if cnct:
+            return pm.PyNode(cnct[0])
+    else:
+        MC.addAttr(jnt, ln='scaleCompJnt', at='message')
+        
+    par = par[0]
+    
+    scJnt = MC.duplicate(par, n='%s_scalecomp' % jnt)[0]
+    MC.delete(MC.listRelatives(scJnt, pa=1) or [])
+    
+    MC.setAttr("%s.v" % scJnt, 0)
+    
+    MC.parent(scJnt, par)
+
+    breakCncts('%s.inverseScale' % scJnt)
+    MC.connectAttr('%s.scale' % par, '%s.inverseScale' % scJnt, f=1)    
+    
+    MC.connectAttr('%s.message' % scJnt, '%s.scaleCompJnt' % jnt)
+
+    return pm.PyNode(scJnt)
+
+def fixJointConstraints(slaveNode):
+    csts = pm.listConnections(slaveNode, s=1, d=0, type='constraint')
+    if not csts:
+        return
+    for cst in csts:
+        if isinstance(cst, pm.nt.PointConstraint):
+            continue
+        tgts = getConstraintTargets(cst)
+        for index, tgt in tgts.items():
+            
+            sc = getScaleCompJnt(tgt)
+            if not sc:
+                continue
+
+            cst.target[index].targetParentMatrix.disconnect()            
+            sc.worldMatrix[0].connect(cst.target[index].targetParentMatrix, f=1)
+            
+        slave = getConstraintSlave(cst)
+        sc = getScaleCompJnt(slave)
+        if not sc:
+            continue
+        cst.constraintParentInverseMatrix.disconnect()
+        sc.worldInverseMatrix[0].connect(cst.constraintParentInverseMatrix, f=1)
+
+        
 class SilencePymelLogger(object):
     def __init__(self):
         self.level = 10
@@ -48,121 +149,6 @@ def setupFkCtls(bndJnts, rigCtls, fkToks, namer):
     return fkCtls
 
 
-def breakCncts(attr, s=1, d=1):
-    if s:
-        n=MC.connectionInfo(attr, sfd=1)
-        if n:
-            MC.disconnectAttr(n, attr)
-    if d:
-        for n in MC.connectionInfo(attr, dfs=1):
-            MC.disconnectAttr(attr, n)
-            
-def createParentMatrixNode(node):
-    """Get a transform node representing the parent matrix of the node without scaling
-    or shearing"""
-    PM_MESSAGE_ATTR = 'parentMatrixNode'
-
-    #see if it already exists
-    nsParentMatrixXform = None    
-    messageCncts = MC.connectionInfo("%s.message" % node, dfs=1)
-    for c in messageCncts:
-        if c.split('.')[-1] == PM_MESSAGE_ATTR:
-            return MC.ls(c, o=1)[0]
-        
-    
-    nsParentMatrixXform = MC.createNode('transform', n='%s_ns_parentmatrix' % node)    
-    MC.addAttr(nsParentMatrixXform, ln=PM_MESSAGE_ATTR, at='message')
-    MC.connectAttr("%s.message" % node, "%s.%s" % (nsParentMatrixXform, PM_MESSAGE_ATTR))
-    
-    dcm = MC.listConnections("%s.parentMatrix" % node, type='decomposeMatrix', s=1, d=0)
-    if not dcm:
-        dcm = MC.createNode('decomposeMatrix', n='%s_parentmatrix_dcm' % node)    
-    else:
-        dcm= dcm[0]
-    MC.connectAttr('%s.parentMatrix' % node, '%s.inputMatrix' % dcm)        
-    MC.connectAttr('%s.outputRotate' % dcm, '%s.r' % nsParentMatrixXform)
-    MC.connectAttr('%s.outputTranslate' % dcm, '%s.t' % nsParentMatrixXform)
-
-    return nsParentMatrixXform
-
-def fixJntConstraints(slaveNode):
-    """
-    Constraints take connections from the parentMatrix attribute on joints. The output
-    matrix from this attribute does not take the scale compensation of joints into account,
-    though, which breaks the constraints in a hierarchy of joints.
-
-    To fix this, build a matrix that has the scaling subtracted, and replace connections to
-    matrix attributes in the constraint with our custom matrices
-    """
-    result = []
-    slaveNode = str(slaveNode)
-    
-    csts = MC.listConnections(slaveNode, s=1, d=0, type='constraint')
-    if not csts:
-        return
-    for cst in csts:        
-        indices = MC.getAttr('%s.target' % cst, mi=1)
-        for index in indices:
-            tgtPM = '%s.target[%i].targetParentMatrix' % (cst, index)
-            nodeCnct = MC.connectionInfo(tgtPM, sfd=1)
-            if not nodeCnct:
-                continue
-            node = MC.ls(nodeCnct, o=1)[0]
-            if not MC.objectType(node, isAType='joint'):
-                continue
-            
-            
-            slaveScaleCmp = createParentMatrixNode(node)
-            result.append(slaveScaleCmp)
-            
-            breakCncts(tgtPM, s=1)
-            MC.connectAttr('%s.matrix' % slaveScaleCmp, tgtPM)
-            
-        if MC.objectType(slaveNode, isAType='joint'):
-            
-            slaveScaleCmp = createParentMatrixNode(slaveNode)
-            result.append(slaveScaleCmp)
-            cstPIM = '%s.constraintParentInverseMatrix' % cst
-            breakCncts(cstPIM)
-            MC.connectAttr('%s.inverseMatrix' % slaveScaleCmp, cstPIM)
-            
-    return result
-
-
-def setupExplicitScaleCompensation(jnts):
-    """
-    Take an existing joint chain and add additional nodes that mimic
-    joint scale compensation.  Do this to allow orient and aim constraints
-    on joint chians with scaling, as they do not compute correctly when
-    scale compensation is used    
-    """
-    result = []
-    for jnt in jnts:
-        child = jnt.listRelatives(type='joint')
-        if not child:
-            break
-        else:
-            child = child[0]
-        dup = pm.duplicate(jnt)[0]
-        pm.delete(dup.listRelatives())
-        snap(child, dup, point=True, orient=False, scale=False)
-        jnt.segmentScaleCompensate.set(0)
-        dup.segmentScaleCompensate.set(0)
-        child.setParent(dup)
-        dup.setParent(jnt)
-        dup.rename("%s_scale_comp_end" % jnt.name())
-
-        mdn = pm.createNode('multiplyDivide', n='%s_scane_comp_mdn' % jnt.name())
-        jnt.scale.connect(mdn.input2)
-        mdn.input1.set([1,1,1])
-        mdn.operation.set(2)
-        mdn.output.connect(dup.scale)
-        #this isn't really necessary anymore, but do this to be consistent
-        #so debugging other issues is easier
-        fixInverseScale([dup, child])
-        result.append(dup)
-        
-    return result
         
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
@@ -180,8 +166,11 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     mdn.input2X.set(staticDist)
     mdn.operation.set(2) #divide
     mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
+
+def safeParent(self, **nodes):pass
     
-def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer, directChannelBlend=True):
+        
+def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer):
     """
     Blend an ik and fk joint chain into a bind joint chain.
     @params fkChain, ikChain, bindChain: list of jnts
@@ -190,7 +179,9 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer, directChannel
     
     @return: the reverse node created
     """
+    result = []
     reverse = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
+    result.append(reverse)
     fkIkAttr.connect(reverse.inputX)
     
     fkJntList = []
@@ -210,27 +201,20 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer, directChannel
         ikJntList = ikChain
         bindJntList = bindChain
         
-    result = []
+
     for i in range(len(bindJntList)):
-        if not directChannelBlend:
-            for cstType in ['point', 'orient', 'scale']:
-                fnc = getattr(pm, '%sConstraint' % cstType)
-                cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])                
-                fkAttr = getattr(cst, '%sW0' % fkJntList[i].nodeName())
-                ikAttr = getattr(cst, '%sW1' % ikJntList[i].nodeName())
-                reverse.outputX.connect(fkAttr)
-                fkIkAttr.connect(ikAttr)
-                result.extend(fixJntConstraints(bindJntList[i]))
-        else:
-            for chan in ['translate', 'rotate', 'scale']:
-                blc = pm.createNode('blendColors')
-                blc.rename(namer(d='%s_fkikblend' % chan, x='blc'))
-                getattr(ikJntList[i], chan).connect(blc.color1)
-                getattr(fkJntList[i], chan).connect(blc.color2)
-                blc.op.connect(getattr(bindJntList[i], chan))
-                fkIkAttr.connect(blc.b)
-                result.append(blc)
-                
+
+        for cstType in ['point', 'orient', 'scale']:
+            
+            fnc = getattr(pm, '%sConstraint' % cstType)
+            cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])                
+            fkAttr = getattr(cst, '%sW0' % fkJntList[i].nodeName())
+            ikAttr = getattr(cst, '%sW1' % ikJntList[i].nodeName())
+            reverse.outputX.connect(fkAttr)
+            fkIkAttr.connect(ikAttr)
+            
+            fixJointConstraints(bindJntList[i])
+
     return result
 
 def freeze(*args):

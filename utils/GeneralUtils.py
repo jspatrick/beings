@@ -74,12 +74,17 @@ def getScaleCompJnt(jnt):
     MC.delete(MC.listRelatives(scJnt, pa=1) or [])
     
     MC.setAttr("%s.v" % scJnt, 0)
-    
-    MC.parent(scJnt, par)
+
+    #make sure a transform isn't created between the jnt and parent if it's scaled
+    if MC.listRelatives(scJnt, parent=1):
+        MC.parent(scJnt, world=1)
+    xform = MC.listRelatives(scJnt, parent=1)
+    MC.connectJoint(scJnt, par, pm=1)
+    if xform:
+        MC.delete(xform)
 
     breakCncts('%s.inverseScale' % scJnt)
-    MC.connectAttr('%s.scale' % par, '%s.inverseScale' % scJnt, f=1)    
-    
+    MC.connectAttr('%s.scale' % par, '%s.inverseScale' % scJnt, f=1)        
     MC.connectAttr('%s.message' % scJnt, '%s.scaleCompJnt' % jnt)
 
     return pm.PyNode(scJnt)

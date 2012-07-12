@@ -340,13 +340,16 @@ class Spine(core.Widget):
             
         for i in range(self.options.getValue('numIkCtls')):
             self.addParentPart('ikCtl_%s' % ascii_lowercase[i])
-            
-        self.connect(self.options, QtCore.SIGNAL('optSet'), self._setParentParts)
+
+        self.options.subscribe('optSet', self.__optionSet)
         
     def childCompletedBuild(self, child, buildType):            
         super(Spine, self).childCompletedBuild(child, buildType)
 
-    def _setParentParts(self):
+    def __optionSet(self, event):
+        if event.optName != 'numBndJnts':
+            return
+        
         for part in self.plugs():
             self.rmPlug(part)
             

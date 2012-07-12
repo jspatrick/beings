@@ -9,6 +9,7 @@ import beings.control as control
 import beings.utils as utils
 
 from beings.utils.Naming import Namer
+from beings.observer import Observable
 
 import utils.NodeTagging as NT
 
@@ -42,6 +43,7 @@ def _setupLogging():
     _beingsRootLogger.addFilter(BeingsFilter())
 _setupLogging()
 
+
 class WidgetRegistry(object):
     """Singleton that keeps data about widgets that are part of the system"""
     instance = None
@@ -73,7 +75,7 @@ class WidgetRegistry(object):
         cls = instance.__class__
         for k, v in self._widgets.items():
             if v == cls:
-                return k
+                return k            
     def widgetNames(self):
         return self._widgets.keys()
     def getInstance(self, widgetName):
@@ -111,19 +113,23 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
-class OptionCollection(QtCore.QObject):
+class OptionCollection(Observable):
     def __init__(self, parent=None):
         '''
         A collection of options
         '''
-        super(OptionCollection, self).__init__(parent)
+        super(OptionCollection, self).__init__()
+        
         self.__options = {}
         self.__presets = {}
         self.__rules = {}
         self.__optPresets = {}
         self.__defaults = {}
     
-    def addOpt(self, optName, defaultVal, optType=str, **kwargs):
+    def addOpt(self, optName, defaultVal, optType=str, **kwargs):        
+        """
+        @event optionAdded: optName(str)
+        """
         self.__options[optName] = optType(defaultVal)
         self.__defaults[optName] = optType(defaultVal)        
         self.__rules[optName] = {'optType': optType}        
@@ -134,7 +140,7 @@ class OptionCollection(QtCore.QObject):
         if presets:
             self.setPresets(optName, *presets)
         if not kwargs.get('quiet'):
-            self.emit(QtCore.SIGNAL('optionAdded'), optName)
+            self.notify('optionAdded', optName=optName)
         
     def _checkName(self, optName):
         if optName not in self.__options:
@@ -168,6 +174,11 @@ class OptionCollection(QtCore.QObject):
         return self.__options[optName]
     
     def setValue(self, optName, val, quiet=False):
+        """
+        @event optAboutToChange: optName(str), oldVal(str), newVal(str)
+        @event optSet: optName(str), newVal(str)
+        @event optChanged: optName(str), oldVal(str), newVal(str)
+        """
         self._checkName(optName)
         changed=False
         if val != self.__options[optName]:
@@ -176,7 +187,7 @@ class OptionCollection(QtCore.QObject):
         
         if not quiet:            
             if changed:
-                self.emit(QtCore.SIGNAL('optAboutToChange'), optName, oldVal, val)
+                self.notify('optAboutToChange', optName=optName, oldVal=oldVal, newVal=val)
 
         #validate the new value
         presets = self.getPresets(optName)
@@ -192,9 +203,9 @@ class OptionCollection(QtCore.QObject):
         self.__options[optName] = val
         
         if not quiet:
-            self.emit(QtCore.SIGNAL('optSet'), optName, val)
+            self.notify('optSet', optName=optName, newVal=val)
             if changed:
-                self.emit(QtCore.SIGNAL('optChanged'), optName, oldVal, val)
+                self.notify('optChanged', optName=optName, oldVal=oldVal, newVal=val)
             
     #TODO:  Get option data
     def getData(self):
@@ -210,12 +221,13 @@ class OptionCollection(QtCore.QObject):
             
     def getAllOpts(self):
         return copy.deepcopy(self.__options)
+    
     def setAllOpts(self, optDct):
         for optName, optVal in optDct.items():
             self.setValue(optName, optVal)
 
-    
-class TreeItem(QtCore.QObject):
+
+class TreeItem(Observable):
     """
     A tree item.
 
@@ -225,9 +237,10 @@ class TreeItem(QtCore.QObject):
         
     The root tree item may have a null     plug ("").  As soon as the item is not a root, this null
     plug is removed.
-    """
+    """    
     def __init__(self, plugs=[]):
-        super(TreeItem, self).__init__(parent=None)
+        super(TreeItem, self).__init__()
+        
         if not plugs:
             plugs = []    
         self.__parent = None        
@@ -236,10 +249,9 @@ class TreeItem(QtCore.QObject):
         self.__children = []
         self.__childPlugs = []
                                 
-        
     def plugs(self): return list(self.__plugs)
     def addPlug(self, plugName): 
-        self.__plugs.add(str(plugName))        
+        self.__plugs.add(str(plugName))
     def rmPlug(self, plugName): self.__plugs.difference_update(str(plugName))
     def parent(self): return self.__parent    
     def _setParent(self, parent):
@@ -264,11 +276,11 @@ class TreeItem(QtCore.QObject):
     
     def addedChild(self, child):
         """Callback when a child is added"""
-        self.root().emit(QtCore.SIGNAL('addedChildToHierarchy'), self, child)
+        
         
     def removedChild(self, child):
         """Callback after a child is removed"""
-        self.root().emit(QtCore.SIGNAL('removedChildFromHierarchy'), self, child)
+        
      
     def addChild(self, child, plug=""):        
         if not self.__plugs:
@@ -291,6 +303,12 @@ class TreeItem(QtCore.QObject):
         self.__childPlugs.append(plug)
         self.addedChild(child)
         
+        self.notify('addedChild', parent=self, child=child)
+        parent = self.parent()
+        while parent:
+            parent.notify('addedChild', parent=self, child=child)
+            parent = parent.parent()
+            
     def rmChild(self, child, reparentChildren=False):
         """
         Remove a child
@@ -309,7 +327,15 @@ class TreeItem(QtCore.QObject):
         self.__children.pop(index)
         self.__childPlugs.pop(index)
         child._setParent(None)
-        self.removedChild(child)        
+        self.removedChild(child)
+        
+        self.notify('removedChild', parent=self, child=child)
+        
+        parent = self.parent()
+        while parent:
+            parent.notify('removedChild', parent=self, child=child)
+            parent = parent.parent()
+        
         return child
     
     def plugOfChild(self, child): return self.__childPlugs[self.childIndex(child)]
@@ -345,9 +371,9 @@ class Widget(TreeItem):
         self.options.addOpt('part', part)
         self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
         self.options.addOpt('char', 'defaultchar')
-        self.connect(self.options, QtCore.SIGNAL('optChanged'), self._optionChanged)
-        self.connect(self.options, QtCore.SIGNAL('optAboutToChange'), 
-                     self._optionAboutToChange)
+
+        self.options.subscribe('optChanged', self._optionChanged)
+        self.options.subscribe('optAboutToChange', self._optionAboutToChange)
         
         self._nodes = [] #stores all nodes
         self.__state = 'unbuilt'        
@@ -398,7 +424,11 @@ class Widget(TreeItem):
             _logger.debug("Parening non-Widget to %r" % self)
         return result
     
-    def _optionChanged(self, opt, oldVal, newVal):
+    def _optionChanged(self, event):
+        opt = event.optName
+        oldVal = event.oldVal
+        newVal = event.newVal
+        
         #if the char is changed on any node, it should be changed for all nodes in the hierarchy
         if opt == 'char':
             root = self.root()
@@ -408,7 +438,11 @@ class Widget(TreeItem):
                     if node.options.getValue('char') != newVal:
                         node.options.setValue('char', newVal, quiet=True)
         
-    def _optionAboutToChange(self, opt, oldVal, newVal):
+    def _optionAboutToChange(self, event):
+        opt = event.optName
+        oldVal = event.oldVal
+        newVal = event.newVal
+        
         #if changing the part or side invalidates mirroring, set it         
         if opt == 'part' or opt == 'side':
             if self._mirroring: 
@@ -434,7 +468,8 @@ class Widget(TreeItem):
             else:
                 usedNames[name] = child
         
-    def notify(self, buildType):
+    def __notifyBuildComplete(self, buildType):
+        """Notify relatives that this widget has completed a build"""
         #notify relatives
         parent = self.parent()
         if parent:
@@ -453,7 +488,8 @@ class Widget(TreeItem):
             parentNode = self.__plugNodes[plug]
              
             for node in child.getNodes('parent'):
-                node.setParent(parentNode)            
+                utils.fixInverseScale([node])
+                node.setParent(parentNode)
                     
     def parentCompletedBuild(self, parent, buildType):
         if buildType == 'layout':
@@ -621,6 +657,9 @@ class Widget(TreeItem):
         namer.setTokens(side=side, part=part)        
         self._bindJoints = {}
         result = None
+        
+        pm.select(clear=1)
+        
         with utils.NodeTracker() as nt:
             try:
                 result = self._makeLayout(namer)
@@ -646,7 +685,7 @@ class Widget(TreeItem):
             for child in self.children():
                 child.buildLayout()
         #notify relatives build finished
-        self.notify('layout')
+        self.__notifyBuildComplete('layout')
         
         return result
     
@@ -831,8 +870,8 @@ class Widget(TreeItem):
         
         #notify relatives that build finished
         if not skipCallbacks:
-            self.notify('rig')
-        
+            self.__notifyBuildComplete('rig')
+                    
         return result
                             
     def _makeRig(self, namer, bndJnts, rigCtls):
@@ -1022,7 +1061,8 @@ class Root(Widget):
 
         
 WidgetRegistry().register(Root, 'Root', 'The widget under which all others should be parented')
-        
+
+
 #TODO:  COG needs to catch child nodes with 'cog' category
 class CenterOfGravity(Widget):
     def __init__(self, part='cog', **kwargs):
@@ -1085,6 +1125,7 @@ class CenterOfGravity(Widget):
         self.registerControl('body', bodyCtl, ctlType='rig')
         self.registerControl('pivot', pivotCtl, ctlType='rig')
         self.registerControl('cog', cogCtl, ctlType='rig')
+
         
     def _makeRig(self, namer, bndJnts, rigCtls):
         #set up the positions of the controls
@@ -1138,16 +1179,21 @@ class RigModel(QtCore.QAbstractItemModel):
         self.root = Root()
         self.headers = ['Part', 'Side', 'Parent Part', 'Class', 'Mirrored']
         self._mimeDataWidgets = []
-        self.connect(self.root, QtCore.SIGNAL('addedChildToHierarchy'), 
-                     self._addedChild)
-        self.connect(self.root, QtCore.SIGNAL('removedChildFromHierarchy'), 
-                     self._removedChild)
+        self.root.subscribe('addedChild', self._addedChild)
+        self.root.subscribe('removedChild', self._removedChild)
         
-    def _addedChild(self, parent, child):
+    def _addedChild(self, event):
+        parent = event.parent
+        child = event.child
+        
         _logger.debug("Added child %r under parent %s" % (child, parent))
         #TODO: make this add rows
         self.reset()
-    def _removedChild(self, parent, child):
+        
+    def _removedChild(self, event):
+        parent = event.parent
+        child = event.child
+        
         _logger.debug("Removed child %r under parent %s" % (child, parent))
         #TODO: make this rm rows
         self.reset()

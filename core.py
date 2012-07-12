@@ -113,6 +113,7 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
+
 class OptionCollection(Observable):
     def __init__(self, parent=None):
         '''
@@ -229,15 +230,16 @@ class OptionCollection(Observable):
 
 class TreeItem(Observable):
     """
-    A tree item.
+    An object that may have children and a parent. Tree items form a directed acyclical graph.
 
     Tree items must define their available plugs.  When children are added, they are added
     to a particular plug in the parent item.  Plugs must be configured on the TreeItem instances
     before children are added.
         
-    The root tree item may have a null     plug ("").  As soon as the item is not a root, this null
+    The root tree item may have a null plug ("").  As soon as the item is not a root, this null
     plug is removed.
-    """    
+    """
+    
     def __init__(self, plugs=[]):
         super(TreeItem, self).__init__()
         
@@ -275,11 +277,11 @@ class TreeItem(Observable):
         return node
     
     def addedChild(self, child):
-        """Callback when a child is added"""
+        """Can be overridden by subclasses to customize behvaior after a child is added"""
         
         
     def removedChild(self, child):
-        """Callback after a child is removed"""
+        """Can be overridden by subclassed to customize behavior after a child is removed"""
         
      
     def addChild(self, child, plug=""):        
@@ -339,12 +341,14 @@ class TreeItem(Observable):
         return child
     
     def plugOfChild(self, child): return self.__childPlugs[self.childIndex(child)]
+    
     def setChildPlug(self, child, plug):
         if plug not in self.plugs():
             _logger.warning("invalid plug '%s'" % plug)
             return False
         index = self.childIndex(child)
         self.__childPlugs[index] = plug
+
         
 class Widget(TreeItem):
     '''
@@ -450,8 +454,7 @@ class Widget(TreeItem):
                 if other:
                     other._mirroring = ''
                 self._mirroring = ''
-            
-                
+
     def __validateChildSettings(self):
         """
         Validate that all options are appropriately set before doing a build
@@ -510,7 +513,8 @@ class Widget(TreeItem):
     def __str__(self):
         return "%s('%s')" % \
                (self.__class__.__name__, self.name())
-    
+
+    #todo:  remove this from the class.  Call it with a bindJoints arg
     @BuildCheck('layoutBuilt')
     def duplicateBindJoints(self, oriented=True):
         """
@@ -774,7 +778,7 @@ class Widget(TreeItem):
         self._differs['rig'].applyDiffs(rigDiffs)
         self._differs['layout'].applyDiffs(layoutDiffs)
 
-    
+        
     def setNodeCateogry(self, node, category):
         '''
         Add a node to a category.  This is used by the parenting
@@ -796,7 +800,7 @@ class Widget(TreeItem):
         if status not in  ['handled', 'unhandled']:
             raise utils.BeingsError("Invalid status '%s'" % status)         
         status = self._nodeStatus[node] = status
-        
+
     def buildRig(self, altDiffs=None, returnBeforeBuild=False, skipCallbacks=False):
         """build the rig
         @param altDiffs=None: Use the provided diff dict instead of the internal diffs

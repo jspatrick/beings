@@ -28,3 +28,4 @@ def addNodeCategory(node, category):
     """
     Add a category tag to a node
     """
+    pass

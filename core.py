@@ -10,6 +10,7 @@ import beings.utils as utils
 
 from beings.utils.Naming import Namer
 from beings.observer import Observable
+from beings.options import OptionCollection
 
 import utils.NodeTagging as NT
 
@@ -112,120 +113,6 @@ class BuildCheck(object):
         new.__doc__   = method.__doc__
         new.__dict__.update(method.__dict__)
         return new
-
-
-class OptionCollection(Observable):
-    def __init__(self, parent=None):
-        '''
-        A collection of options
-        '''
-        super(OptionCollection, self).__init__()
-        
-        self.__options = {}
-        self.__presets = {}
-        self.__rules = {}
-        self.__optPresets = {}
-        self.__defaults = {}
-    
-    def addOpt(self, optName, defaultVal, optType=str, **kwargs):        
-        """
-        @event optionAdded: optName(str)
-        """
-        self.__options[optName] = optType(defaultVal)
-        self.__defaults[optName] = optType(defaultVal)        
-        self.__rules[optName] = {'optType': optType}        
-        self.__rules[optName] = {'provided': kwargs.get('provided', False)}
-        self.__rules[optName] = {'min': kwargs.get('min', None)}
-        self.__rules[optName] = {'max': kwargs.get('max', None)}
-        presets = kwargs.get('presets')
-        if presets:
-            self.setPresets(optName, *presets)
-        if not kwargs.get('quiet'):
-            self.notify('optionAdded', optName=optName)
-        
-    def _checkName(self, optName):
-        if optName not in self.__options:
-            raise utils.BeingsError("Invalid option %s") % optName
-        
-    def setRule(self, opt, rule, value):
-        currentVal = self.__rules[opt].get(rule, None)
-        if currentVal is None:
-            raise utils.BeingsError("Invalid rule %s" % rule) 
-        
-    def setPresets(self, optName, *args, **kwargs):
-        self._checkName(optName)
-        replace = kwargs.get('replace', False)        
-        if replace:
-            self.__presets[optName] = set(args)
-        else:
-            presets = self.__presets.get(optName, set([]))
-            presets = presets.union(args)
-            self.__presets[optName] = presets
-            
-    def getPresets(self, optName):        
-        self._checkName(optName)
-        r = self.__presets.get(optName, None)
-        if r:            
-            return sorted(list(r))
-        else:
-            return None
-    
-    def getValue(self, optName):
-        self._checkName(optName)
-        return self.__options[optName]
-    
-    def setValue(self, optName, val, quiet=False):
-        """
-        @event optAboutToChange: optName(str), oldVal(str), newVal(str)
-        @event optSet: optName(str), newVal(str)
-        @event optChanged: optName(str), oldVal(str), newVal(str)
-        """
-        self._checkName(optName)
-        changed=False
-        if val != self.__options[optName]:
-            changed = True
-        oldVal = self.__options[optName]
-        
-        if not quiet:            
-            if changed:
-                self.notify('optAboutToChange', optName=optName, oldVal=oldVal, newVal=val)
-
-        #validate the new value
-        presets = self.getPresets(optName)
-        if presets and val not in presets:
-            raise ValueError('Invalid value "%r"' % val)
-        min_ = self.__rules[optName].get('min', None)
-        max_ = self.__rules[optName].get('max', None)
-        if min_ is not None and val < min_:
-            raise ValueError('Minimum val is %; got %s' % (min_, val))
-        if max_ is not None and val > max:
-            raise ValueError('Maximum val is %; got %s' % (max_, val))
-            
-        self.__options[optName] = val
-        
-        if not quiet:
-            self.notify('optSet', optName=optName, newVal=val)
-            if changed:
-                self.notify('optChanged', optName=optName, oldVal=oldVal, newVal=val)
-            
-    #TODO:  Get option data
-    def getData(self):
-        '''Return the values of all options not set to default values'''
-        return copy.deepcopy(self.__options)
-    
-    def setFromData(self, data):
-        '''
-        Set options based on data gotten from getData
-        '''
-        for opt, val in data.items():
-            self.setValue(opt, val)
-            
-    def getAllOpts(self):
-        return copy.deepcopy(self.__options)
-    
-    def setAllOpts(self, optDct):
-        for optName, optVal in optDct.items():
-            self.setValue(optName, optVal)
 
 
 class TreeItem(Observable):

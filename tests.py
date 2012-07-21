@@ -1,24 +1,36 @@
 #control
-import pymel.core as pm
-import control as CTL
-reload(CTL)
+import maya.cmds as MC
+import core as core
+from utils.Naming import Namer
+reload(core)
+import unittest
 
-pm.newFile(force=1)
-def testMakeControl():
-    pm.newFile(f=1)
-    ctl = CTL.Control()
-    ctl.setColor('red')
-    ctl.shapeNodes()
-    pm.move(ctl.xformNode(), [5,5,5])
-    ctl.setShape('circle')
-    
 
-def testControlFromNode():
-    pm.newFile(f=1)
-    xform = pm.createNode('joint', name='testControl')
-    control = CTL.Control(xformNode=xform)
-    xform.t.set([1,4,6])
-    control.setShape('arrow', shapeType='srf')
-    control.setColor('blue')
+class TestCoreJointMethods(unittest.TestCase):
     
+    def setUp(self):
+        MC.file(newFile=1, f=1)
+        MC.select(cl=1)
+        names = ['hip', 'knee', 'ankle']
+        
+        jnts = {}
+        for i in range(3):
+            jnt = MC.joint(p=[0,i * 2, 0], name='jnt_%i' % i)
+            jnts[names[i]] = jnt
+            
+        self.names = names
+        self.jnts = jnts
+
+        self.namer = Namer(c='testchar', side='lf', part='leg')
+        
+    def test_duplicateJoints(self):
+        
+        result = core.duplicateBindJoints(self.jnts, namer)
+        
+        
+        
+def runTests():
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestCoreJointMethods)
+    unittest.TextTestRunner(verbosity=2).run(suite)
+
     

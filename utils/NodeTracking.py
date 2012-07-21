@@ -53,7 +53,7 @@ class NodeTracker(object):
             self._addedCallbackID = None
             logger.debug("deregistered node added callback")
 
-    def getObjects(self, asPyNodes=True):
+    def getObjects(self, asPyNodes=False):
         """
         Return a list of maya objects as strings.
         """

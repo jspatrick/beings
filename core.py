@@ -2,15 +2,18 @@
 The core widget and rig objects that custom widgets should inherit
 """
 import logging, re, copy, os, sys, __builtin__, json
-import pymel.core as pm
+import maya.cmds as MC
+import pymel.core as PM
 from PyQt4 import QtCore
 
-import beings.control as control
-import beings.utils as utils
+import control as control
+reload(control)
+import utils as utils
+reload(utils)
 
-from beings.utils.Naming import Namer
-from beings.observer import Observable
-from beings.options import OptionCollection
+from utils.Naming import Namer
+from observer import Observable
+from options import OptionCollection
 
 import utils.NodeTagging as NT
 
@@ -18,7 +21,6 @@ import utils.NodeTagging as NT
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
 logging.basicConfig(level=logging.INFO)
-
 
 #set up logging
 
@@ -236,6 +238,51 @@ class TreeItem(Observable):
         index = self.childIndex(child)
         self.__childPlugs[index] = plug
 
+
+
+def duplicateBindJoints(jointDict, namer, resolution='bnd'):
+    """
+    Duplicate the bind joints.  Give a new prefix
+    @param jointDict: a dict of {'jointToken', jointName}
+    @param namer: a namer object used to name the new joints
+    """
+    #check that all parents are also joints in the dict
+    reverseJointDict = {}
+    for k, v in jointDict.items():
+        reverseJointDict[v] = k
+        
+    parentToks = {} # map of joint tokens to parent joint tokens    
+    for jnt in jointDict.values():
+        par = MC.listRelatives(jnt, parent=1)
+        par = par[0] if par else None
+        parentToks[reverseJointDict[jnt]] = reverseJointDict.get(par, None)
+
+    namer.setTokens(r=resolution)
+    result = {}
+    for tok, jnt in jointDict.items():
+        MC.select(cl=1)
+        result[tok] = MC.duplicate(jnt, po=1, n=namer(tok))[0]
+        if MC.listRelatives(result[tok], parent=1):
+            MC.parent(result[tok], world=True)
+            
+        MC.makeIdentity(result[tok], r=1, t=0, s=0, n=0, apply=True)
+        
+    #do parenting
+    for key, parentKey in parentToks.items():
+        if not parentKey:
+            continue
+        parent = namer(parentKey)
+        MC.parent(result[key], parent)
+
+    newJnts = result.values()
+    for jnt in newJnts:
+        MC.makeIdentity(jnt, apply=1, t=1, r=1, s=1, n=1)
+        
+    utils.fixInverseScale(newJnts)
+    
+    return result
+
+        
         
 class Widget(TreeItem):
     '''
@@ -403,62 +450,6 @@ class Widget(TreeItem):
 
     #todo:  remove this from the class.  Call it with a bindJoints arg
     @BuildCheck('layoutBuilt')
-    def duplicateBindJoints(self, oriented=True):
-        """
-        Duplicate the bind joints.  Give a new prefix
-        """
-        #check that all parents are also joints in the dict
-        parentToks = {} # map of the orinal parent joint to the dup joint tok
-        dupJnts = [j[0] for j in self._bindJoints.values()]
-        for dupJnt, parentJnt in self._bindJoints.values():
-            
-            if not parentJnt:
-                parentToks[dupJnt] = None
-                continue
-            found=False
-            for tok, jntPair in self._bindJoints.items():
-                if parentJnt == jntPair[0]:
-                    parentToks[parentJnt] = tok
-                    found=True
-                    break
-            if not found:
-                raise utils.BeingsError("joint parent %s is not a registered joint" % parentJnt.name())
-            
-        result = {}
-        for key, jntPair in self._bindJoints.items():
-            jnt = jntPair[0]
-            name = jnt.nodeName()
-            #result[key] = pm.duplicate(jnt, po=True)[0]
-            pm.select(cl=1)
-            result[key] = pm.joint()
-            utils.snap(jnt, result[key])
-            pm.makeIdentity(result[key], r=1, t=0, s=0, n=0, apply=True)
-            #result[key].setParent(world=True)
-            result[key].rename(name) # try and name it back to the original name
-        #do parenting
-        for key, jntPair in self._bindJoints.items():
-            parentJnt = jntPair[1]
-            if not parentJnt:
-                continue
-            parentJointTok = parentToks[parentJnt]
-            result[key].setParent(result[parentJointTok])
-            
-        #rename
-        char = self.options.getValue('char')
-        side = self.options.getValue('side')
-        part = self.options.getValue('part')        
-        
-        namer = Namer(c=char, s=side, p=part, r='bnd')
-        for tok, jnt in result.items():
-            jnt.rename(namer.name(d=tok))
-        self._prepBindJoints(result)            
-        return result
-
-    def _prepBindJoints(self, jntDct):
-        '''freeze the joints  {layoutBindJntName: newBindJntPynode}'''
-        for jnt in jntDct.values():
-            pm.makeIdentity(jnt, apply=1, t=1, r=1, s=1, n=1)
-        
     def getNodes(self, category=None):
         nodes = []
         #don't warn about non-existing nodes
@@ -491,10 +482,11 @@ class Widget(TreeItem):
     
     def state(self): return self.__state
 
-    def registerBindJoint(self, name, jnt, parent=None):
+    def registerBindJoint(self, name, jnt):
         '''Register bind joints to be duplicated'''
         if name in self._bindJoints.keys():
             _logger.warning("%s is already a key in bind joints dict" % name)
+            
         def checkName(jnt):
             if isinstance(jnt, pm.PyNode):
                 jntName = jnt.name()
@@ -503,18 +495,10 @@ class Widget(TreeItem):
             if '|' in jntName or not pm.objExists(jntName):
                 raise utils.BeingsError('One and only one object may exist called %s' % jntName)
             return pm.PyNode(jnt)
+        
         jnt = checkName(jnt)
-        # if parent:
-        #     parent = checkName(parent)
-        self._bindJoints[name] = [jnt, None]
+        self._bindJoints[name] = str(jnt)
 
-        #setup parenting
-        allJnts = [jnts[0] for jnts in self._bindJoints.values()]
-        for key, jntPr in self._bindJoints.items():
-            jnt = jntPr[0]
-            par = jnt.getParent()
-            if par in allJnts:
-                self._bindJoints[key] = [jnt, par]                
 
     def registerControl(self, name, ctl, ctlType ='layout'):
         """Register a control that should be cached"""        
@@ -539,7 +523,7 @@ class Widget(TreeItem):
             if self.state() == 'layoutBuilt':
                 self.cacheDiffs()            
             self.delete()
-        
+            
         self.__validateChildSettings()
         
         side = self.options.getValue('side')
@@ -549,15 +533,30 @@ class Widget(TreeItem):
         self._bindJoints = {}
         result = None
         
-        pm.select(clear=1)
-        
+        MC.select(clear=1)
+                
         with utils.NodeTracker() as nt:
-            try:
-                result = self._makeLayout(namer)
+            topNode = MC.createNode('transform', name=self.name(), parent=None)        
+            try:                
+                result = self._makeLayout(namer)                
                 self.__state = 'layoutBuilt'
+                
             finally:
                 self._nodes = nt.getObjects()
+                
+        parentToTopNode = []
+        for node in self._nodes:
+            if not MC.objectType(node, isAType='transform'):
+                continue
+            if not MC.listRelatives(node, parent=1, pa=1) and node != topNode:                        
+                _logger.debug("Parenting %s to %s" % (node, topNode))
+                parentToTopNode.append(node)
 
+        for node in parentToTopNode:
+            MC.parent(node, topNode)
+            
+        return
+    
         #reset the differ
         for differ in self._differs.values():
             differ.setInitialState()
@@ -723,7 +722,7 @@ class Widget(TreeItem):
         #duplicate the bind joints, and delete the rest of the rig
         bndJntNodes = []
         with utils.NodeTracker() as nt:
-            jntDct = self.duplicateBindJoints()
+            jntDct = duplicateBindJoints(self._bindJoints, namer)
             bndJntNodes = nt.getObjects()
         self.delete()
         

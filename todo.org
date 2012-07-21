@@ -1,0 +1,14 @@
+* TODO Update Control Caching
+  + currently we have to specify whether to cache controls in world space, local space, etc
+
+* TODO Update node tracking within the widgets
+  currently storing PyNodes in the instance - not cool!  Object should be to query all nodes from
+  connections in the scene file
+  
+** Current types
+   + bindJoints:  key -> node within a category ('bindJoints')
+   + rigControls: key -> node within a category ('rigControls')
+   + layoutControls: key -> node within a category ('layoutControls')
+   + allNodes: a 'set' of nodes
+     - nodes within the set may be tagged
+       

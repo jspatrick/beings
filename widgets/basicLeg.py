@@ -114,8 +114,7 @@ class BasicLeg(core.Widget):
         par = utils.insertNodeAbove(heelCtl)
         pm.parentConstraint(legJoints['ball'], par, mo=True)
         
-        #FK
-        
+        #FK        
         for tok, jnt in legJoints.items():
             if tok == 'toetip':
                 continue
@@ -144,10 +143,13 @@ class BasicLeg(core.Widget):
             info = control.getInfo(oldCtl)
             control.setInfo(newCtl, control.getInfo(oldCtl))            
             utils.parentShape(newCtl, oldCtl)
+            #make sure the joint is not referenced, otherwise attrs don't show up
+            #in channel box when handle selected
+            MC.setAttr('%s.overrideDisplayType' % newCtl, 0)
             
         for tok in unusedToks:            
             ctl = fkCtls.pop(tok)
-            if set(ctl.listRelatives()).intersection(fkCtls.values()):
+            if set(MC.listRelatives(ctl) or []).intersection(fkCtls.values()):
                 _logger.warning("Warning - deleting a parent of other controls")
             pm.delete(ctl)
             #also delete the rig ctl
@@ -268,13 +270,15 @@ class BasicLeg(core.Widget):
         ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)
         
         
-        fkIkRev = utils.blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, namer)[0]
-        
-        ikCtl.fkIk.connect(fkIkRev.inputX)
-        for tok, jnt in ikJnts.items():                        
-            ikCtl.fkIk.connect(jnt.v)
+        fkIkRev = utils.blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, namer)
+        # _logger.debug("rev - %s" % fkIkRev)
+        # MC.connectAttr('%s.fkIk' % ikCtl, '%s.inputX' % fkIkRev)
+
+        for tok, jnt in ikJnts.items():
+            MC.connectAttr('%s.fkIk' % ikCtl, '%s.v' % jnt)
             if fkJnts.get(tok):
-                fkIkRev.outputX.connect(fkJnts[tok].v)
+                MC.connectAttr('%s.outputX' % fkIkRev, '%s.v' % fkJnts[tok])
+
         namer.setTokens(r='ik')
                 
         

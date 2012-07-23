@@ -5,7 +5,7 @@ RigIt tags have the following syntax:
 RITag_tagType: "key^value~key^value"
 '''
 import logging, copy
-import pymel.core as pm
+import maya.cmds as MC
 from beings.utils.Exceptions import * #@UnusedWildImport
 _logger = logging.getLogger(__name__)
 _logger.setLevel(logging.DEBUG)
@@ -14,34 +14,18 @@ TAG_PREFIX = 'beings_'
 
 def _strToDict(str_):
     return eval(str_)
-    # #it should either be empty or have at least one element
-    # if not str_:
-    #     return {}
-    # kpList = str_.split('~')
-    # #pop off an empty item at the end, if there was a hanging tilde
-    # if kpList[-1] == "":
-    #     kpList.pop()
-    # l = [item.split('^') for item in kpList]
-    # d = {}
-    # for k, v in l:
-    #     v = eval(v)
-    #     d[k] = v
-    # return d
 
 def _dictToStr(dct):
     """Set the attribute to be an encoded string of dct"""
     return repr(dct)
-    # result = ''
-    # for k, v in dct.items():
-    #     strv = repr(v)
-    #     if "^" or "~" in strv:
-    #         _logger.error('Cannot have an attr key containing ~ or ^')
-    #     result += '%s^%s~' % (k, strv)        
-    # return result
+
 
 class NodeTag(dict):
     """
     A dictionary-like object for tagging nodes
+    >>> tag = NodeTag('myCoolTag')
+    >>> tag['categories'] = ['x', 'y', 'z']
+    >>> tag.setTag(node1, node2, node3)
     """
     @classmethod
     def tagName(self, tag):
@@ -57,21 +41,23 @@ class NodeTag(dict):
         
         self._tag = self.tagName(tag)
         if node:
-            node = pm.PyNode(node)            
-            if node.hasAttr(self._tag):                
-                tagStr =getattr(node, self._tag).get()
+            node = str(node)
+            if MC.attributeQuery(self._tag, n=node, ex=1):
+                tagStr = MC.getAttr('%s.%s' % (node, self._tag), type='string')
                 self.update(_strToDict(tagStr))            
-        
+
     def _addTag(self, nodes):
         for node in nodes:
-            if not node.hasAttr(self._tag):
-                node.addAttr(self._tag, dt='string')
+            
+            if not MC.attributeQuery(self._tag, n=node, ex=1):
+                MC.addAttr(node, ln=self._tag, dt='string')
                 
     def setTag(self, *nodes):
-        nodes = [pm.PyNode(n) for n in nodes]
+        nodes = [str(n) for n in nodes]
         self._addTag(nodes)
         for node in nodes:
-            getattr(node, self._tag).set(_dictToStr(self))
+            MC.setAttr('%s.%s' (node, self._tag), _dictToStr(self), type='string')
+
 
 class ControlTag(NodeTag):
     """
@@ -82,11 +68,12 @@ class ControlTag(NodeTag):
                  'uk': 'unlockedKeyable',
                  'uu': 'unlockedUnkeyable'}
     CONTROL_TAG = 'control'
+    
     @classmethod
     def getControls(cls, root):
         '''Get all nodes under root that are controls'''        
-        all = set(pm.ls("*.%s" % cls.tagName(cls.CONTROL_TAG), o=1))
-        all.intersection_update(pm.listRelatives(root, ad=1, pa=1) + [root])
+        all = set(MC.ls("*.%s" % cls.tagName(cls.CONTROL_TAG), o=1) or [])
+        all.intersection_update(MC.listRelatives(root, ad=1, pa=1) or [] + [root])
         return list(all)
     
     def __init__(self, node=None, dct=None):
@@ -112,17 +99,18 @@ class ControlTag(NodeTag):
             if not isinstance(item, basestring):
                 _logger.warning("Invalid attr %r - not a string" % item)
                 return False
-        return True        
-
+        return True
+    
+    #TODO:continue fixing node tags
     @classmethod
     def setLocks(cls, *nodes):
         """Set attribute locks on nodes"""
         for node in nodes:
             notSet =['message', 'translate', 'rotate', 'scale', 'rotatePivot', 'scalePivot', 'rotateAxis', 'selectHandle']
-            for a in pm.listAttr(node, k=1):
+            for a in MC.listAttr(node, k=1):
                 if a in notSet:
                     continue
-                a = pm.PyNode('%s.%s' % (node.name(), a))
+                a = '%s.%s' % (node, a)
                 try:
                     a.setLocked(True)
                     a.setKeyable(False)
@@ -193,14 +181,12 @@ def getTaggedNodesTags(nodeList, tag, getChildren=True):
     @return dict: {PyNode: NodeTag,...}
     """
     #__enforceTags(tag)
-    nodeList = [pm.PyNode(node) for node in nodeList]
+    nodeList = [str(node) for node in nodeList]
     parseList = copy.copy(nodeList)
     if getChildren:
         for node in nodeList:
             try:
-                rels = node.listRelatives(ad=True)
-            except RuntimeError:
-                rels = []                
+                rels = MC.listRealtives(node, ad=1, pa=1) or []            
             parseList.extend([node for node in rels if node not in parseList])
 
     result = {}

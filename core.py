@@ -23,13 +23,14 @@ _logger.setLevel(logging.DEBUG)
 logging.basicConfig(level=logging.INFO)
 
 #set up logging
-
+        
 class BeingsFilter(logging.Filter):
     def __init__(self, name=''):
         logging.Filter.__init__(self, name=name)
     def filter(self, record):
         '''Add contextual info'''
-        msg = '[function: %s: line: %i] : %s' % (record.funcName, record.lineno, record.msg)
+        msg = '[function: %s: line: %i] : %s' % \
+              (record.funcName, record.lineno, record.msg)
         record.msg= msg
         return True
     
@@ -119,13 +120,17 @@ class BuildCheck(object):
 
 class TreeItem(Observable):
     """
-    An object that may have children and a parent. Tree items form a directed acyclical graph.
+    An object that may have children and a parent.
+    Tree items form a directed acyclical graph.
 
-    Tree items must define their available plugs.  When children are added, they are added
-    to a particular plug in the parent item.  Plugs must be configured on the TreeItem instances
+    Tree items must define their available plugs.
+    When children are added, they are added
+    to a particular plug in the parent item.
+    Plugs must be configured on the TreeItem instances
     before children are added.
         
-    The root tree item may have a null plug ("").  As soon as the item is not a root, this null
+    The root tree item may have a null plug ("").
+    As soon as the item is not a root, this null
     plug is removed.
     """
     
@@ -166,11 +171,13 @@ class TreeItem(Observable):
         return node
     
     def addedChild(self, child):
-        """Can be overridden by subclasses to customize behvaior after a child is added"""
+        """Can be overridden by subclasses to customize behvaior after a
+        child is added"""
         
         
     def removedChild(self, child):
-        """Can be overridden by subclassed to customize behavior after a child is removed"""
+        """Can be overridden by subclassed to customize behavior after a child
+        is removed"""
         
      
     def addChild(self, child, plug=""):        
@@ -257,7 +264,10 @@ def duplicateBindJoints(jointDict, namer, resolution='bnd'):
         par = par[0] if par else None
         parentToks[reverseJointDict[jnt]] = reverseJointDict.get(par, None)
 
+    #store so we can reset it
+    origResTok = namer.getToken('r')
     namer.setTokens(r=resolution)
+    
     result = {}
     for tok, jnt in jointDict.items():
         MC.select(cl=1)
@@ -274,16 +284,38 @@ def duplicateBindJoints(jointDict, namer, resolution='bnd'):
         parent = namer(parentKey)
         MC.parent(result[key], parent)
 
+    #freeze joints
     newJnts = result.values()
     for jnt in newJnts:
         MC.makeIdentity(jnt, apply=1, t=1, r=1, s=1, n=1)
-        
+    
     utils.fixInverseScale(newJnts)
+
+    #reset tokens
+    namer.setTokens(r=origResTok)
     
     return result
 
-        
-        
+
+
+def _addControlToDisplayLayer(ctl, layer):
+    if layer not in ['layout', 'rig']:
+        raise RuntimeError("invalid layer")
+    lyrName = '%s_ctl_lyr' % layer
+    if not MC.objExists(lyrName):
+        MC.createDisplayLayer(name=lyrName, empty=True)
+
+    for shape in control.getShapeNodes(ctl):
+        shape = str(shape)
+        #do manual connection so we can keep the control colors        
+        MC.connectAttr('%s.displayType' % lyrName,
+                       '%s.overrideDisplayType' % shape)
+        MC.connectAttr('%s.visibility' % lyrName,
+                       '%s.overrideVisibility' % shape)
+        MC.connectAttr('%s.enabled' % lyrName,
+                       '%s.overrideEnabled' % shape)
+
+
 class Widget(TreeItem):
     '''
     A tree item that builds things in Maya.
@@ -295,9 +327,9 @@ class Widget(TreeItem):
     via a childCompletedBuild method.  Parents can then query children
     on the nodes they have built, and parent these nodes into their
     hierarchies.
-
     
     '''
+
     BUILD_TYPES = ['layout', 'rig']
     VALID_NODE_CATEGORIES = ['master', 'dnt', 'cog', 'parent', 'ik']
     def __init__(self, part='widget', plugs=None):
@@ -345,10 +377,10 @@ class Widget(TreeItem):
         super(Widget, self).removedChild(child)
         
     def addParentPart(self, part): self.addPlug(part)
-    def setParentNode(self, part, node):
+    def setParentNode(self, part, node):        
         if part not in self.plugs():
             raise RuntimeError("invalid plug '%s'" % part)
-        self.__plugNodes[part] = node
+        self.__plugNodes[part] = str(node)
         
     def plugNode(self, plug):
         return self.__plugNodes.get(plug, None)
@@ -426,7 +458,7 @@ class Widget(TreeItem):
              
             for node in child.getNodes('parent'):
                 utils.fixInverseScale([node])
-                node.setParent(parentNode)
+                MC.parent(node, parentNode)
                     
     def parentCompletedBuild(self, parent, buildType):
         if buildType == 'layout':
@@ -449,7 +481,7 @@ class Widget(TreeItem):
                (self.__class__.__name__, self.name())
 
     #todo:  remove this from the class.  Call it with a bindJoints arg
-    @BuildCheck('layoutBuilt')
+    @BuildCheck('layoutBuilt', 'rigBuilt')
     def getNodes(self, category=None):
         nodes = []
         #don't warn about non-existing nodes
@@ -458,7 +490,8 @@ class Widget(TreeItem):
                 if category not in self._nodeCategories.keys():
                     raise utils.BeingsError("Invalid category %s" % category)
                 #return a copy of the list
-                nodes = [n for n in self._nodeCategories[category] if pm.objExists(n)]
+                print self._nodeCategories[category]
+                nodes = [n for n in self._nodeCategories[category] if MC.objExists(n)]
                 self._nodeCategories[category] = copy.copy(nodes) # set it to the existing objs
 
                 if category == 'parent':
@@ -467,15 +500,15 @@ class Widget(TreeItem):
                         otherCategoryNodes.update(grp)
 
                     for n in self.getNodes():
-                        if isinstance(n, pm.nt.DagNode) and not n.getParent():
+                        if MC.objectType(n, isAType='transform') and not MC.listRelatives(n, parent=1):
                             if n not in otherCategoryNodes:
                                 _logger.warning("Directly parenting uncategoried top-level node '%s'"\
-                                                % n.name())
-                                nodes.append(n)                                
+                                                % n)
+                                nodes.append(n)
 
             else:
                 nodes = self._nodes
-                nodes = [n for n in nodes if pm.objExists(n)]
+                nodes = [n for n in nodes if MC.objExists(n)]
                 self._nodes = copy.copy(nodes)
             
         return nodes
@@ -488,16 +521,13 @@ class Widget(TreeItem):
             _logger.warning("%s is already a key in bind joints dict" % name)
             
         def checkName(jnt):
-            if isinstance(jnt, pm.PyNode):
-                jntName = jnt.name()
-            else:
-                jntName = jnt
-            if '|' in jntName or not pm.objExists(jntName):
-                raise utils.BeingsError('One and only one object may exist called %s' % jntName)
-            return pm.PyNode(jnt)
+            
+            if '|' in jnt or not MC.objExists(jnt):
+                raise utils.BeingsError('One and only one object may exist called %s' % jnt)
+            jnt
         
-        jnt = checkName(jnt)
-        self._bindJoints[name] = str(jnt)
+        checkName(jnt)
+        self._bindJoints[name] = jnt
 
 
     def registerControl(self, name, ctl, ctlType ='layout'):
@@ -508,15 +538,8 @@ class Widget(TreeItem):
             ctlDiffer.addObj(name, ctl, skip=['worldMatrix'])
         else:
             ctlDiffer.addObj(name, ctl)
-        #add to display layer
-        globalNode = control.layoutGlobalsNode()
-        if ctlType == 'layout':
-            #for shape in control.getShapeNodes(ctl):                
-            globalNode.layoutControlVis.connect(ctl.v)
-        elif ctlType == 'rig':
-            ###for shape in control.getShapeNodes(ctl):                
-            globalNode.rigControlVis.connect(ctl.v)
-
+            
+        _addControlToDisplayLayer(ctl, ctlType)
     
     def buildLayout(self, useCachedDiffs=True, altDiffs=None, children=True):
         if self.state() != 'unbuilt':
@@ -543,37 +566,39 @@ class Widget(TreeItem):
                 
             finally:
                 self._nodes = nt.getObjects()
-                
+
+        #parent all nodes under a single group
         parentToTopNode = []
         for node in self._nodes:
             if not MC.objectType(node, isAType='transform'):
                 continue
             if not MC.listRelatives(node, parent=1, pa=1) and node != topNode:                        
-                _logger.debug("Parenting %s to %s" % (node, topNode))
                 parentToTopNode.append(node)
 
         for node in parentToTopNode:
             MC.parent(node, topNode)
             
-        return
     
         #reset the differ
         for differ in self._differs.values():
             differ.setInitialState()
- 
-        for jntPr in self._bindJoints.values():
-            node = jntPr[0]
-            node.overrideEnabled.set(1)
-            node.overrideDisplayType.set(2)
+
+        #set all bind joints to be referenced nodes so we can't
+        #select them directly
+        for jnt in self._bindJoints.values():
+            MC.setAttr('%s.overrideEnabled' % jnt, 1)
+            MC.setAttr('%s.overrideDisplayType' % jnt, 2)
             
         if altDiffs is not None:
             self.applyDiffs(altDiffs)
         elif useCachedDiffs:
             self.applyDiffs(self._cachedDiffs)
-        
+
+        #build all children
         if children:
             for child in self.children():
                 child.buildLayout()
+                
         #notify relatives build finished
         self.__notifyBuildComplete('layout')
         
@@ -611,8 +636,8 @@ class Widget(TreeItem):
         #silence the pymel logger or it's pretty noisy about missing nodes
         with utils.SilencePymelLogger():
             for node in self.getNodes():
-                if pm.objExists(node):
-                    pm.delete(node)
+                if MC.objExists(node):
+                    MC.delete(node)
         self._nodes = []
         self.__plugNodes = {}
         self._otherNodes = {}        
@@ -673,7 +698,8 @@ class Widget(TreeItem):
         '''
         if category not in self._nodeCategories.keys():
             raise utils.BeingsError("invalid category %s" % category)
-        self._nodeCategories[category].append(node)
+        
+        self._nodeCategories[category].append(str(node))
     
     #TODO:  Move node statuses and categories into a new class - this one is
     #way too big.
@@ -705,9 +731,10 @@ class Widget(TreeItem):
                 self.buildLayout(altDiffs=altDiffs)
             else:
                 self.cacheDiffs()
+
         #this seems to be a bug - if refresh isn't called, there is some odd behavior when things
         #are dupicated
-        pm.refresh()
+        MC.refresh()
         
         namer = Namer()
         namer.setTokens(c=self.options.getValue('char'),
@@ -726,9 +753,9 @@ class Widget(TreeItem):
             bndJntNodes = nt.getObjects()
         self.delete()
         
-        #rename the joints according to the tokens they were registered with
-        for tok, jnt in jntDct.items():
-            jnt.rename(namer.name(d=tok, r='bnd'))
+        # #rename the joints according to the tokens they were registered with
+        # for tok, jnt in jntDct.items():
+        #     jnt.rename(namer.name(d=tok, r='bnd'))
             
         with utils.NodeTracker() as nt:            
             #re-create the rig controls
@@ -747,7 +774,7 @@ class Widget(TreeItem):
             nodes = nt.getObjects()
             nodes.extend(bndJntNodes)
             with utils.SilencePymelLogger():
-                self._nodes = [n for n in nodes if pm.objExists(n)]
+                self._nodes = [n for n in nodes if MC.objExists(n)]
             
         #Check that the rig was created properly
         for plug in self.plugs():
@@ -830,7 +857,7 @@ class Widget(TreeItem):
 
                 for attr in direct:
                     try:
-                        pm.connectAttr('%s.%s' % (thisCtl, attr),
+                        MC.connectAttr('%s.%s' % (thisCtl, attr),
                                        '%s.%s' % (otherCtl, attr))
                     except RuntimeError:
                         pass
@@ -842,19 +869,20 @@ class Widget(TreeItem):
                     toAttr = '%s.%s' % (otherCtl, attr)
                     char = self.options.getValue('char')
                     side = self.options.getValue('char')
-                    mdn = pm.createNode('multiplyDivide',
+                    mdn = MC.createNode('multiplyDivide',
                                         n=namer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
 
-                    mdn.input2X.set(-1)
-                    mdn.operation.set(1)
-                    pm.connectAttr(fromAttr, mdn.input1X)
+                    MC.setAttr('%s.input2X' % mdn, -1)
+                    MC.setAttr('%s.opreatinon' % mdn, 1)
+
+                    MC.connectAttr(fromAttr, '%s.input1X' % mdn)
                     try:
-                        pm.connectAttr(mdn.outputX, toAttr)                    
+                        MC.connectAttr('%s.outputX' % mdn, toAttr)
                     except RuntimeError:
-                        pm.delete(mdn)                
+                        MC.delete(mdn)
                     except Exception, e:
                         _logger.warning("Error during connection: %s" % str(e))
-                        pm.delete(mdn)
+                        MC.delete(mdn)
                     else:
                         self._nodes.append(mdn)
 
@@ -1022,7 +1050,7 @@ class CenterOfGravity(Widget):
         
         ctlToks = rigCtls.keys()
 
-        bndJnts['cog'].setParent(None)
+        #MC.parent(bndJnts['cog'], world=True)
 
         for tok in ['body', 'pivot', 'cog']:
             #snap the nodes to the cog but keep the shape positions

@@ -7,6 +7,7 @@ import pymel.core as pm
 import maya.cmds as MC
 from beings.utils.Exceptions import * #@UnusedWildImport
 _logger = logging.getLogger(__name__)
+_logger.setLevel(logging.DEBUG)
 
 g_xformShortAttrs = ['tx', 'ty', 'tz', 'rx', 'ry', 'rz', 'sx', 'sy', 'sz']
 g_xformLongAttrs = ['translateX', 'translateY', 'translateZ',
@@ -184,43 +185,37 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer):
     
     @return: the reverse node created
     """
-    result = []
     reverse = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
-    result.append(reverse)
+
     fkIkAttr.connect(reverse.inputX)
     
     fkJntList = []
     ikJntList = []
     bindJntList = []
     
-    if isinstance(bindChain, dict):
+    if isinstance(fkChain, dict):
         for tok in bindChain.keys():
             if (tok not in fkChain) or (tok not in ikChain):
                 _logger.debug("Skipping blending %s" % tok)
                 continue
-            bindJntList = bindChain[tok]
-            fkJntList = fkChain[tok]
-            ikJntList = ikChain[tok]
-    else:
-        fkJntList = fkChain
-        ikJntList = ikChain
-        bindJntList = bindChain
-        
-
+            bindJntList.append(bindChain[tok])
+            fkJntList.append(fkChain[tok])
+            ikJntList.append(ikChain[tok])
+    
     for i in range(len(bindJntList)):
-
+        
         for cstType in ['point', 'orient', 'scale']:
             
             fnc = getattr(pm, '%sConstraint' % cstType)
             cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])                
-            fkAttr = getattr(cst, '%sW0' % fkJntList[i].nodeName())
-            ikAttr = getattr(cst, '%sW1' % ikJntList[i].nodeName())
+            fkAttr = getattr(cst, '%sW0' % fkJntList[i])
+            ikAttr = getattr(cst, '%sW1' % ikJntList[i])
             reverse.outputX.connect(fkAttr)
             fkIkAttr.connect(ikAttr)
             
             fixJointConstraints(bindJntList[i])
 
-    return result
+    return reverse
 
 def freeze(*args):
     """
@@ -767,16 +762,20 @@ def dupJntDct(dct, oldNamePart, newNamePart):
     result = {}
     parents = {}
     for tok, jnt in dct.items():
-        origName = jnt.nodeName()
-        newName = re.sub(oldNamePart, newNamePart, origName)        
-        result[tok] = pm.duplicate(jnt, parentOnly=1, n=newName)[0]
-        parent = jnt.getParent()
+        newName = re.sub(oldNamePart, newNamePart, jnt)
+        result[tok] = MC.duplicate(jnt, parentOnly=1, n=newName)[0]
+        
+        parent = MC.listRelatives(jnt, parent=1)
+        parent = parent[0] if parent else None
+        
         for tok2, par in dct.items():
             if par == parent:
                 parents[tok] = tok2
     for childTok, parentTok in parents.items():
-        result[childTok].setParent(result[parentTok])
+        MC.parent(result[childTok], (result[parentTok]))
+        
     fixInverseScale(result.values())
+    
     return result
 
 def makeJntChain(char, widgetName, side, namePosList):

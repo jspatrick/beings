@@ -39,10 +39,10 @@ differ.getDiffs()
 
 import logging, sys, copy, json
 import pymel.core as pm
-import maya.mel as mm
-import maya.cmds as mc
+import maya.mel as MM
+import maya.cmds as MC
 
-import beings.utils as utils
+import utils
 
 logging.basicConfig(level=logging.DEBUG)
 _logger = logging.getLogger(__name__)
@@ -91,9 +91,9 @@ COLOR_MAP = {'null':0,
 SHAPE_ORDER_TAG = 'shapeOrder'
 
 def _argHandleData(**kwargs):
-    '''
+    """
     Return a default handle data dict, modified by any kwards matching keys in _handleData
-    '''
+    """
     result = kwargs.get('handleData', None)
     if result is None:        
         result = copy.deepcopy(_handleData)
@@ -115,67 +115,70 @@ def _argHandleData(**kwargs):
 def _modHandleData(xform, **kwargs):
     nodeData = eval(pm.getAttr('%s.%s' % (xform, INFO_ATTR)))
     return _argHandleData(handleData=nodeData, **kwargs)
-    
-def getShapeNodes(xform):
-    """
-    Return a list of shapes
-    """
-    
-    nodes = xform.listRelatives(shapes=1)
-    return [n for n in nodes if isinstance(n, pm.nt.GeometryShape)]
+
 
 def _setColor(xform, color):
     if color not in COLOR_MAP:
         _logger.warning("invalid color '%s'" % color)
         return
     
-    for shape in getShapeNodes(xform):
-        shape.overrideEnabled.set(1)
-        shape.overrideColor.set(COLOR_MAP[color])
+    result = []
+    for shape in (MC.listRelatives(xform, pa=1, type='geometryShape') or []):
+
+        MC.setAttr('%s.overrideEnabled' % shape, 1)
+        MC.setAttr('%s.overrideColor' % shape, COLOR_MAP[color])
+        result.append(shape)
+        
+    return result
 
 INFO_ATTR = 'beingsControlInfo'
+
 def getInfo(control):
     return eval(pm.getAttr('%s.%s' % (control, INFO_ATTR)))
 
 def setInfo(control, info):
-    if not control.hasAttr(INFO_ATTR):
-        control.addAttr(INFO_ATTR, dt='string')
+    control = str(control)
+    if not MC.attributeQuery(INFO_ATTR, n=control, ex=1):
+        MC.addAttr(control, ln=INFO_ATTR, dt='string')
     if type(info) == dict:
         info = repr(info)
-    pm.setAttr('%s.%s' % (control, INFO_ATTR), info)
-    
-def makeControl(xform=None, xformType='transform', name=None, force=False, **kwargs):
-    '''
+    MC.setAttr('%s.%s' % (control, INFO_ATTR), info, type='string')    
+
+def isControl(name): pass
+def setControlProperties(name, **kwargs):
+def makeControl(name, xformType=None, **kwargs):
+    """
     Create a control object
-    @param xform=None:  use this xform instead of creating a new one
-    @param xformType='joint': if creating a new xform, use this node type
-    @param name=None:  name of the new node
-    @param force=False:  if the node is already a control, force it to rebuild with
-        default kwargs.  Otherwise, the current shapes info is used to build, and
-        kwargs will override the current attrs
-    '''
-    if not xform:
-        if not name:
-            #get a generic name; make sure it's unique
-            _logger.warning("Creating control with generic name!")
-            i=1
-            name = 'beings_control%i' % i
-            while len(pm.ls(name)):
-                i+=1
-                name = 'beings_control%i' % i
-                
-        xform = pm.createNode(xformType, n=name)
+    @param name: the control name
+    @param xformType: if creating a new xform, use this node type.  Defaults
+    to transform
+    @keyword pos: offset the position of the handle shape.  
+    @keyword rot: offset the rotation of the handle shape.  
+
+    @note: offsets are applied in the control xform's local space
+    @raise RuntimeError: if the control exists, and xformType is supplied but does
+    not match the current node's xform type
+    """
+
+    #see if the object exists, and create it if not
+    if MC.objExists(name):
+        if xformType and xformType != MC.objectType(name):
+            raise RuntimeError('control exists and is not of type %s' % xformType)
     
     else:
-        xformType = pm.nodeType(xform)
-        xform = pm.PyNode(xform)
-    
+        if not xformType:
+            xformType = 'transform'
+            
+        MC.createNode(xformType, name=name, parent=None)
+        
     #delete any shapes that exist
     for shape in xform.listRelatives(type='geometryShape'):
         pm.delete(shape)
+
     tmpXform = pm.createNode('transform', n='TMP')
     
     #create an attribute to store handle info
+    
     if not xform.hasAttr(INFO_ATTR):
         xform.addAttr(INFO_ATTR, dt='string')    
         handleData = _argHandleData(**kwargs)
@@ -191,10 +194,10 @@ def makeControl(xform=None, xformType='transform', name=None, force=False, **kwa
     #create the shape according to the handleData
     with utils.NodeTracker() as nt:
         shapeFunc()
-        
-        shapes = [n for n in nt.getObjects() if \
+
+        shapes = [n for n in nt.getObjects(asPyNodes=True) if \
                   isinstance(n, pm.nt.GeometryShape) and n.exists()]
-        xforms = [n for n in nt.getObjects() if \
+        xforms = [n for n in nt.getObjects(asPyNodes=True) if \
                   isinstance(n, pm.nt.Transform) and n.exists()]
         
         _logger.debug('Shapes: %s' % shapes)
@@ -252,8 +255,8 @@ def bbScale(shape, freeze=True):
         pm.makeIdentity(shape, apply=True, r=0, s=1, t=0, n=0)
 
 def snapKeepShape(target, ctl, scaleTo1=True, **kwargs):
-    '''Snap the xform but retain the shape
-    @param scaleTo1=True - scale the xform to 1 before snapping'''
+    """Snap the xform but retain the shape
+    @param scaleTo1=True - scale the xform to 1 before snapping"""
     shapes = getShapeNodes(ctl)
     tmpXform = pm.createNode('transform', n='TMP')
     utils.parentShape(tmpXform, ctl, deleteChildXform=False)
@@ -315,10 +318,10 @@ def _getStateDct(node):
 
 
 def getRebuildData(ctlDct):
-    '''
+    """
     Get data to rebuild all controls in the differ in worldSpace
     @param ctlDct: dict of {ctlName: ctlNode}    
-    '''
+    """
     result = {}
     for ctlName, ctl in ctlDct.items():
         result[ctlName] = _getStateDct(ctl)
@@ -328,10 +331,10 @@ def getRebuildData(ctlDct):
 
 
 def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=False):
-    '''
+    """
     Rebuild controls in world space
     @param prefix=None: apply this prefix to node names of controls    
-    '''
+    """
     ctlData = copy.deepcopy(ctlData)
     result = {}
 
@@ -655,13 +658,13 @@ def makeShape_square():
 def makeShape_circle():
     return pm.circle(nr=[0, 1, 0], sw=360, d=3, s=12)[0]
 def makeShape_triangle():
-    return mm.eval('curve -d 1 -p 0 0 1 -p -0.866 0 -0.5 -p 0.866 0 -.5 -p 0 0 1  -k 0 -k 1 -k 2 -k 3 ;')
+    return MM.eval('curve -d 1 -p 0 0 1 -p -0.866 0 -0.5 -p 0.866 0 -.5 -p 0 0 1  -k 0 -k 1 -k 2 -k 3 ;')
 
 def makeShape_cross():
-    crv = pm.PyNode(mm.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
+    crv = pm.PyNode(MM.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
     
 def makeShape_cross3d():
-    crv = pm.PyNode(mm.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
+    crv = pm.PyNode(MM.eval('curve -d 1 -p -1 0 -5 -p 1 0 -5 -p 1 0 -1 -p 5 0 -1 -p 5 0 1 -p 1 0 1 -p 1 0 5 -p -1 0 5 -p -1 0 1 -p -5 0 1 -p -5 0 -1 -p -1 0 -1 -p -1 0 -5 -k 0 -k 1 -k 2 -k 3 -k 4 -k 5 -k 6 -k 7 -k 8 -k 9 -k 10 -k 11 -k 12 ;'))
     crv.s.set([0.2,0.2,0.2])
     dup = pm.duplicate(crv)[0]
     dup.rx.set(90)
@@ -676,8 +679,8 @@ def makeShape_jack():
 
 def makeShape_layoutGlobals():
     pm.circle(normal=[0,1,0], r=2)
-    mm.eval('curve -d 3 -p -1.169488 0 0.463526 -p -0.958738 0 0.971248 -p -0.421459 0 1.196944 -p 0.271129 0 1.255888 -p 0.994735 0 1.004275 -p 1.168226 0 0.417207 -k 0 -k 0 -k 0 -k 1 -k 2 -k 3 -k 3 -k 3 ;')
-    crv = mm.eval('curve -d 3 -p 0.81419 0 -1.322437 -p 1.084855 0 -1.105855 -p 1.19143 0 -0.932901 -p 1.321428 0 -0.734364 -k 0 -k 0 -k 0 -k 1 -k 1 -k 1 ;')
+    MM.eval('curve -d 3 -p -1.169488 0 0.463526 -p -0.958738 0 0.971248 -p -0.421459 0 1.196944 -p 0.271129 0 1.255888 -p 0.994735 0 1.004275 -p 1.168226 0 0.417207 -k 0 -k 0 -k 0 -k 1 -k 2 -k 3 -k 3 -k 3 ;')
+    crv = MM.eval('curve -d 3 -p 0.81419 0 -1.322437 -p 1.084855 0 -1.105855 -p 1.19143 0 -0.932901 -p 1.321428 0 -0.734364 -k 0 -k 0 -k 0 -k 1 -k 1 -k 1 ;')
     pm.duplicate(crv)[0].sx.set(-1)
     crv = pm.circle(normal=[0,1,0], r=.25, cx=-.77, cz=-.66)[0]
     pm.duplicate(crv)[0].sx.set(-1)
@@ -691,9 +694,9 @@ def makeShape_orbit_srf():
 
     torus, tShp = pm.torus(heightRatio=0.05)
     cone1, c1Shp = pm.cone(radius=0.2, axis=[0, 0, 1])
-    mm.eval('nurbsPrimitiveCap 1 1 0')
+    MM.eval('nurbsPrimitiveCap 1 1 0')
     cone2, c2Shp = pm.cone(radius=0.2, axis=[0, 0, 1])
-    mm.eval('nurbsPrimitiveCap 1 1 0')
+    MM.eval('nurbsPrimitiveCap 1 1 0')
     cone1.ty.set(1)
     cone2.ty.set(-1)
     cone2.ry.set(180)
@@ -720,10 +723,10 @@ def makeShape_cube_srf():
 
 def makeShape_arrow_srf(length=2, coneRadius=1, tailRadius=.5):
     cone = pm.cone(ax=[0, 1, 0], r=coneRadius)[0]
-    mm.eval('nurbsPrimitiveCap 1 1 0')
+    MM.eval('nurbsPrimitiveCap 1 1 0')
     cone.ty.set(length + 1)
     cylinder = pm.cylinder(ax=[0, 1, 0], r=tailRadius, hr=float(length) / float(tailRadius))[0]
-    mm.eval('nurbsPrimitiveCap 3 1 1')
+    MM.eval('nurbsPrimitiveCap 3 1 1')
     cylinder.ty.set(float(length) / 2)
 
 
@@ -741,7 +744,7 @@ def getAllShapes():
     return all_shapes
 
 def layoutGlobalsNode():
-    '''Create a layout globals node'''
+    """Create a layout globals node"""
     tmp = pm.ls('being_control')
     if tmp:
         return tmp[0]

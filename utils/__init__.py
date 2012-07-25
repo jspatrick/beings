@@ -22,8 +22,6 @@ reload(Decorators)
 import NodeTracking
 reload(NodeTracking)
 
-import NodeTagging
-reload(NodeTagging)
 
 import Orientation
 reload(Orientation)
@@ -39,6 +37,5 @@ from PyUtils import *
 from Api import *
 from Decorators import *
 from NodeTracking import *
-from NodeTagging import *
 from Orientation import *
 from Naming import *

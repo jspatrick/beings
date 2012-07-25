@@ -14,8 +14,7 @@ reload(utils)
 from utils.Naming import Namer
 from observer import Observable
 from options import OptionCollection
-
-import utils.NodeTagging as NT
+import nodeTag as NT
 
 
 _logger = logging.getLogger(__name__)
@@ -906,7 +905,7 @@ class Root(Widget):
         self.options.addOpt('rigType', 'core', presets=['core'])
         
     def childCompletedBuild(self, child, buildType):
-        pm.refresh()
+        MC.refresh()
         if buildType == 'rig':
             if self.root() == self:
                 children = child.children(recursive=True) + [child]
@@ -915,7 +914,7 @@ class Root(Widget):
                     #connect input scale
                     nodeTags = utils.getTaggedNodesTags(child.getNodes(), 'uniformScaleInput', getChildren=False)
                     for node, tag in nodeTags.items():
-                        _logger.debug("Connecting uniform scale to %s" % node.name())                        
+                        _logger.info("Connecting uniform scale to %s" % node.name())                        
                         inputAttr = pm.PyNode('%s.%s' % (node.name(), tag['attr']))
                         self._otherNodes['master'].uniformScale.connect(inputAttr)
                         

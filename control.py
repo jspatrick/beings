@@ -145,7 +145,7 @@ def setInfo(control, info):
     MC.setAttr('%s.%s' % (control, INFO_ATTR), info, type='string')    
 
 def isControl(name): pass
-def setControlProperties(name, **kwargs):
+def setControlProperties(name, **kwargs): pass
 def makeControl(name, xformType=None, **kwargs):
     """
     Create a control object

@@ -1,5 +1,5 @@
 '''
-This module contains general utilities.  If a function is used in other 
+This module contains general utilities.  If a function is used in other
 utilities, it should be defined here.
 '''
 import logging, inspect, sys, re, string
@@ -18,12 +18,12 @@ def getConstraintTargets(cst):
     """
     Return a dict of {index: tagetNode}
     """
-    
+
     cst= str(cst)
     indices = MC.getAttr('%s.target' % cst, mi=1)
-    
+
     targets = {}
-    
+
     for index in indices:
         attrs = MC.attributeQuery('target', listChildren=1, n=cst)
         nonMatrixAttrs = [x for x in attrs if 'Matrix' not in x]
@@ -31,14 +31,14 @@ def getConstraintTargets(cst):
         if cnct:
             node = cnct.split('.')[0]
             targets[index] = pm.PyNode(node)
-            
+
     return targets
 
 def getConstraintSlave(cst):
-    
-    cst= str(cst)    
-    for cnct in MC.listConnections(cst, s=0, d=1, p=1):        
-        
+
+    cst= str(cst)
+    for cnct in MC.listConnections(cst, s=0, d=1, p=1):
+
         parts = cnct.split('.')
         node = parts[0]
         attr = parts[-1]
@@ -54,26 +54,26 @@ def breakCncts(attr, s=1, d=1):
         for n in MC.connectionInfo(attr, dfs=1):
             MC.disconnectAttr(attr, n)
 
-        
+
 def getScaleCompJnt(jnt):
     jnt = str(jnt)
-    
+
     par = MC.listRelatives(jnt, type='joint', parent=1)
     if not par:
         return None
-    
+
     if MC.attributeQuery('scaleCompJnt', n=jnt, ex=1):
         cnct = MC.listConnections('%s.scaleCompJnt' % jnt, s=1, d=0)
         if cnct:
             return pm.PyNode(cnct[0])
     else:
         MC.addAttr(jnt, ln='scaleCompJnt', at='message')
-        
+
     par = par[0]
-    
+
     scJnt = MC.duplicate(par, n='%s_scalecomp' % jnt)[0]
     MC.delete(MC.listRelatives(scJnt, pa=1) or [])
-    
+
     MC.setAttr("%s.v" % scJnt, 0)
 
     #make sure a transform isn't created between the jnt and parent if it's scaled
@@ -85,7 +85,7 @@ def getScaleCompJnt(jnt):
         MC.delete(xform)
 
     breakCncts('%s.inverseScale' % scJnt)
-    MC.connectAttr('%s.scale' % par, '%s.inverseScale' % scJnt, f=1)        
+    MC.connectAttr('%s.scale' % par, '%s.inverseScale' % scJnt, f=1)
     MC.connectAttr('%s.message' % scJnt, '%s.scaleCompJnt' % jnt)
 
     return pm.PyNode(scJnt)
@@ -99,14 +99,14 @@ def fixJointConstraints(slaveNode):
             continue
         tgts = getConstraintTargets(cst)
         for index, tgt in tgts.items():
-            
+
             sc = getScaleCompJnt(tgt)
             if not sc:
                 continue
 
-            cst.target[index].targetParentMatrix.disconnect()            
+            cst.target[index].targetParentMatrix.disconnect()
             sc.worldMatrix[0].connect(cst.target[index].targetParentMatrix, f=1)
-            
+
         slave = getConstraintSlave(cst)
         sc = getScaleCompJnt(slave)
         if not sc:
@@ -114,7 +114,7 @@ def fixJointConstraints(slaveNode):
         cst.constraintParentInverseMatrix.disconnect()
         sc.worldInverseMatrix[0].connect(cst.constraintParentInverseMatrix, f=1)
 
-        
+
 class SilencePymelLogger(object):
     def __init__(self):
         self.level = 10
@@ -129,7 +129,7 @@ class SilencePymelLogger(object):
         self.pmLogger.propagate = 1
         self.pmLogger.setLevel(self.level)
 
-        
+
 
 def setupFkCtls(bndJnts, rigCtls, fkToks, namer):
     """Set up fk controls from bndJnts.
@@ -140,22 +140,22 @@ def setupFkCtls(bndJnts, rigCtls, fkToks, namer):
     """
     if len(bndJnts) != len(rigCtls) or len(bndJnts) != len(fkToks):
         _logger.warning("bind joint length must match rig ctls")
-    
+
     fkCtls = duplicateHierarchy(bndJnts, toReplace='_bnd_', replaceWith='_fk_')
-    for i in range(len(fkCtls)):            
+    for i in range(len(fkCtls)):
         newCtl = fkCtls[i]
         oldCtl = rigCtls[i]
         info = control.getInfo(oldCtl)
         control.setInfo(newCtl, control.getInfo(oldCtl))
         utils.parentShape(newCtl, oldCtl)
         newCtl.rename(namer(fkToks[i], r='fk'))
-        
+
     pm.delete(rigCtls)
-    
+
     return fkCtls
 
 
-        
+
 def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
     Create a stretch
@@ -174,25 +174,25 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     mdn.outputX.connect(getattr(stretchJnt, stretchAttr))
 
 def safeParent(self, **nodes):pass
-    
-        
+
+
 def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer):
     """
     Blend an ik and fk joint chain into a bind joint chain.
     @params fkChain, ikChain, bindChain: list of jnts
     @param fkIkAttr: an attr that is in fk when set to 0 and ik when at 1
     @param directChannelBlend=True:  use blend color nodes instead of constraints
-    
+
     @return: the reverse node created
     """
     reverse = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
 
     fkIkAttr.connect(reverse.inputX)
-    
+
     fkJntList = []
     ikJntList = []
     bindJntList = []
-    
+
     if isinstance(fkChain, dict):
         for tok in bindChain.keys():
             if (tok not in fkChain) or (tok not in ikChain):
@@ -201,18 +201,18 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer):
             bindJntList.append(bindChain[tok])
             fkJntList.append(fkChain[tok])
             ikJntList.append(ikChain[tok])
-    
+
     for i in range(len(bindJntList)):
-        
+
         for cstType in ['point', 'orient', 'scale']:
-            
+
             fnc = getattr(pm, '%sConstraint' % cstType)
-            cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])                
+            cst = fnc(fkJntList[i], ikJntList[i], bindJntList[i])
             fkAttr = getattr(cst, '%sW0' % fkJntList[i])
             ikAttr = getattr(cst, '%sW1' % ikJntList[i])
             reverse.outputX.connect(fkAttr)
             fkIkAttr.connect(ikAttr)
-            
+
             fixJointConstraints(bindJntList[i])
 
     return reverse
@@ -256,7 +256,7 @@ def insertNodeAbove(node, nodeType=None, name=None, suffix='_zero'):
     '''
     if name is None:
         name = '%s%s' % (node.name(), suffix)
-        
+
     if pm.objExists(name):
         _logger.warning("Node called '%s' already exists' % name")
     if isinstance(node, pm.nt.Joint):
@@ -264,7 +264,7 @@ def insertNodeAbove(node, nodeType=None, name=None, suffix='_zero'):
     else:
         nodeType='transform'
     #if this is a joint, add it's orients to the rotations of the zero node.
-    
+
     new = pm.createNode(nodeType, name=name)
     new.setParent(node.getParent())
     snap(node, new, ignoreOrient=True)
@@ -338,7 +338,7 @@ def getShapePos(*nodes, **kwargs):
     vertObjs, crvObjs, surfObjs = filterShapes(*nodes)
     result = {}
 
-    for obj in vertObjs:        
+    for obj in vertObjs:
         assert isinstance(obj, pm.nodetypes.Mesh)
         result[obj] = obj.getPoints(space=space)
 
@@ -397,7 +397,7 @@ def separateShapes(node):
     """
     for each shape node under a transform, duplicate the transform
     and delete other shapes
-    """     
+    """
     shapes = node.listRelatives(type='geometryShape')
     result = []
     for i in range(len(shapes)):
@@ -417,10 +417,10 @@ def strokePath(node, radius=.1):
     for curveNode in curveNodes:
         shape = curveNode.listRelatives(type='nurbsCurve')[0]
         t = pm.pointOnCurve(shape, p=0, nt=1)
-        pos = pm.pointOnCurve(shape, p=0)        
+        pos = pm.pointOnCurve(shape, p=0)
         cir = pm.circle(r=radius)[0]
         pm.xform(cir, t=pos, ws=1)
-        
+
         #align the circule along the curve
         l = pm.spaceLocator()
         pm.xform(l, t=[pos[0]+t[0], pos[1]+t[1], pos[2]+t[2]], ws=1)
@@ -436,34 +436,35 @@ def strokePath(node, radius=.1):
         for i in range(1, len(curveNodes)):
             parentShape(curveNodes[0], curveNodes[i])
     return curveNodes[0]
-     
+
 def parentShape(parent, child, deleteChildXform=True):
     """
-    Parent the shape nodes of the children to the transform of the parent.  
+    Parent the shape nodes of the children to the transform of the parent.
     Return all shapes of the new parent
     """
     #snap a temp
-    shapes = [shape for shape in child.listRelatives(children=True) if isinstance(shape, pm.nodetypes.GeometryShape)]
-    tmp = pm.createNode('transform', n='TMP')
+    shapes = [shape for shape in pm.listRelatives(child, pa=1) if pm.objectType(shape, isAType='geometryShape')]
+    
+    tmp = MC.createNode('transform', n='TMP')
     snap(child, tmp, scale=True)
     for shape in shapes:
         pm.parent(shape, tmp, r=True, s=True)
-    
-    pm.parent(tmp, parent)
-    pm.makeIdentity(tmp, apply=True, t=1, r=1, s=1, n=0)
-    pm.parent(tmp, w=1)
-    
+
+    MC.parent(tmp, parent)
+    MC.makeIdentity(tmp, apply=True, t=1, r=1, s=1, n=0)
+    MC.parent(tmp, w=1)
+
     for shape in shapes:
         pm.parent(shape, parent, r=True, s=True)
-    pm.delete(tmp)
+    MC.delete(tmp)
     if deleteChildXform:
-        pm.delete(child)
+        MC.delete(child)
     return parent
 
 def parentShapes(parent, children, deleteChildXforms=True):
     """Parent the shape nodes of the children to the transform of the parent.  Return the parent"""
     for child in children:
-        if child.exists():
+        if MC.objExists(child):
             parentShape(parent, child, deleteChildXform=deleteChildXforms)
     return parent
 
@@ -591,13 +592,13 @@ def snap(master, slave, point=True, orient=True, scale=False, ignoreOrient=False
     @param scale=True: match scale
     @param ignoreOrient: if the master is a joint, add the inverse of its orientation to the
       slave's rotations"""
-    
+
     if point:
         pm.delete(pm.pointConstraint(master, slave, mo=False))
     if orient:
         pm.delete(pm.orientConstraint(master, slave, mo=False))
     if scale:
-        slave.setScale(master.getScale())
+        pm.xform(slave, scale=pm.xform(master, q=1, scale=1, r=1))
 
     if ignoreOrient:
         if isinstance(master, pm.nt.Joint):
@@ -605,7 +606,7 @@ def snap(master, slave, point=True, orient=True, scale=False, ignoreOrient=False
             slave.rx.set(slave.rx.get() + -1*(addlRot[0]))
             slave.ry.set(slave.ry.get() + -1*(addlRot[1]))
             slave.rz.set(slave.rz.get() + -1*(addlRot[2]))
-            
+
 def snapMany(master, slaveList, point=True, orient=True, scale=False):
     """snap a list of slvaes to a master's rotate pivot"""
     if type(slaveList) != type([]) or type(slaveList) != type(()):
@@ -630,7 +631,7 @@ def makeDuplicateJointTree(topJoint, toReplace=None, replaceWith=None, freeze=Tr
     """
     make a duplicate of the hierarhcy starting at topJoint, delete any non-joint
     nodes, and ensure joints are properly connected.
-    
+
     Return a dictionary of {parentJoint:[branchJnt1, branchJnt2...]} for all branches
     in the tree.  The topmost node branch's key is None
     """
@@ -740,7 +741,7 @@ def createJointsFromDict(jointDict, deleteExisting=False):
     #now set up the attrs
     for jntName, catDict in jointDict.items():
         jnt = pm.nodetypes.Joint(jntName)
-        #attrs in the 'attrs' dict should be named what the PyNode function is    
+        #attrs in the 'attrs' dict should be named what the PyNode function is
         for attr, attrVal in catDict['attrs'].items():
             attr = getattr(jnt, attr)
             attrFunc = getattr(attr, 'set')
@@ -764,18 +765,18 @@ def dupJntDct(dct, oldNamePart, newNamePart):
     for tok, jnt in dct.items():
         newName = re.sub(oldNamePart, newNamePart, jnt)
         result[tok] = MC.duplicate(jnt, parentOnly=1, n=newName)[0]
-        
+
         parent = MC.listRelatives(jnt, parent=1)
         parent = parent[0] if parent else None
-        
+
         for tok2, par in dct.items():
             if par == parent:
                 parents[tok] = tok2
     for childTok, parentTok in parents.items():
         MC.parent(result[childTok], (result[parentTok]))
-        
+
     fixInverseScale(result.values())
-    
+
     return result
 
 def makeJntChain(char, widgetName, side, namePosList):
@@ -875,8 +876,8 @@ def getXProductFromNodes(midObj, topObj, btmObj):
 
 def getNodeAxisVector(node, axis):
     """
-    Return a 3-element list of world-space vectors corresponding with the axes 
-    of joint.  Vectors are returned as [aimVec, upVec, weakVec]    
+    Return a 3-element list of world-space vectors corresponding with the axes
+    of joint.  Vectors are returned as [aimVec, upVec, weakVec]
     """
     node = pm.PyNode(node)
     x = pm.datatypes.Vector(node.getMatrix(worldSpace=True)[0][:3])

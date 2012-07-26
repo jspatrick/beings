@@ -180,8 +180,6 @@ def setInfo(control, info):
         info = repr(info)
     MC.setAttr('%s.%s' % (control, INFO_ATTR), info, type='string')
 
-def isControl(name): pass
-def setControlProperties(name, **kwargs): pass
 def makeControl(name, xformType=None, **kwargs):
     """
     Create a control object
@@ -205,58 +203,31 @@ def makeControl(name, xformType=None, **kwargs):
         if not xformType:
             xformType = 'transform'
 
-        MC.createNode(xformType, name=name, parent=None)
+        name = MC.createNode(xformType, name=name, parent=None)
 
+    xform = name
     #delete any shapes that exist
-    for shape in xform.listRelatives(type='geometryShape'):
-        pm.delete(shape)
+    for shape in MC.listRelatives(xform, type='geometryShape', pa=1) or []:
+        MC.delete(shape)
 
-    tmpXform = pm.createNode('transform', n='TMP')
 
     #create an attribute to store handle info
 
-    if not xform.hasAttr(INFO_ATTR):
-        xform.addAttr(INFO_ATTR, dt='string')
-        handleData = _argHandleData(**kwargs)
-    else:
-        handleData = _modHandleData(xform, **kwargs)
+    if not MC.attributeQuery(INFO_ATTR, n=xform, ex=1):
+        MC.addAttr(xform, ln=INFO_ATTR, dt='string')
 
-    pm.setAttr('%s.%s' % (xform, INFO_ATTR), repr(handleData))
-
-    #get the shape function
-    shapeFunc = getattr(sys.modules[__name__],
-                        'makeShape_%s' % (handleData['shape']))
-
-    #create the shape according to the handleData
-    with utils.NodeTracker() as nt:
-        shapeFunc()
-
-        shapes = [n for n in nt.getObjects(asPyNodes=True) if \
-                  isinstance(n, pm.nt.GeometryShape) and n.exists()]
-        xforms = [n for n in nt.getObjects(asPyNodes=True) if \
-                  isinstance(n, pm.nt.Transform) and n.exists()]
-
-        _logger.debug('Shapes: %s' % shapes)
-        _logger.debug('Xforms: %s' % xforms)
-
-    for i, shapeNode in enumerate(shapes):
-        shapeNode.rename("%sShape" % (xform.name()))
+    handleData = _argHandleData(**kwargs)
+    MC.setAttr('%s.%s' % (xform, INFO_ATTR), repr(handleData), type='string')
 
     #snap the tmp shape to the xform
-    utils.parentShapes(tmpXform, xforms)
+    tmpXform = _importShape(handleData['shape'])
 
-    bbScale(tmpXform)
     utils.snap(xform, tmpXform, scale=True)
 
     #apply transformations
-    pm.xform(tmpXform, ro=handleData['rot'], r=1)
-    pm.xform(tmpXform, t=handleData['pos'], r=1, os=1)
-    tmpXform.s.set(handleData['scale'])
-
-    if handleData.get('type') == 'surface':
-        tmp = utils.strokePath(tmpXform, radius=.1)
-        pm.delete(tmpXform)
-        tmpXform = tmp
+    MC.xform(tmpXform, t=handleData['pos'], r=1, os=1)
+    MC.xform(tmpXform, ro=handleData['rot'], r=1)
+    MC.xform(tmpXform, scale=(handleData['scale']))
 
     utils.parentShape(xform, tmpXform)
     if handleData.get('type') != 'surface':

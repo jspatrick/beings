@@ -22,19 +22,19 @@ class TestDefaultControl(unittest.TestCase):
         
     def test_returnType(self):
         ctl = control.makeControl('myControl')
-        self.assertIsInstance(ctl, basestring)
+        self.assertTrue(isinstance(ctl, basestring))
 
     def test_useExistingNode(self):
         name = 'myControl'
         self.assertEqual(MC.createNode('transform', name='myControl'), name)
 
-        start = len(MC.ls())
+        start = len(MC.ls(type='transform'))
         ctl = control.makeControl(name)
         self.assertEqual(ctl, name)
-        self.assertEqual(start, len(MC.ls()))
+        self.assertEqual(start, len(MC.ls(type='transform')))
         
     def test_createJointType(self):
-        clt = control.makeControl('test', xformType='joint')
+        ctl = control.makeControl('test', xformType='joint')
         self.assertTrue(MC.objectType(ctl, isAType='joint'))
 
     def test_existingNodeMaintainsType(self):

@@ -18,8 +18,8 @@ reload(nodeTag)
 class TestDefaultControl(unittest.TestCase):
     def setUp(self):
         MC.file(newFile=1, f=1)
-        
-        
+
+
     def test_returnType(self):
         ctl = control.makeControl('myControl')
         self.assertTrue(isinstance(ctl, basestring))
@@ -32,7 +32,7 @@ class TestDefaultControl(unittest.TestCase):
         ctl = control.makeControl(name)
         self.assertEqual(ctl, name)
         self.assertEqual(start, len(MC.ls(type='transform')))
-        
+
     def test_createJointType(self):
         ctl = control.makeControl('test', xformType='joint')
         self.assertTrue(MC.objectType(ctl, isAType='joint'))
@@ -47,17 +47,109 @@ class TestDefaultControl(unittest.TestCase):
         node = MC.createNode('transform', name=name)
         ctl = control.makeControl(name)
         self.assertTrue(MC.objectType(ctl, isType='transform'))
-        
-    def test_typeConversionRaisesError(self):        
+
+    def test_typeConversionRaisesError(self):
         node = control.makeControl('test')
-        
+
+class TestStorableXform(unittest.TestCase):
+    def setUp(self):
+        MC.file(newFile=1, f=1)
+
+    def test_makeStorableXform(self):
+        xform = control.makeStorableXform('myXform_a')
+        xform2 = control.makeStorableXform('myXform_b', nodeType='joint')
+        xform3 = control.makeStorableXform('myXform_c', nodeType='joint', parent=xform2)
+    def test_makeStorableXformCtl(self):
+        xform1 = control.makeStorableXform('myXform_a')
+        xform2 = control.makeStorableXform('myXform_b', nodeType='joint')
+        xform3 = control.makeStorableXform('myXform_c', nodeType='joint', parent=xform2)
+        control.makeControl(xform1)
+        control.makeControl(xform2)
+        control.makeControl(xform3)
+
+        info1 = control.getStorableXformInfo(xform1)
+        info2 = control.getStorableXformInfo(xform2)
+        info3 = control.getStorableXformInfo(xform3)
+
+        MC.delete(xform1)
+        MC.delete(xform2)
+
+
+        control.makeStorableXform(xform1, **info1)
+        control.makeStorableXform(xform2, **info2)
+        control.makeStorableXform(xform3, **info3)
+
+    def test_getXformArgs(self):
+        xform = control.makeStorableXform('myXform')
+        t = [1,2,3]
+        r = [10,20,30]
+        s = [1.1, 2.2, 3.3]
+
+        MC.setAttr('%s.t' % xform, *t, type='double3')
+        MC.setAttr('%s.r' % xform, *r, type='double3')
+        MC.setAttr('%s.s' % xform, *s, type='double3')
+
+        result = control.getStorableXformInfo(xform)
+
+        xform2 = control.makeStorableXform('myXform2', **result)
+        for i in range(3):
+            self.assertTrue(MC.getAttr('%s.t' % xform2)[0][i] - tuple(t)[i] < .0001)
+            self.assertTrue(MC.getAttr('%s.r' % xform2)[0][i] - tuple(r)[i] < .0001)
+            self.assertTrue(MC.getAttr('%s.s' % xform2)[0][i] - tuple(s)[i] < .0001)
+
+    def test_worldSpaceArgs(self):
+        xform = control.makeStorableXform('myXform')
+        t = [1,2,3]
+        r = [10,20,30]
+        s = [1.1, 2.2, 3.3]
+
+        MC.setAttr('%s.t' % xform, *t, type='double3')
+        MC.setAttr('%s.r' % xform, *r, type='double3')
+        MC.setAttr('%s.s' % xform, *s, type='double3')
+
+        xform2 = control.makeStorableXform('myXform_b', parent=xform, worldSpace=True)
+        MC.setAttr('%s.t' % xform2, *t, type='double3')
+        MC.setAttr('%s.r' % xform2, *r, type='double3')
+        MC.setAttr('%s.s' % xform2, *s, type='double3')
+
+        result = control.getStorableXformInfo(xform2)
+
+        xform3 = control.makeStorableXform('myXform2', **result)
+        for i in range(3):
+            self.assertTrue(MC.getAttr('%s.t' % xform3)[0][i] - tuple(t)[i] < .0001)
+            self.assertTrue(MC.getAttr('%s.r' % xform3)[0][i] - tuple(r)[i] < .0001)
+            self.assertTrue(MC.getAttr('%s.s' % xform3)[0][i] - tuple(s)[i] < .0001)
+
+    def test_worldSpaceArgsExisting(self):
+        xform = control.makeStorableXform('myXform')
+        t = [1,2,3]
+        r = [10,20,30]
+        s = [1.1, 2.2, 3.3]
+
+        MC.setAttr('%s.t' % xform, *t, type='double3')
+        MC.setAttr('%s.r' % xform, *r, type='double3')
+        MC.setAttr('%s.s' % xform, *s, type='double3')
+
+        xform2 = control.makeStorableXform('myXform_b', parent=xform, worldSpace=True)
+        MC.setAttr('%s.t' % xform2, *t, type='double3')
+        MC.setAttr('%s.r' % xform2, *r, type='double3')
+        MC.setAttr('%s.s' % xform2, *s, type='double3')
+
+        result = control.getStorableXformInfo(xform2)
+        MC.createNode('transform', name='myXform_c')
+        xform3 = control.makeStorableXform('myXform_c', **result)
+        for i in range(3):
+            self.assertTrue(MC.getAttr('%s.t' % xform3)[0][i] - tuple(t)[i] < .0001)
+            self.assertTrue(MC.getAttr('%s.r' % xform3)[0][i] - tuple(r)[i] < .0001)
+            self.assertTrue(MC.getAttr('%s.s' % xform3)[0][i] - tuple(s)[i] < .0001)
+
 class TestControlDiffs(unittest.TestCase):
     def setUp(self):
         MC.file(newFile=1, f=1)
 
 class TestNodeTag(unittest.TestCase):
     def setUp(self):
-        MC.file(newFile=1, f=1)        
+        MC.file(newFile=1, f=1)
         self.xform = MC.createNode('transform', name='test')
 
     def testTagPrefix(self):
@@ -65,14 +157,14 @@ class TestNodeTag(unittest.TestCase):
         self.assertEqual(nodeTag.getTagAttr(tagName), 'beingsTag_someGreatTag')
         tagName = 'beingsTag_someGreatTag'
         self.assertEqual(nodeTag.getTagAttr(tagName), 'beingsTag_someGreatTag')
-        
+
     def testSetTag(self):
         tagName = 'someGreatTag'
-        tagAttr = nodeTag.getTagAttr(tagName)        
-        
-        nodeTag.setTag(self.xform, tagName, {})        
+        tagAttr = nodeTag.getTagAttr(tagName)
+
+        nodeTag.setTag(self.xform, tagName, {})
         self.assertTrue(MC.attributeQuery(tagAttr, n=self.xform, ex=1))
-        
+
     def testHasTag(self):
         tagName = 'someGreatTag'
         tagAttr = nodeTag.getTagAttr(tagName)
@@ -81,7 +173,7 @@ class TestNodeTag(unittest.TestCase):
         self.assertFalse(nodeTag.hasTag(self.xform,tagAttr))
 
         nodeTag.setTag(self.xform, tagName, {})
-        
+
         self.assertTrue(nodeTag.hasTag(self.xform,tagName))
         self.assertTrue(nodeTag.hasTag(self.xform,tagAttr))
 
@@ -93,14 +185,14 @@ class TestNodeTag(unittest.TestCase):
         self.assertEqual(nodeTag.getTag(self.xform, tagName, noError=True), {})
 
         val = {'test': 'x'}
-        
+
         nodeTag.setTag(self.xform, tagName, val)
         self.assertEqual(nodeTag.getTag(self.xform, tagName), val)
-        
+
     def testValidTags(self):
         tagName = 'someGreatTag'
-        tagAttr = nodeTag.getTagAttr(tagName)        
-        
+        tagAttr = nodeTag.getTagAttr(tagName)
+
         validValues = {'string': 'aStr',
                        'int': 5,
                        'float': 5.5,
@@ -110,43 +202,38 @@ class TestNodeTag(unittest.TestCase):
                        'set': set(['x', 5, 5.5])}
 
         nodeTag.setTag(self.xform, tagName, validValues)
-        
+
 
         gottenTag = nodeTag.getTag(self.xform, tagName)
-        
+
         for k, v in validValues.items():
             self.assertEqual(v, gottenTag[k])
-        
-          
-class TestNaming(unittest.TestCase):
-    pass
+
 
 class TestCoreJointMethods(unittest.TestCase):
-    
+
     def setUp(self):
         MC.file(newFile=1, f=1)
         MC.select(cl=1)
         names = ['hip', 'knee', 'ankle']
-        
+
         jnts = {}
         for i in range(3):
             jnt = MC.joint(p=[0,i * 2, 0], name='jnt_%i' % i)
             jnts[names[i]] = jnt
-            
+
         self.names = names
         self.jnts = jnts
 
-        self.namer = Namer(c='testchar', side='lf', part='leg')                
+        self.namer = Namer(c='testchar', side='lf', part='leg')
 
-        
-        
-        
+
+
+
 def runTests(*args):
     module = sys.modules[__name__]
 
     suite = unittest.TestLoader().loadTestsFromNames(args,
                                                      module=sys.modules[__name__])
-    
-    unittest.TextTestRunner(verbosity=2).run(suite)
 
-    
+    unittest.TextTestRunner(verbosity=2).run(suite)

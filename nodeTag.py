@@ -17,19 +17,19 @@ def getTagAttr(tagName):
     if not tagName.startswith(TAG_PREFIX):
         tagName = TAG_PREFIX + tagName
     return tagName
-                
+
 def _addTagAttr(nodes, tagName):
     tagAttr = getTagAttr(tagName)
     for node in nodes:
         if not MC.attributeQuery(tagAttr, n=node, ex=1):
             MC.addAttr(node, ln=tagAttr, dt='string')
-                
+
 def setTag(node, tagName, dct):
     if not isinstance(dct, dict):
         raise TypeError("tag value must be a dictionary")
-    
+
     _addTagAttr([node], tagName)
-    
+
     tagAttr = getTagAttr(tagName)
     MC.setAttr('%s.%s' % (node, tagAttr), repr(dct), type='string')
 
@@ -47,12 +47,15 @@ def getTag(node, tagName, noError=False):
     if MC.attributeQuery(tagAttr, n=node, ex=1):
         tagStr = MC.getAttr('%s.%s' % (node, tagAttr))
         result = eval(tagStr)
-        
+
     elif not noError:
         raise RuntimeError("%s does not have a '%s' tag" % (node, tagName))
-    
+
     return result
 
+def getNodesWithTag(tagname):
+    tagAttr = getTagAttr(tagName)
+    return MC.ls('*.%s' % tagAttr, o=1) or []
 
 #--------------------Control Tagging Functions--------------------
 # LOCK_ATTRS = ['lockedKeyable', 'unlockedKeyable', 'unlockedUnkeyable']
@@ -75,35 +78,35 @@ def getTag(node, tagName, noError=False):
 #     @keyword uk/unlockedKeyable: unlockedKeyable controls.
 #     @keyworkd uu/unlockedUnkeyable: unlockedUnkeyable ctls
 #     """
-    
+
 #     if not MC.objectType(node, isAType='transform'):
 #         raise RuntimeError('only xforms can be controls')
-    
+
 #     lockedKeyable = kwargs.get('lk', kwargs.get('lockedKeyable', []))n
 #     unlockedKeyable = kwargs.get('uk', kwargs.get('unlockedKeyable', []))
 #     unlockedUnkeyable = kwargs.get('uu', kwargs.get('unlockedUnkeyable', []))
 
-    
+
 
 # def getControls(root):
 #     """Get all nodes tagged as controls under and including the root node"""
-    
-    
-    
-    
+
+
+
+
 #     @classmethod
 #     def getControls(cls, root):
-#         '''Get all nodes under root that are controls'''        
+#         '''Get all nodes under root that are controls'''
 #         all = set(MC.ls("*.%s" % cls.tagAttr(cls.CONTROL_TAG), o=1) or [])
 #         all.intersection_update(MC.listRelatives(root, ad=1, pa=1) or [] + [root])
 #         return list(all)
-    
+
 #     def __init__(self, node=None, dct=None):
 #         NodeTag.__init__(self, 'control', node=node, dct=dct)
 #         for attr in self.LOCK_ATTRS:
 #             self[attr] = self.get(attr, [])
 
-#     def __setitem__(self, k, v):     
+#     def __setitem__(self, k, v):
 #         if k not in self.LOCK_ATTRS:
 #             k = self._lockAttrMap.get(k, None)
 #             if not k:
@@ -112,7 +115,7 @@ def getTag(node, tagName, noError=False):
 #         if not self._checkInput(v):
 #             return
 #         NodeTag.__setitem__(self, k, v)
-        
+
 #     def _checkInput(self, v):
 #         if not isinstance(v, list):
 #             _logger.warning("Invalid parameter %r - must be a list" % v)
@@ -122,7 +125,7 @@ def getTag(node, tagName, noError=False):
 #                 _logger.warning("Invalid attr %r - not a string" % item)
 #                 return False
 #         return True
-    
+
 #     #TODO:continue fixing node tags
 #     @classmethod
 #     def setLocks(cls, *nodes):
@@ -138,9 +141,9 @@ def getTag(node, tagName, noError=False):
 #                     a.setKeyable(False)
 #                 except:
 #                     _logger.debug('Cannot lock %s.%s' % (node.name(), a))
-#                     pass            
+#                     pass
 #             tag = cls(node=node)
-            
+
 #             for attrName in tag['unlockedUnkeyable']:
 #                 _logger.debug('setting locks on %s' % attrName)
 #                 attr = getattr(node, attrName)
@@ -157,7 +160,7 @@ def getTag(node, tagName, noError=False):
 #                 attr.setKeyable(True)
 #                 attr.setLocked(False)
 #     @classmethod
-#     def unlock(cls, *nodes, **kwargs):        
+#     def unlock(cls, *nodes, **kwargs):
 #         if kwargs.get('all', None):
 #             for node in nodes:
 #                 for a in pm.listAttr(node):
@@ -172,20 +175,20 @@ def getTag(node, tagName, noError=False):
 #         current = set(self[attr])
 #         getattr(current, action)(vals)
 #         self[attr] = list(current)
-        
+
 #     def add(self, attr, valList): self._setAction(attr, valList, 'update')
 #     def remove(self, attr, valList): self._setAction(attr, valList, 'difference_update')
 
-    
+
 # # def lockHierarchy(root):
 # #     '''Lock all nodes in a hierarhcy'''
 # #     allNodes = root.listRelatives(ad=1) + [root]
 # #     ControlTag.setLocks(*allNodes)
-    
+
 # # def tagControl(control, uk=[], lk=[], uu=[], replace=False):
 # #     act = 'add'
 # #     if replace:
-# #         act='__setitem__'    
+# #         act='__setitem__'
 # #     tag = ControlTag(control)
 # #     actFunc = getattr(tag, act)
 # #     actFunc('unlockedKeyable', uk)
@@ -209,7 +212,7 @@ def getTag(node, tagName, noError=False):
 # #     if getChildren:
 # #         for node in nodeList:
 # #             try:
-# #                 rels = MC.listRealtives(node, ad=1, pa=1) or []            
+# #                 rels = MC.listRealtives(node, ad=1, pa=1) or []
 # #             parseList.extend([node for node in rels if node not in parseList])
 
 # #     result = {}
@@ -219,5 +222,3 @@ def getTag(node, tagName, noError=False):
 # #             result[node] = NodeTag(tag, node=node)
 
 # #     return result
-
-

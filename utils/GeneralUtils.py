@@ -254,6 +254,7 @@ def insertNodeAbove(node, nodeType=None, name=None, suffix='_zero'):
     @param name=None: name of the new node.  Defaults to node name + suffix
     @param suffix='_zero': the name suffix
     '''
+    node = pm.PyNode(node)
     if name is None:
         name = '%s%s' % (node.name(), suffix)
 
@@ -269,7 +270,7 @@ def insertNodeAbove(node, nodeType=None, name=None, suffix='_zero'):
     new.setParent(node.getParent())
     snap(node, new, ignoreOrient=True)
     node.setParent(new)
-    return new
+    return str(new)
 
 #===============================================================================
 # shape utils
@@ -444,6 +445,7 @@ def fixShapeNames(xform):
         MC.rename(shape, '%sShape%i' % (xformShortName, i))
     return xform
 
+
 def parentShape(parent, child, deleteChildXform=True):
     """
     Parent the shape nodes of the children to the transform of the parent.
@@ -469,7 +471,7 @@ def parentShape(parent, child, deleteChildXform=True):
         MC.delete(child)
 
     fixShapeNames(parent)
-    
+
     return parent
 
 def parentShapes(parent, children, deleteChildXforms=True):
@@ -609,7 +611,7 @@ def snap(master, slave, point=True, orient=True, scale=False, ignoreOrient=False
     if orient:
         pm.delete(pm.orientConstraint(master, slave, mo=False))
     if scale:
-        pm.xform(slave, scale=pm.xform(master, q=1, scale=1, r=1))
+        pm.delete(pm.scaleConstraint(master, slave, mo=False))
 
     if ignoreOrient:
         if isinstance(master, pm.nt.Joint):

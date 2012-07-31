@@ -35,12 +35,7 @@ class BeingsFilter(logging.Filter):
 
 def _setupLogging():
     rootLogger = logging.getLogger()
-    if rootLogger.getEffectiveLevel() == 0:
-        rootLogger.setLevel(logging.INFO)
     _beingsRootLogger = logging.getLogger('beings')
-    if _beingsRootLogger.getEffectiveLevel() == 0:
-        _beingsRootLogger.setLevel(logging.INFO)
-
     for fltr in _beingsRootLogger.filters:
         _beingsRootLogger.removeFilter(fltr)
     _beingsRootLogger.addFilter(BeingsFilter())
@@ -518,7 +513,7 @@ class Widget(TreeItem):
     def registerBindJoint(self, jnt):
         '''Register bind joints to be duplicated'''
         self._joints.add(jnt)
-        setStorableXformAttrs(jnt, worldSpace=True, categories=['bindJnt'])
+        control.setStorableXformAttrs(jnt, worldSpace=True, categories=['bindJnt'])
 
     def registerControl(self, ctl, ctlType ='layout'):
         """Register a control that should be cached"""
@@ -606,7 +601,7 @@ class Widget(TreeItem):
         ctls = control.getStorableXformRebuildData(inNodeList=self._controls,
                                             categories=['rig'])
         for ctl in ctls:
-            _addControlToDisplayLayer(ctl, 'layout')
+            _addControlToDisplayLayer(ctl, 'rig')
 
         #notify relatives build finished
         self.__notifyBuildComplete('layout')
@@ -760,7 +755,6 @@ class Widget(TreeItem):
                         side=self.options.getValue('side'),
                         part=self.options.getValue('part'))
         namer.lockToks('c', 'n', 's', 'p') # makes sure they can't be changed by overridden methods
-
 
         self.delete()
 
@@ -937,18 +931,19 @@ class Root(Widget):
 
     def _makeLayout(self, namer):
         #mkae the layout control
-        masterLayoutCtl = control.makeControl(shape='circle',
-                                             color='red',
-                                             scale=[4.5, 4.5, 4.5],
-                                             name=namer.name(d='layout', r='ctl'),
-                                             xformType='transform')
+        masterLayoutCtl = control.makeControl(namer.name(d='layout', r='ctl'),
+                                              shape='circle',
+                                              color='red',
+                                              s=[4.5, 4.5, 4.5],
+                                              xformType='transform')
         self.registerControl(masterLayoutCtl)
 
         #make rig control
-        masterCtl = control.makeControl(shape='circle',
-                                       color='lite blue',
-                                       xformType='transform',
-                                       scale=[4,4,4], name = namer.name(r='ctl'))
+        masterCtl = control.makeControl(namer('', r='ctl'),
+                                        shape='circle',
+                                        color='lite blue',
+                                        xformType='transform',
+                                        s=[4,4,4])
         MC.parent(masterCtl, masterLayoutCtl)
         self.registerControl(masterCtl, ctlType='rig')
 
@@ -993,89 +988,104 @@ class CenterOfGravity(Widget):
 
     def childCompletedBuild(self, child, buildType):
         """Find all child nodes set to 'cog' or 'ik'"""
-        pm.refresh()
-        if buildType == 'rig':
-            if self.root() == self:
-                children = child.children(recursive=True) + [child]
-                for child in children:
-                    cogNodes = child.getNodes('ik')
-                    cogNodes.extend(child.getNodes('cog'))
-                    if cogNodes:
-                        pm.parent(cogNodes, self.plugNode('cog_bnd'))
-                        for node in cogNodes:
-                            child.setNodeStatus(node, 'handled')
-        pm.refresh()
+        MC.refresh()
+        if buildType == 'rig' and self.root() == self:
+
+            children = child.children(recursive=True) + [child]
+            for child in children:
+                cogNodes = child.getNodes('ik')
+                cogNodes.extend(child.getNodes('cog'))
+                if cogNodes:
+                    pm.parent(cogNodes, self.plugNode('cog_bnd'))
+                    for node in cogNodes:
+                        child.setNodeStatus(node, 'handled')
+        MC.refresh()
+
         super(CenterOfGravity, self).childCompletedBuild(child, buildType)
 
+
     def _makeLayout(self, namer):
+        cogLayoutCtl = control.makeControl(namer.name(d='layout', r='ctl'),
+                                           shape='circle',
+                                           color='yellow',
+                                           s=[4, 4, 4],
+                                           xformType='transform')
+        MC.setAttr('%s.ty' % cogLayoutCtl, 5)
+        self.registerControl(cogLayoutCtl)
 
-
-        cogLayoutCtl = control.makeControl(shape='circle',
-                                          color='yellow',
-                                          scale=[4, 4, 4],
-                                          name=namer.name(d='cog_layout', s='ctl'),
-                                          xformType='transform')
-        cogLayoutCtl.ty.set(5)
-        self.registerControl('cog', cogLayoutCtl)
-
-        cogJnt = pm.createNode('joint', name=namer.name(d='cog', r='bnd'))
-
+        cogJnt = MC.createNode('joint', name=namer('', r='bnd'))
 
         utils.snap(cogJnt, cogLayoutCtl)
-        pm.parentConstraint(cogLayoutCtl, cogJnt)
+        MC.parentConstraint(cogLayoutCtl, cogJnt)
 
-        self.registerBindJoint('cog', cogJnt)
-
-
-        bodyCtl = control.makeControl(shape='triangle', color='green', xformType='transform',
-                                  scale=[3.5, 3.5, 3.5], name=namer.name(r='ctl', d='body'))
-        bodyCtl.setParent(cogLayoutCtl)
-
-        pivotCtl = control.makeControl(shape='jack', color='yellow', xformType='transform', scale=[2,2,2],
-                                   name=namer.name(r='ctl', d='body_pivot'))
-        pivotCtl.setParent(cogLayoutCtl)
-
-        cogCtl = control.makeControl(shape='triangle', color='green', xformType='transform', scale=[2,2,2],
-                                 name=namer.name(r='ctl', d='cog'))
-        cogCtl.setParent(cogLayoutCtl)
+        self.registerBindJoint(cogJnt)
 
 
-        self.registerControl('body', bodyCtl, ctlType='rig')
-        self.registerControl('pivot', pivotCtl, ctlType='rig')
-        self.registerControl('cog', cogCtl, ctlType='rig')
+        bodyCtl = control.makeControl(namer('body', r='ctl'),
+                                      shape='triangle',
+                                      color='green',
+                                      xformType='transform',
+                                      s=[3.5, 3.5, 3.5])
+        MC.parent(bodyCtl, cogLayoutCtl)
+        control.setEditable(bodyCtl, True)
+
+        pivotCtl = control.makeControl(namer.name('body_pivot', r='ctl'),
+                                       shape='jack',
+                                       color='yellow',
+                                       xformType='transform',
+                                       s=[2,2,2])
+        MC.parent(pivotCtl, cogLayoutCtl)
+        control.setEditable(pivotCtl, True)
+
+        cogCtl = control.makeControl(namer.name('', r='ctl'),
+                                     shape='triangle',
+                                     color='green',
+                                     xformType='transform',
+                                     s=[2,2,2])
+        control.setEditable(cogCtl, True)
+        MC.parent(cogCtl, cogLayoutCtl)
 
 
-    def _makeRig(self, namer, bndJnts, rigCtls):
+        self.registerControl(bodyCtl, ctlType='rig')
+        self.registerControl(pivotCtl, ctlType='rig')
+        self.registerControl(cogCtl, ctlType='rig')
+
+
+    def _makeRig(self, namer):
         #set up the positions of the controls
+        rigCtls = {}
+        for name in ['', 'body', 'body_pivot']:
+            ctl = namer(name, r='ctl')
+            if not MC.objExists(ctl):
+                raise RuntimeError("cannot get control for '%s'" % ctl)
+            rigCtls[name] = ctl
 
-        ctlToks = rigCtls.keys()
+        cogJnt = namer('', r='bnd')
+        if not MC.objExists(cogJnt):
+            raise RuntimeError("cannot get control for '%s'" % cogJnt)
 
-        #MC.parent(bndJnts['cog'], world=True)
-
-        for tok in ['body', 'pivot', 'cog']:
-            #snap the nodes to the cog but keep the shape positions
-            control.snapKeepShape(bndJnts['cog'], rigCtls[tok])
-
-        rigCtls['pivot'].setParent(rigCtls['body'])
-        rigCtls['cog'].setParent(rigCtls['pivot'])
+        MC.parent(rigCtls['body_pivot'], rigCtls['body'])
+        MC.parent(rigCtls[''], rigCtls['body_pivot'])
         utils.insertNodeAbove(rigCtls['body'])
 
         #create the inverted pivot
         name = namer.name(d='pivot_inverse')
-        pivInv = utils.insertNodeAbove(rigCtls['cog'], name=name)
-        mdn = pm.createNode('multiplyDivide', n=namer.name(d='piv_inverse', x='mdn'))
-        mdn.input2.set([-1,-1,-1])
-        rigCtls['pivot'].t.connect(mdn.input1)
-        mdn.output.connect(pivInv.t)
+        pivInv = utils.insertNodeAbove(rigCtls[''], name=name)
+        mdn = MC.createNode('multiplyDivide', n=namer.name(d='piv_inverse', x='mdn'))
+        MC.setAttr('%s.input2' % mdn, -1,-1,-1, type='double3')
+        MC.connectAttr('%s.t' % rigCtls['body_pivot'], '%s.input1' % mdn)
+        MC.connectAttr('%s.output' % mdn, '%s.t' % pivInv)
 
         #constrain the cog jnt to the cog ctl
-        pm.pointConstraint(rigCtls['cog'], bndJnts['cog'])
-        pm.orientConstraint(rigCtls['cog'], bndJnts['cog'])
+        MC.pointConstraint(rigCtls[''], cogJnt)
+        MC.orientConstraint(rigCtls[''], cogJnt)
 
         #assign the nodes:
-        for tok in ctlToks:
-            self.setParentNode('%s_ctl' % tok, rigCtls[tok])
-        self.setParentNode('cog_bnd', bndJnts['cog'])
+
+        self.setParentNode('cog_ctl', rigCtls[''])
+        self.setParentNode('body_ctl', rigCtls['body'])
+        self.setParentNode('pivot_ctl', rigCtls['body_pivot'])        
+        self.setParentNode('cog_bnd', cogJnt)
 
         #tag controls
 

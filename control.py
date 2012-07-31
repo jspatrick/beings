@@ -34,9 +34,8 @@ import utils
 reload(utils)
 import nodeTag
 
-logging.basicConfig(level=logging.DEBUG)
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
+_logger.setLevel(logging.INFO)
 
 _handleData = {'s': [1,1,1],
                'r': [0,0,0],
@@ -151,12 +150,14 @@ def _importShape(controlName):
     utils.parentShapes(tmpXform, xforms)
     return tmpXform
 
-def getShapeNodes(xform):
+def getShapeNodes(ctl):
     """
-    Return a list of shapes
+    Return a list of shapes in the control
     """
-
-    nodes = MC.listRelatives(xform, shapes=1, pa=1)
+    editor = getEditor(ctl)
+    if editor:
+        ctl = editor
+    nodes = MC.listRelatives(ctl, shapes=1, pa=1)
     return [n for n in nodes if MC.objectType(n, isAType='geometryShape')]
 
 def _setColor(xform, color):
@@ -206,10 +207,13 @@ def makeControl(name, xformType=None, **kwargs):
     """
 
     #see if the object exists, and create it if not
+    editor = None
     if MC.objExists(name):
         if xformType and xformType != MC.objectType(name):
             raise RuntimeError('control exists and is not of type %s' % xformType)
-
+        editor = getEditor(name)
+        if editor:
+            setEditable(name, False)
     else:
         if not xformType:
             xformType = 'transform'
@@ -231,9 +235,11 @@ def makeControl(name, xformType=None, **kwargs):
     utils.snap(xform, tmpXform, scale=True)
 
     #apply transformations
-    MC.xform(tmpXform, t=handleData['t'], r=1, os=1)
-    MC.xform(tmpXform, ro=handleData['r'], r=1)
-    MC.xform(tmpXform, scale=(handleData['s']))
+    MC.parent(tmpXform, xform)
+    MC.setAttr('%s.t' % tmpXform, *handleData['t'], type='double3')
+    MC.setAttr('%s.r' % tmpXform, *handleData['r'], type='double3')
+    MC.setAttr('%s.s' % tmpXform, *handleData['s'], type='double3')
+    MC.parent(tmpXform, world=True)
 
     utils.parentShape(xform, tmpXform)
     if handleData.get('type') != 'surface':
@@ -242,6 +248,9 @@ def makeControl(name, xformType=None, **kwargs):
     #set the handle info
     _logger.debug("handle data: %r" % handleData)
     setInfo(xform, handleData)
+
+    if editor:
+        setEditable(xform, True)
 
     return xform
 
@@ -587,4 +596,3 @@ def setupFkCtls(bndJnts, oldFkCtls, fkToks, namer):
                 pm.delete(ctl)
 
     return newFkCtls
-

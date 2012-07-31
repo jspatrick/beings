@@ -437,6 +437,13 @@ def strokePath(node, radius=.1):
             parentShape(curveNodes[0], curveNodes[i])
     return curveNodes[0]
 
+def fixShapeNames(xform):
+    shapes = MC.listRelatives(xform, shapes=1, pa=1)
+    xformShortName = xform.split('|')[-1]
+    for i, shape in enumerate(shapes):
+        MC.rename(shape, '%sShape%i' % (xformShortName, i))
+    return xform
+
 def parentShape(parent, child, deleteChildXform=True):
     """
     Parent the shape nodes of the children to the transform of the parent.
@@ -444,7 +451,7 @@ def parentShape(parent, child, deleteChildXform=True):
     """
     #snap a temp
     shapes = [shape for shape in pm.listRelatives(child, pa=1) if pm.objectType(shape, isAType='geometryShape')]
-    
+
     tmp = MC.createNode('transform', n='TMP')
     snap(child, tmp, scale=True)
     for shape in shapes:
@@ -457,8 +464,12 @@ def parentShape(parent, child, deleteChildXform=True):
     for shape in shapes:
         pm.parent(shape, parent, r=True, s=True)
     MC.delete(tmp)
+
     if deleteChildXform:
         MC.delete(child)
+
+    fixShapeNames(parent)
+    
     return parent
 
 def parentShapes(parent, children, deleteChildXforms=True):

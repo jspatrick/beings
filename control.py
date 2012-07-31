@@ -26,6 +26,7 @@ for f in fncs:
 """
 
 import logging, sys, copy, json, os
+import pymel.core as pm
 import maya.mel as MM
 import maya.cmds as MC
 
@@ -150,6 +151,14 @@ def _importShape(controlName):
     utils.parentShapes(tmpXform, xforms)
     return tmpXform
 
+def getShapeNodes(xform):
+    """
+    Return a list of shapes
+    """
+
+    nodes = MC.listRelatives(xform, shapes=1, pa=1)
+    return [n for n in nodes if MC.objectType(n, isAType='geometryShape')]
+
 def _setColor(xform, color):
     if color not in COLOR_MAP:
         _logger.warning("invalid color '%s'" % color)
@@ -169,9 +178,9 @@ def getInfo(control, includeEdits=True):
     info =  nodeTag.getTag(control, CONTROL_TAG_NAME)
     editor = getEditor(control)
     if includeEdits and editor:
-        info['pos'] = list(MC.getAttr('%s.t' % editor)[0])
-        info['rot'] = list(MC.getAttr('%s.r' % editor)[0])
-        info['scale'] = list(MC.getAttr('%s.s' % editor)[0])
+        info['t'] = list(MC.getAttr('%s.t' % editor)[0])
+        info['r'] = list(MC.getAttr('%s.r' % editor)[0])
+        info['s'] = list(MC.getAttr('%s.s' % editor)[0])
     return info
 
 def setInfo(control, info):
@@ -188,8 +197,8 @@ def makeControl(name, xformType=None, **kwargs):
     @param name: the control name
     @param xformType: if creating a new xform, use this node type.  Defaults
     to transform
-    @keyword pos: offset the position of the handle shape.
-    @keyword rot: offset the rotation of the handle shape.
+    @keyword t: offset the position of the handle shape.
+    @keyword r:: offset the rotation of the handle shape.
 
     @note: offsets are applied in the control xform's local space
     @raise RuntimeError: if the control exists, and xformType is supplied but does
@@ -258,9 +267,9 @@ def setEditable(ctl, state):
     if state:
         editor = MC.createNode('transform', name='%s_editor' % ctl, parent=None)
         MC.parent(editor, ctl)
-        MC.setAttr('%s.t' % editor, *info['pos'], type='double3')
-        MC.setAttr('%s.r' % editor, *info['rot'], type='double3')
-        MC.setAttr('%s.s' % editor, *info['scale'], type='double3')
+        MC.setAttr('%s.t' % editor, *info['t'], type='double3')
+        MC.setAttr('%s.r' % editor, *info['r'], type='double3')
+        MC.setAttr('%s.s' % editor, *info['s'], type='double3')
 
         utils.parentShape(editor, ctl, deleteChildXform=False)
 
@@ -272,9 +281,7 @@ def setEditable(ctl, state):
 STORABLE_TAG_NAME = 'recordableXform'
 
 
-_defaultXformKwargs = {'t': (0,0,0),
-                       'r': (0,0,0),
-                       's': (1,1,1),
+_defaultXformKwargs = {'matrix': [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
                        'rotateOrder': 0,
                        'parent': None,
                        'worldSpace': False,
@@ -285,10 +292,24 @@ _defaultXformKwargs = {'t': (0,0,0),
                        'controlArgs': None}
 
 
-def setStorableAttrs(xform, **kwargs):
-    """Make a node recordable"""
-    categories = kwargs.get('categories', [])
-    worldSpace = kwargs.get('worldSpace', False)
+def setStorableXformAttrs(xform, **kwargs):
+    """
+    Set the tag on the node.  Any kwargs passed will be set;
+    others will be left at the current value if one exists, or set
+    to the default value if non-existant
+
+    @keyword categories: node categories
+    @type categories: list of strings
+
+    """
+    tagD = {'categories': [],
+            'worldSpace': False}
+
+    if nodeTag.hasTag(xform, STORABLE_TAG_NAME):
+        tagD = nodeTag.getTag(xform, STORABLE_TAG_NAME)
+
+    categories = kwargs.get('categories', tagD['categories'])
+    worldSpace = kwargs.get('worldSpace', tagD['worldSpace'])
 
     assert isinstance(categories, list) or isinstance(categories, tuple)
 
@@ -298,8 +319,25 @@ def setStorableAttrs(xform, **kwargs):
 
     nodeTag.setTag(xform, STORABLE_TAG_NAME, d)
 
+def addStorableXformCategory(xform, *categories):
+    if not nodeTag.hasTag(xform, STORABLE_TAG_NAME):
+        raise RuntimeError("%s is not a storable node" % xform)
+
+    tagD = nodeTag.getTag(xform, STORABLE_TAG_NAME)
+    tagD['categories'].extend(categories)
+    tagD['categories'] = list(set(tagD['categories']))
+    nodeTag.setTag(xform, STORABLE_TAG_NAME, tagD)
+    return xform
+
 def makeStorableXform(xform, **kwargs):
-    """Make a storable xform"""
+    """Make a storable xform
+    @keyword createNodeOnly: only create the node; do not appy a matrix, parent,
+    etc
+    @keyword skipParenting: do not parent
+
+    @keyword worldSpace: apply matrix in worldSpace
+    @keyword matrix: apply this matrix to the node
+    @keyword parent: parent the node under this xform"""
     for k, v in _defaultXformKwargs.items():
         kwargs[k] = kwargs.get(k, v)
 
@@ -312,33 +350,47 @@ def makeStorableXform(xform, **kwargs):
 
         xform = MC.createNode(kwargs['nodeType'], name=xform)
 
-    if kwargs['parent']:
-        if MC.objExists(kwargs['parent']):
-            MC.parent(xform, kwargs['parent'])
+    if kwargs.get('createNodeOnly', False):
+        return xform
+
+    parent = kwargs.get('parent', None)
+    skipParenting = kwargs.get('skipParenting', None)
+
+    if skipParenting:
+        if not kwargs['worldSpace'] and parent:
+            _logger.debug("Skipping parenting - local matrix may apply incorrectly")
+
+    elif parent and MC.objExists(parent):
+        if parent in (MC.listRelatives(xform, parent=1) or []):
+            _logger.debug("Skipping parenting - already parented")
+        else:
+            MC.parent(xform, parent)
             if kwargs['nodeType'] == 'joint':
                 utils.fixInverseScale([xform])
-        else:
-            _logger.warning('parent node "%s" does not exist' % kwargs['parent'])
 
-    MC.setAttr('%s.rotateOrder' % xform, kwargs['rotateOrder'])
 
-    MC.xform(xform,
-             ro=kwargs['r'],
-             t=kwargs['t'],
-             s=kwargs['s'],
-             ws=kwargs['worldSpace'])
 
     if kwargs['nodeType'] == 'joint':
         MC.setAttr('%s.jointOrient' % xform, *kwargs['jointOrient'], type='double3')
         MC.setAttr('%s.radius' % xform, kwargs['radius'])
 
+    MC.setAttr('%s.rotateOrder' % xform, kwargs['rotateOrder'])
+    MC.xform(xform,
+             m=kwargs['matrix'],
+             ws=kwargs['worldSpace'])
+
+
     if kwargs['controlArgs']:
         _logger.debug("controlArgs: %r" %  kwargs['controlArgs'])
         makeControl(xform, **kwargs['controlArgs'])
 
-    setStorableAttrs(xform, **kwargs)
+    setStorableXformAttrs(xform, **kwargs)
     return xform
 
+def isStorableXform(xform):
+    if nodeTag.hasTag(xform, STORABLE_TAG_NAME):
+        return True
+    return False
 
 def getStorableXformInfo(xform):
     if not nodeTag.hasTag(xform, STORABLE_TAG_NAME):
@@ -350,8 +402,8 @@ def getStorableXformInfo(xform):
 
     result['nodeType'] = MC.objectType(xform)
 
-    for attr in ['t', 'r', 's']:
-        result[attr] = MC.getAttr('%s.%s' % (xform, attr))[0]
+    worldSpace = result['worldSpace']
+    result['matrix'] = MC.xform(xform, q=1, m=1, ws=worldSpace)
 
     result['rotateOrder'] = MC.getAttr('%s.rotateOrder' % xform)
 
@@ -371,10 +423,11 @@ def getStorableXformInfo(xform):
         _logger.debug('controlArgsType: %s' % str(type(result['controlArgs'])))
     return result
 
-def getStoreableXforms(inNodeList=None, categories=None):
+
+def getStorableXforms(inNodeList=None, categories=None):
     """Return all nodes in the scene from the category"""
     result = nodeTag.getNodesWithTag(STORABLE_TAG_NAME)
-    if inNodeList:
+    if inNodeList is not None:
         result = list(set(inNodeList).intersection(result))
 
     if categories:
@@ -386,26 +439,43 @@ def getStoreableXforms(inNodeList=None, categories=None):
 
         for node in tmp:
             nodeCategories = nodeTag.getTag(node, STORABLE_TAG_NAME)['categories']
-            if nodeCategories.insersection(categories):
+            if set(nodeCategories).intersection(categories):
                 result.append(node)
 
     return result
 
+def getStorableXformRebuildData(inNodeList = None, categories=None):
+    """
+    Get a single dictionary that can be used to reconstruct nodes.  By
+    default, this uses all storable xforms in the scene file
 
-def snapKeepShape(target, ctl, scaleTo1=True, **kwargs):
-    """Snap the xform but retain the shape
-    @param scaleTo1=True - scale the xform to 1 before snapping"""
-    shapes = getShapeNodes(ctl)
-    tmpXform = pm.createNode('transform', n='TMP')
-    utils.parentShape(tmpXform, ctl, deleteChildXform=False)
-    if scaleTo1:
-        ctl.scale.set([1,1,1])
-    utils.snap(target, ctl, **kwargs)
-    utils.parentShape(ctl, tmpXform)
+    @param inNodeList: narrow by storable xforms in this list
+    @param inNodeList: list of strings
+    @param categories: narrow by storable xforms with one of the categories
+    @type categories: list of strings
+    """
+    result = {}
+    for node in getStorableXforms(inNodeList=inNodeList, categories=categories):
+        result[node] = getStorableXformInfo(node)
+    return result
+
+def makeStorableXformsFromData(xformData):
+    """
+    Rebuild xforms from the data gotten from getStorableXformRebuildData
+    """
+    #make all the nodes first so they can be parented
+    for name, data in xformData.iteritems():
+        makeStorableXform(name, createNodeOnly=True, **data)
+
+    for name, data in xformData.iteritems():
+        makeStorableXform(name, **data)
 
 
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
+    makeEditable(ctl)
     zero = utils.insertNodeAbove(ctl)
+    makeStorableXform(zero)
+
     o = utils.Orientation()
     o.setAxis('aim', centerDown)
 
@@ -415,11 +485,10 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
                      upVector=o.getAxis('up'),
                      wu=o.getAxis('up'), worldUpType='objectRotation',
                      worldUpObject=startJoint)
-    pm.pointConstraint(startJoint, endJoint, zero)
 
     #set up network to measure the distance
 
-    mdn = pm.createNode('multiplyDivide')
+    mdn = pm.createNode('multiplyDivide', n='%s_centeredctl_mdn' % ctl)
     dd = pm.distanceDimension(startPoint=[0,0,0], endPoint=[5,5,5])
     startLoc = dd.startPoint.listConnections()[0]
     endLoc = dd.endPoint.listConnections()[0]
@@ -432,7 +501,7 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     #find the amount we need to scale by. Ctls are built to a scale of 1
     #unit by default.  We need to scale by half the distance * multiplier to scale ctl
     #back to 1
-    scale = getInfo(ctl)['scale']
+    scale = getInfo(ctl)['s']
     scale = scale[utils.indexFromVector(o.getAxis('aim'))]
     scale = (1.0/scale)/2.0
     mdn.input2X.set(scale)
@@ -441,7 +510,7 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     mdn.outputX.connect(scaleAttr)
 
 
-def buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=False):
+def _buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=False):
     """
     Rebuild controls in world space
     @param prefix=None: apply this prefix to node names of controls
@@ -519,106 +588,3 @@ def setupFkCtls(bndJnts, oldFkCtls, fkToks, namer):
 
     return newFkCtls
 
-
-class Differ(object):
-    """
-    Get and set control differences
-    """
-    def __init__(self):
-        self.__controls = {}
-        self.__initialState = {}
-        self.__wasSetup = False
-
-    def getObjs(self):
-        result = {}
-        for ctlName, ctlTup in self.__controls.items():
-            result[ctlName] = ctlTup[0]
-        return result
-
-    def getRebuildData(self):
-        """
-        Get data to completely rebuild controls
-        """
-        result = {}
-        for ctlName, ctl in self.getObjs().items():
-            result[ctlName] = _getStateDct(ctl)
-            result[ctlName]['nodeName'] = ctl
-
-        return result
-
-    def addObj(self, name, ctl, category=None, worldSpace=False):
-        return self.addObjs({name:ctl}, category=category, worldSpace=worldSpace)
-
-    def addObjs(self, objDct, category=None, worldSpace=False):
-        """
-        Add Control objects to the differ.
-        @param objDct:  a dict of {objectKey: object}
-        """
-        for key, obj in objDct.items():
-            if not isControl(obj):
-                _logger.warning("%s is not a control; skipping" % obj)
-                continue
-
-            if self._nameCheck(obj):
-                category = []
-                if category:
-                    category = [category]
-                setStorableAttrs(obj, worldSpace=worldSpace, categories=category)
-                self.__controls[key] = obj
-
-            else:
-                _logger.warning("%s is already a key in the differ; skipping" % key)
-
-    def _nameCheck(self, key):
-        """Short names for the xform nodes in controls"""
-        if key in  self.__controls.keys():
-            _logger.warning('%s is already a control in the differ' % key)
-            return False
-        else:
-            return True
-
-    def setInitialState(self):
-        """
-        Set the initial state for all nodes
-        """
-        self.__initialState = {}
-        for k, ctl in self.__controls.items():
-            self.__initialState[k] = getStorableXformInfo(ctl)
-        self.__wasSetup=True
-
-    def getDiffs(self):
-        """
-        Get diffs for all nodes
-        """
-        if not self.__wasSetup:
-            raise utils.BeingsError("Initial state was never set")
-        allDiffs = {}
-        for k, ctl in self.__controls.items():
-            initialState = self.__initialState[k]
-            state = getStorableXformInfo(ctl)
-            if state != initialState:
-                allDiffs[k] = state
-
-        return allDiffs
-
-    def applyDiffs(self, diffDct):
-        """
-        Apply diffs for nodes.
-        @param diffDict:  a dictionary of [diffKey: diffs], gotten from getDiffs
-        @param xformSpace='local': Apply diffs from this space
-
-        Notes
-        -----
-        """
-        diffDct = copy.deepcopy(diffDct)
-        if isinstance(diffDct, basestring):
-            diffDct = eval(diffDct)
-
-        for ctlKey, storableXformInfo in diffDct.items():
-            try:
-                ctl = self.__controls[ctlKey]
-            except ValueError:
-                _logger.warning("%s does not exist, skipping" % ctlKey)
-                continue
-
-            makeStorableXform(ctl, **storableXformInfo)

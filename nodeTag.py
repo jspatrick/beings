@@ -54,7 +54,7 @@ def getTag(node, tagName, noError=False):
     return result
 
 def getNodesWithTag(tagname):
-    tagAttr = getTagAttr(tagName)
+    tagAttr = getTagAttr(tagname)
     return MC.ls('*.%s' % tagAttr, o=1) or []
 
 #--------------------Control Tagging Functions--------------------

@@ -2,6 +2,7 @@
 import beings.tests
 reload(beings.tests)
 beings.tests.runTests('TestNodeTag')
+beings.tests.runTests('TestStorableXform')
 """
 
 import unittest, sys
@@ -15,10 +16,9 @@ reload(control)
 import nodeTag
 reload(nodeTag)
 
-class TestDefaultControl(unittest.TestCase):
+class TestControl(unittest.TestCase):
     def setUp(self):
         MC.file(newFile=1, f=1)
-
 
     def test_returnType(self):
         ctl = control.makeControl('myControl')
@@ -51,6 +51,29 @@ class TestDefaultControl(unittest.TestCase):
     def test_typeConversionRaisesError(self):
         node = control.makeControl('test')
 
+    def test_connectedEditNodeSucceeds(self):
+        """Test that connections can be made to an editable node"""
+        ctl = control.makeControl("test")
+        pp = MC.pointPosition('%s.cv[0]' % ctl)
+
+        control.setEditable(ctl, True)
+        editor = control.getEditor(ctl)
+
+        s = MC.spaceLocator()[0]
+        MC.connectAttr('%s.tx' % s, '%s.tx' % editor)
+        MC.connectAttr('%s.rx' % s, '%s.rx' % editor)
+        MC.connectAttr('%s.sx' % s, '%s.sx' % editor)
+        MC.setAttr('%s.tx' % s, 5)
+        MC.setAttr('%s.rx' % s, 5)
+        MC.setAttr('%s.sx' % s, 5)
+
+        control.setEditable(ctl, False)
+        ppPost = MC.pointPosition('%s.cv[0]' % ctl)
+
+        self.assertNotEqual(pp[0], ppPost[0])
+        self.assertNotEqual(pp[1], ppPost[1])
+        self.assertNotEqual(pp[2], ppPost[2])
+
 class TestStorableXform(unittest.TestCase):
     def setUp(self):
         MC.file(newFile=1, f=1)
@@ -59,6 +82,7 @@ class TestStorableXform(unittest.TestCase):
         xform = control.makeStorableXform('myXform_a')
         xform2 = control.makeStorableXform('myXform_b', nodeType='joint')
         xform3 = control.makeStorableXform('myXform_c', nodeType='joint', parent=xform2)
+        
     def test_makeStorableXformCtl(self):
         xform1 = control.makeStorableXform('myXform_a')
         xform2 = control.makeStorableXform('myXform_b', nodeType='joint')
@@ -73,7 +97,6 @@ class TestStorableXform(unittest.TestCase):
 
         MC.delete(xform1)
         MC.delete(xform2)
-
 
         control.makeStorableXform(xform1, **info1)
         control.makeStorableXform(xform2, **info2)

@@ -254,6 +254,32 @@ def makeControl(name, xformType=None, **kwargs):
 
     return xform
 
+def flushControlScaleToShape(control):
+    """If a control's scale is not at identity, push scaling down to the shape
+    and set the control's scale to [1,1,1]"""
+    if not isControl(control):
+        raise RuntimeError("%s is not a control" % control)
+
+    currentScale = list(MC.getAttr('%s.s' % control)[0])
+    if currentScale != [1,1,1]:
+
+        editor = getEditor(control)
+        if editor:
+            editable=True
+        else:
+            editable=False
+            setEditable(control, True)
+            editor = getEditor(control)
+            
+        eScale = list(MC.getAttr('%s.s' % editor)[0])
+        for i in range(3):
+            eScale[i] = eScale[i] * currentScale[i]
+
+        MC.setAttr('%s.s' % editor, *eScale, type='double3')
+        MC.setAttr('%s.s' % control, 1,1,1, type='double3')
+
+        if not editable:
+            setEditable(control, False)
 
 def getEditor(ctl):
     editor = '%s_editor' % ctl
@@ -328,6 +354,7 @@ def setStorableXformAttrs(xform, **kwargs):
 
     nodeTag.setTag(xform, STORABLE_TAG_NAME, d)
 
+
 def addStorableXformCategory(xform, *categories):
     if not nodeTag.hasTag(xform, STORABLE_TAG_NAME):
         raise RuntimeError("%s is not a storable node" % xform)
@@ -337,6 +364,7 @@ def addStorableXformCategory(xform, *categories):
     tagD['categories'] = list(set(tagD['categories']))
     nodeTag.setTag(xform, STORABLE_TAG_NAME, tagD)
     return xform
+
 
 def makeStorableXform(xform, **kwargs):
     """Make a storable xform
@@ -395,6 +423,7 @@ def makeStorableXform(xform, **kwargs):
 
     setStorableXformAttrs(xform, **kwargs)
     return xform
+
 
 def isStorableXform(xform):
     if nodeTag.hasTag(xform, STORABLE_TAG_NAME):
@@ -478,7 +507,7 @@ def makeStorableXformsFromData(xformData):
 
     for name, data in xformData.iteritems():
         makeStorableXform(name, **data)
-
+    return xformData.keys()
 
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     makeEditable(ctl)

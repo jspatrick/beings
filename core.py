@@ -15,6 +15,7 @@ from utils.Naming import Namer
 from observer import Observable
 from options import OptionCollection
 import nodeTag as NT
+reload(NT)
 
 
 _logger = logging.getLogger(__name__)
@@ -761,7 +762,10 @@ class Widget(TreeItem):
         with utils.NodeTracker() as nt:
             #re-create the rig controls
             rigCtls = control.makeStorableXformsFromData(self._cachedDiffs['rig'])
+            for ctl in rigCtls:
+                control.flushControlScaleToShape(ctl)
             bindJnts = control.makeStorableXformsFromData(self._cachedDiffs['joints'])
+
 
             #kwarg for debugging
             if returnBeforeBuild:
@@ -892,9 +896,8 @@ class Root(Widget):
         It will be detected and connected to the master uniform scale
         attribute"""
 
-        tag = utils.NodeTag("uniformScaleInput")
-        tag['attr'] = attrName
-        tag.setTag(node)
+        tag = {'attr': attrName}
+        NT.setTag(node, 'uniformScaleInput', tag)
 
     def __init__(self, part='master'):
         super(Root, self).__init__(part=part)
@@ -910,23 +913,26 @@ class Root(Widget):
                 for child in children:
 
                     #connect input scale
-                    nodeTags = utils.getTaggedNodesTags(child.getNodes(), 'uniformScaleInput', getChildren=False)
-                    for node, tag in nodeTags.items():
-                        _logger.info("Connecting uniform scale to %s" % node.name())
-                        inputAttr = pm.PyNode('%s.%s' % (node.name(), tag['attr']))
-                        self._otherNodes['master'].uniformScale.connect(inputAttr)
+                    uniScaleNodes = NT.getNodesWithTag('uniformScaleInput',
+                                                            inNodeList = child.getNodes())
+                    for node in uniScaleNodes:
+                        attr = getTag(node, 'uniformScaleInput')['attr']
+
+                        _logger.info("Connecting uniform scale to %s.%s" % (node, attr))
+                        MC.connectAttr('%s.uniformScale' % self._otherNodes['master'],
+                                       '%s.%s' % (node, attr))
 
                     masterNodes = child.getNodes('master')
                     if masterNodes:
-                        pm.parent(masterNodes, self._otherNodes['top'])
+                        MC.parent(masterNodes, self._otherNodes['top'])
                     dntNodes = child.getNodes('dnt')
                     if dntNodes:
-                        pm.parent(dntNodes, self._otherNodes['dnt'])
+                        MC.parent(dntNodes, self._otherNodes['dnt'])
                     ikNodes = child.getNodes('ik')
                     for node in ikNodes:
                         if child.nodeStatus(node) != 'handled':
-                            pm.parent(node, self.plugNode('master'))
-        pm.refresh()
+                            MC.parent(node, self.plugNode('master'))
+        MC.refresh()
         super(Root, self).childCompletedBuild(child, buildType)
 
     def _makeLayout(self, namer):
@@ -1063,10 +1069,13 @@ class CenterOfGravity(Widget):
         cogJnt = namer('', r='bnd')
         if not MC.objExists(cogJnt):
             raise RuntimeError("cannot get control for '%s'" % cogJnt)
-
+        self.setNodeCateogry(cogJnt, 'parent')
+        
         MC.parent(rigCtls['body_pivot'], rigCtls['body'])
         MC.parent(rigCtls[''], rigCtls['body_pivot'])
-        utils.insertNodeAbove(rigCtls['body'])
+        bodyZero = utils.insertNodeAbove(rigCtls['body'])
+        self.setNodeCateogry(bodyZero, 'parent')
+
 
         #create the inverted pivot
         name = namer.name(d='pivot_inverse')
@@ -1084,16 +1093,13 @@ class CenterOfGravity(Widget):
 
         self.setParentNode('cog_ctl', rigCtls[''])
         self.setParentNode('body_ctl', rigCtls['body'])
-        self.setParentNode('pivot_ctl', rigCtls['body_pivot'])        
+        self.setParentNode('pivot_ctl', rigCtls['body_pivot'])
         self.setParentNode('cog_bnd', cogJnt)
 
         #tag controls
 
-        #setup info for parenting
-        self.setNodeCateogry(rigCtls['body'], 'parent')
 
 WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'Put body widgets under this')
-
 
 
 class RigModel(QtCore.QAbstractItemModel):

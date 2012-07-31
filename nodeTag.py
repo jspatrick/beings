@@ -53,9 +53,13 @@ def getTag(node, tagName, noError=False):
 
     return result
 
-def getNodesWithTag(tagname):
+def getNodesWithTag(tagname, inNodeList=None):
     tagAttr = getTagAttr(tagname)
-    return MC.ls('*.%s' % tagAttr, o=1) or []
+    nodes = MC.ls('*.%s' % tagAttr, o=1) or []
+    if inNodeList is not None:
+        nodes = list(set(nodes).intersection(inNodeList))
+    return nodes
+
 
 #--------------------Control Tagging Functions--------------------
 # LOCK_ATTRS = ['lockedKeyable', 'unlockedKeyable', 'unlockedUnkeyable']

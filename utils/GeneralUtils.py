@@ -596,7 +596,7 @@ def unparentNodesFromTree(tree):
                 child.setParent(world=True)
 
 
-def snap(master, slave, point=True, orient=True, scale=False, ignoreOrient=False):
+def snap(master, slave, point=True, orient=True, scale=True, ignoreOrient=False):
     """snap the slave to the position and orientation of the master's rotate pivot
     @param master: the driver
     @param slave: the node being moved

@@ -160,6 +160,9 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     """
     Create a stretch
     """
+    distNode1 = pm.PyNode(distNode1)
+    distNode2 = pm.PyNode(distNode2)
+    stretchJnt = pm.PyNode(stretchJnt)
     if not namer.getToken('part'):
         _logger.warning('You should really give the namer a part...')
     dist = pm.createNode('distanceBetween', n=namer.name(d='stretch', x='dst'))

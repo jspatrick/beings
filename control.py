@@ -270,7 +270,7 @@ def flushControlScaleToShape(control):
             editable=False
             setEditable(control, True)
             editor = getEditor(control)
-            
+
         eScale = list(MC.getAttr('%s.s' % editor)[0])
         for i in range(3):
             eScale[i] = eScale[i] * currentScale[i]
@@ -510,15 +510,12 @@ def makeStorableXformsFromData(xformData):
     return xformData.keys()
 
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
-    makeEditable(ctl)
-    zero = utils.insertNodeAbove(ctl)
-    makeStorableXform(zero)
-
+    
     o = utils.Orientation()
     o.setAxis('aim', centerDown)
 
-    pm.pointConstraint(startJoint, endJoint, zero)
-    pm.aimConstraint(endJoint, zero,
+    pm.pointConstraint(startJoint, endJoint, ctl)
+    pm.aimConstraint(endJoint, ctl,
                      aim=o.getAxis('aim'),
                      upVector=o.getAxis('up'),
                      wu=o.getAxis('up'), worldUpType='objectRotation',
@@ -526,27 +523,29 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
 
     #set up network to measure the distance
 
-    mdn = pm.createNode('multiplyDivide', n='%s_centeredctl_mdn' % ctl)
-    dd = pm.distanceDimension(startPoint=[0,0,0], endPoint=[5,5,5])
-    startLoc = dd.startPoint.listConnections()[0]
-    endLoc = dd.endPoint.listConnections()[0]
-    startLoc.v.set(0)
-    endLoc.v.set(0)
-    pm.pointConstraint(startJoint, startLoc)
-    pm.pointConstraint(endJoint, endLoc)
-    dd.distance.connect(mdn.input1X)
-    dd.getParent().v.set(0)
+    mdn = MC.createNode('multiplyDivide', n='%s_centeredctl_mdn' % ctl)
+    dd = MC.distanceDimension(startPoint=[0,0,0], endPoint=[5,5,5])
+    startLoc = MC.listConnections('%s.startPoint' % dd)[0]
+    endLoc = MC.listConnections('%s.endPoint' % dd)[0]
+    MC.setAttr("%s.v" % startLoc, 0)
+    MC.setAttr("%s.v" % endLoc, 0)
+
+    MC.pointConstraint(startJoint, startLoc)
+    MC.pointConstraint(endJoint, endLoc)
+    MC.connectAttr('%s.distance' % dd, '%s.input1X' % mdn)
+    MC.setAttr('%s.v' % MC.listRelatives(dd, parent=1)[0], 0)
+
     #find the amount we need to scale by. Ctls are built to a scale of 1
     #unit by default.  We need to scale by half the distance * multiplier to scale ctl
     #back to 1
     scale = getInfo(ctl)['s']
     scale = scale[utils.indexFromVector(o.getAxis('aim'))]
     scale = (1.0/scale)/2.0
-    mdn.input2X.set(scale)
+    MC.setAttr("%s.input2X" % mdn, scale)
 
-    scaleAttr = o.getAttr(zero, 'aim', type='scale')
-    mdn.outputX.connect(scaleAttr)
-
+    scaleAttr = 'scale%s' % o.getAxis('aim', asString=True)[3]
+    MC.connectAttr("%s.outputX" % mdn,
+                   "%s.%s" % (ctl, scaleAttr))
 
 def _buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=False):
     """

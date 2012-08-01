@@ -104,10 +104,10 @@ class Orientation(object):
     def __init__(self):
         """
         Initialize the Orient with default settings
-        
+
         Layout objects are always constructed with the default settings.  Rig
         objects can then provide a different set of orientations and build the
-        same rig with the new orients.  
+        same rig with the new orients.
         """
 
         self._orientAimAxis = "posY"
@@ -131,7 +131,7 @@ class Orientation(object):
     def isAimFlipped(self):
         """
         Has the orientation's aim axis been temporarily flipped from positive to negative? (or visa versa)
-        This occurs during joint orient mirroring from left to right.  
+        This occurs during joint orient mirroring from left to right.
         """
         return self._aimFlipped
 
@@ -168,7 +168,7 @@ class Orientation(object):
     def getAttr(self, xformNode, axis, type='translate'):
         axis = self.getAxis(axis, asString=True)[3]
         return getattr(xformNode, '%s%s' % (type, axis))
-    
+
     def rotOrder(self, asString=False, default=False):
         if default:
             if asString:
@@ -222,7 +222,7 @@ class Orientation(object):
 #            otherAxes = {'aim': self._orientAimAxis, 'up': self._orientUpAxis}
         else:
             raise RIError("%s is not a valid axis.\nValid Axes:%s" % (axis, ',  '.join(axes)))
-        #set the axis passed 
+        #set the axis passed
         axis = setting
 
         currentAxes = [axis[-1] for axis in [self._orientAimAxis, self._orientUpAxis, self._orientWeakAxis]]
@@ -284,7 +284,7 @@ class Orientation(object):
 
     def getAxis(self, axis, asString=False):
         """
-        Return the axis being used for the aim, up, or weak axis.  
+        Return the axis being used for the aim, up, or weak axis.
         @param axis: the axis to get, ie 'aim'
         @param asString=False: Return the axis as a vector, ie [0,1,0]; else, return string, ie 'posY'
         @return: string ('posY') or vector ([0,1,0])
@@ -362,7 +362,7 @@ class Orientation(object):
         """
         Given an original vector, return the vector for an object in current Orientation space.
         If our axes are at their defaults, this will be the same as the arg.
-        
+
         @param vector: a 3-element list, ie [1, 5, 3.2]
         @param origOrient=None: The original orientation the vector was in.  Uses default orientation by default
         """
@@ -398,7 +398,7 @@ class Orientation(object):
                     break
             result[newListPos] = vector[origListPos] * origMult * newMult
 
-        #if this is the right side, all values should be inverted to get mirrored vectors 
+        #if this is the right side, all values should be inverted to get mirrored vectors
 #        if useSide and self._side == 'rt':
 #            result = [result[0] * -1, result[1] * -1, result[2] * -1]
 
@@ -408,7 +408,7 @@ class Orientation(object):
         """
         Given an original set of Euler angles, return the angles for the current Orientation and rotation order
         If our axes are at their defaults, this will be the same as the arg.
-        
+
         @param origAngles: a 3-element list, ie [90, 25, 40.2]
         @param origOrient=None: The original orientation the vector was in.  Uses default orientation by default
         """
@@ -445,7 +445,7 @@ class Orientation(object):
         '''
         Rotate an object to match the current space.  Eg, if the original object
         matches world axes but this object's orientation is different, rotate
-        it to match the new space 
+        it to match the new space
         #don't mirror these values in the case of orientation
         return self.getNewVector(newAngles, origOrient=origOrient)
         '''
@@ -457,6 +457,7 @@ class Orientation(object):
         Change the relative orientation joints
         '''
         for j in joints:
+            j = pm.PyNode(j)
             jo = j.jointOrient.get()
             newAngle = self.newAngle(jo, origOrient=origOrient)
             children = j.listRelatives()
@@ -505,4 +506,3 @@ class Orientation(object):
 #
 #    def _getRotate(self, space='local'):
 #        pass
-

@@ -772,6 +772,24 @@ def createJointsFromDict(jointDict, deleteExisting=False):
     fixInverseScale([pm.nodetypes.Joint(jnt) for jnt in jointDict.keys()])
     return result
 
+def dupJntList(jnts, oldNamePart, newNamePart):
+    newJnts = []
+    parents = {}
+    for jtn in jnts:
+        newName = re.sub(oldNamePart, newNamePart, jnt)
+        newJnts.append(MC.duplicate(jnt, parentOnly=1, n=newName)[0])
+
+        parent = MC.listRelatives(jnt, parent=1)
+        parent = parent[0] if parent else None
+        if parent in jnts:
+            parents[newName] = re.sub(oldNamePart, newNamePart, parent)
+
+    for jnt, parentJnt in parents.iteritems():
+        MC.parent(jnt, parentJnt)
+        
+    fixInverseScale(newJnts)
+    return newJnts
+
 def dupJntDct(dct, oldNamePart, newNamePart):
     '''
     Duplicate a joint dict.  Rename the joints

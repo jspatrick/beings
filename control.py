@@ -25,7 +25,7 @@ for f in fncs:
     MC.file(save=1)
 """
 
-import logging, sys, copy, json, os
+import logging, sys, copy, json, os, re
 import pymel.core as pm
 import maya.mel as MM
 import maya.cmds as MC
@@ -366,18 +366,40 @@ def addStorableXformCategory(xform, *categories):
     return xform
 
 
+def __applyJointAttrs(xform, **kwargs):
+    MC.setAttr('%s.jointOrient' % xform, *kwargs['jointOrient'], type='double3')
+    MC.setAttr('%s.radius' % xform, kwargs['radius'])
+    #when we use the xform command to get and set a matrix,
+    #it operates on the final matrix, which has the joint orientation
+    #'built in'.  Since we're adding the joint orientation back to the
+    #joint, we need to subtract it from the rotation values to preserve
+    #the final matrix
+    MC.setAttr('%s.rx' % xform,
+               MC.getAttr('%s.rx' % xform) - kwargs['jointOrient'][0])
+    MC.setAttr('%s.ry' % xform,
+               MC.getAttr('%s.ry' % xform) - kwargs['jointOrient'][1])
+    MC.setAttr('%s.rz' % xform,
+               MC.getAttr('%s.rz' % xform) - kwargs['jointOrient'][2])
+
 def makeStorableXform(xform, **kwargs):
     """Make a storable xform
     @keyword createNodeOnly: only create the node; do not appy a matrix, parent,
     etc
     @keyword skipParenting: do not parent
+    @keyword skipMatrix: do not apply xform
+    @keyword skipJointAttrs: do not apply joint attrs
 
     @keyword worldSpace: apply matrix in worldSpace
+    @keyword categories: apply these categories
     @keyword matrix: apply this matrix to the node
-    @keyword parent: parent the node under this xform"""
+    @keyword parent: parent the node under this xform
+    @keyword jointOrient: apply this joint orientation
+    @keyword radius: apply this joint radius"""
+    #get args - get defaults if not specified
     for k, v in _defaultXformKwargs.items():
         kwargs[k] = kwargs.get(k, v)
 
+    #create or find the node
     if MC.objExists(xform):
         if MC.nodeType(xform) != kwargs['nodeType']:
             _logger.warning("Cannot change type of existing node '%s'" % xform)
@@ -390,6 +412,16 @@ def makeStorableXform(xform, **kwargs):
     if kwargs.get('createNodeOnly', False):
         return xform
 
+    #apply rotate order
+    MC.setAttr('%s.rotateOrder' % xform, kwargs['rotateOrder'])
+
+    #apply xform
+    if not kwargs.get('skipMatrix', False):
+        MC.xform(xform,
+                 m=kwargs['matrix'],
+                 ws=kwargs['worldSpace'])
+
+    #parent the node
     parent = kwargs.get('parent', None)
     skipParenting = kwargs.get('skipParenting', None)
 
@@ -401,25 +433,32 @@ def makeStorableXform(xform, **kwargs):
         if parent in (MC.listRelatives(xform, parent=1) or []):
             _logger.debug("Skipping parenting - already parented")
         else:
-            MC.parent(xform, parent)
+            #if the node is worldSpace, preserve world transforms;
+            #else, preserve local transforms
+            MC.parent(xform, parent, absolute=kwargs['worldSpace'])
             if kwargs['nodeType'] == 'joint':
                 utils.fixInverseScale([xform])
+                #when a joint is parent, values are stuffed in the joint orient
+                #to preserve the orientation.  We want to freeze the rotate to
+                #put all rotations into the orientation, then move those back to
+                #the rotation
+                MC.makeIdentity(xform, apply=1, r=1, t=0, s=1, n=0, jointOrient=0)
+                jo = MC.getAttr('%s.jointOrient' % xform)[0]
+                MC.setAttr('%s.jointOrient' % xform, 0,0,0, type='double3')
+                MC.setAttr('%s.r' % xform, *jo, type='double3')
 
+    # elif parent and not MC.objExists(parent):
+    #     _logger.warning("cannot parent %s to non-existing node '%s'" % \
+    #                     (xform, parent))
 
+    if kwargs['nodeType'] == 'joint' and not \
+      kwargs.get('skipJointAttrs', False):
+        __applyJointAttrs(xform, **kwargs)
 
-    if kwargs['nodeType'] == 'joint':
-        MC.setAttr('%s.jointOrient' % xform, *kwargs['jointOrient'], type='double3')
-        MC.setAttr('%s.radius' % xform, kwargs['radius'])
-
-    MC.setAttr('%s.rotateOrder' % xform, kwargs['rotateOrder'])
-    MC.xform(xform,
-             m=kwargs['matrix'],
-             ws=kwargs['worldSpace'])
-
-
+    #build the control
     if kwargs['controlArgs']:
         _logger.debug("controlArgs: %r" %  kwargs['controlArgs'])
-        makeControl(xform, **kwargs['controlArgs'])
+        makeControl(xform, xformType=kwargs['nodeType'], **kwargs['controlArgs'])
 
     setStorableXformAttrs(xform, **kwargs)
     return xform
@@ -491,26 +530,61 @@ def getStorableXformRebuildData(inNodeList = None, categories=None):
     @param inNodeList: list of strings
     @param categories: narrow by storable xforms with one of the categories
     @type categories: list of strings
+
+    @return: ordered dict of nodes with data
     """
     result = {}
     for node in getStorableXforms(inNodeList=inNodeList, categories=categories):
         result[node] = getStorableXformInfo(node)
     return result
 
-def makeStorableXformsFromData(xformData):
+def substituteInData(xformData, *args):
+    """
+    find all instances of the find string and replace with the replaceWith string
+    @param *args: tuples of (find, replace) regexes
+    @return: new data dict
+    """
+    result = {}
+    for k, v in xformData.iteritems():
+        v = copy.deepcopy(v)
+        for find, replace in args:
+            k = re.sub(find, replace, k)
+            if v['parent']:
+                v['parent'] = re.sub(find, replace, v['parent'])
+        result[k] = v
+    return result
+
+def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
     """
     Rebuild xforms from the data gotten from getStorableXformRebuildData
+    @param xformData: data in the form {nodeName: infoDict}
+    @type xformData: dict
+    @param sub: a 2-item substitution pattern tuple, in the form (search, replacewith)
+    @type sub: iterable of two strings
+
+    @return a list of xforms created.
     """
+    if sub:
+        tmp = xformData
+        xformData = {}
+        for k, v in tmp.iteritems():
+            k = re.sub(sub[0], sub[1], k)
+            v = copy.deepcopy(v)
+            v['parent'] = re.sub(sub[0], sub[1], v['parent'])
+            xformData[k] = v
+
     #make all the nodes first so they can be parented
     for name, data in xformData.iteritems():
-        makeStorableXform(name, createNodeOnly=True, **data)
+        makeStorableXform(name, skipParenting=True, skipJointAttrs=True, **data)
 
     for name, data in xformData.iteritems():
-        makeStorableXform(name, **data)
+        makeStorableXform(name, skipMatrix=True, skipParenting=skipParenting, **data)
+
     return xformData.keys()
 
+
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
-    
+
     o = utils.Orientation()
     o.setAxis('aim', centerDown)
 
@@ -547,80 +621,46 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     MC.connectAttr("%s.outputX" % mdn,
                    "%s.%s" % (ctl, scaleAttr))
 
-def _buildCtlsFromData(ctlData, prefix='', flushScale=True, flushLocalXforms=False):
-    """
-    Rebuild controls in world space
-    @param prefix=None: apply this prefix to node names of controls
-    """
-    ctlData = copy.deepcopy(ctlData)
-    result = {}
 
-    for ctlName, data in ctlData.items():
-
-        #gather data
-        origNodeName = '%s%s' % (prefix, data.pop('nodeName'))
-        nodeType = data.pop('nodeType')
-        worldMatrix = data.pop('worldMatrix')
-        localMatrix = data.pop('localMatrix')
-        parentMatrix = data.pop('parentMatrix')
-
-        #set the name of the new ctl node
-        i = 1
-        nodeName = origNodeName
-        while pm.objExists(nodeName):
-            nodeName = '%s%i' % (origNodeName, i)
-            i += 1
-        if nodeName != origNodeName:
-            _logger.warning("Warning - %s exists.  Setting name to %s" % \
-                            (origNodeName, nodeName))
-
-        ctl = makeControl(xformType = nodeType, name=nodeName, **data)
-        pm.xform(ctl, m=worldMatrix, ws=True)
-
-        #flush the scale down to the shape level
-        if flushScale:
-            xfScale = ctl.scale.get()
-            shapeScale = eval(ctl.beingsControlInfo.get())['scale']
-            for i in range(3):
-                shapeScale[i] = shapeScale[i] * xfScale[i]
-            ctl.scale.set([1,1,1])
-            makeControl(xform=ctl, scale=shapeScale)
-
-
-        if flushLocalXforms:
-            tmp = pm.createNode('transform', n='SNAP_TMP')
-            pm.xform(tmp, m=parentMatrix, ws=True)
-            snapKeepShape(tmp, ctl)
-            pm.delete(tmp)
-        result[ctlName] = ctl
-
-    return result
-
-
-def setupFkCtls(bndJnts, oldFkCtls, fkToks, namer):
+def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
     """Set up fk controls from bndJnts.
 
     This will delete the original controls that were passed
-    in and rebuild the control shapes on a duplicate of the bind joints
-    @return: dict of {tok:ctl}
+    in and rebuild the control shapes on a duplicate of the bind joints.
+    Zero nodes will be placed above the controls
+    @return: list of new joint controls
     """
-    if len(bndJnts) != len(oldFkCtls) or len(bndJnts) != len(fkToks):
-        _logger.warning("bind joint length must match rig ctls")
 
-    newFkCtls = utils.duplicateHierarchy(bndJnts, toReplace='_bnd_', replaceWith='_fk_')
-    for i in range(len(newFkCtls)):
-        newCtl = newFkCtls[i]
-        oldCtl = oldFkCtls[i]
-        info = getInfo(oldCtl)
-        setInfo(newCtl, getInfo(oldCtl))
-        utils.parentShape(newCtl, oldCtl)
-        newCtl.rename(namer(fkToks[i], r='fk'))
-        if newCtl.overrideDisplayType.get():
-            newCtl.overrideDisplayType.set(0)
+    if len(bndJnts) != len(rigCtls):
+        raise RuntimeError("bind joint length must match rig ctls")
+    if len(bndJnts) != len(descriptions):
+        raise RuntimeError("bind joint length must match rig descriptions")
 
-    with utils.SilencePymelLogger():
-        for ctl in oldFkCtls:
-            if ctl.exists():
-                pm.delete(ctl)
+    fkCtls = {}
+    rebuildData = getStorableXformRebuildData(inNodeList = bndJnts)
 
-    return newFkCtls
+    substitutions = []
+    for i in range(len(rigCtls)):
+        #get the position offsets for the new control data
+        setEditable(rigCtls[i], True)
+        editor = getEditor(rigCtls[i])
+        MC.parent(editor, world=1)
+        utils.snap(bndJnts[i], rigCtls[i])
+        MC.parent(editor, rigCtls[i])
+        ctlInfo = getInfo(rigCtls[i])
+        rebuildData[bndJnts[i]]['controlArgs'] = ctlInfo
+
+        #get name substituions for the new joints
+        newName = namer(descriptions[i], r='fk')
+        substitutions.append((bndJnts[i], newName))
+            
+        fkCtls[descriptions[i]] = newName
+
+    MC.delete(rigCtls)
+    rebuildData = substituteInData(rebuildData, *substitutions)
+    makeStorableXformsFromData(rebuildData)
+
+    for ctl in fkCtls.values():
+        utils.insertNodeAbove(ctl)
+
+    return fkCtls

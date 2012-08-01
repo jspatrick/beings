@@ -761,7 +761,7 @@ class Widget(TreeItem):
 
         with utils.NodeTracker() as nt:
             #re-create the rig controls
-            rigCtls = control.makeStorableXformsFromData(self._cachedDiffs['rig'])
+            rigCtls = control.makeStorableXformsFromData(self._cachedDiffs['rig'], skipParenting=True)
             for ctl in rigCtls:
                 control.flushControlScaleToShape(ctl)
             bindJnts = control.makeStorableXformsFromData(self._cachedDiffs['joints'])

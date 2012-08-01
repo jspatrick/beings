@@ -15,6 +15,8 @@ import control
 reload(control)
 import nodeTag
 reload(nodeTag)
+import utils
+reload(utils)
 
 class TestControl(unittest.TestCase):
     def setUp(self):
@@ -82,7 +84,7 @@ class TestStorableXform(unittest.TestCase):
         xform = control.makeStorableXform('myXform_a')
         xform2 = control.makeStorableXform('myXform_b', nodeType='joint')
         xform3 = control.makeStorableXform('myXform_c', nodeType='joint', parent=xform2)
-        
+
     def test_makeStorableXformCtl(self):
         xform1 = control.makeStorableXform('myXform_a')
         xform2 = control.makeStorableXform('myXform_b', nodeType='joint')
@@ -165,6 +167,67 @@ class TestStorableXform(unittest.TestCase):
             self.assertTrue(MC.getAttr('%s.t' % xform3)[0][i] - tuple(t)[i] < .0001)
             self.assertTrue(MC.getAttr('%s.r' % xform3)[0][i] - tuple(r)[i] < .0001)
             self.assertTrue(MC.getAttr('%s.s' % xform3)[0][i] - tuple(s)[i] < .0001)
+
+class TestJointStorableXform(unittest.TestCase):
+    def setUp(self):
+        MC.file(newFile=1, f=1)
+        pos = [[0,0,0], [0,3,2], [0,5,0]]
+        MC.select(cl=1)
+        self.jnts = []
+        from beings import utils
+        for i, p in enumerate(pos):
+            self.jnts.append(MC.joint(name='jnt_%i' % i, p=p))
+        for j in self.jnts:
+            utils.orientJnt(j, aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
+
+    def test_rebuildJoints(self):
+        """
+        Test that a set of rebuilt joints have the same rotate, orient, and scale
+        as they did when originally built
+        """
+        info = {}
+        preJointAttrs = []
+        postJointAttrs = []
+        for j in self.jnts:
+            control.setStorableXformAttrs(j, worldSpace=True)
+            info[j] = control.getStorableXformInfo(j)
+
+            attrs = {}
+            attrs['r'] = MC.getAttr('%s.r' % j)[0]
+            attrs['t'] = MC.getAttr('%s.t' % j)[0]
+            attrs['s'] = MC.getAttr('%s.s' % j)[0]
+            attrs['o'] = MC.getAttr('%s.jointOrient' % j)[0]
+            preJointAttrs.append(attrs)
+
+        MC.delete(self.jnts)
+
+        #first build nodes
+        for jnt in self.jnts:
+            control.makeStorableXform(jnt, createNodeOnly=True, **info[jnt])
+        #now parent and apply attrs
+        for j in self.jnts:
+            control.makeStorableXform(j, **info[j])
+            attrs = {}
+            attrs['r'] = MC.getAttr('%s.r' % j)[0]
+            attrs['t'] = MC.getAttr('%s.t' % j)[0]
+            attrs['s'] = MC.getAttr('%s.s' % j)[0]
+            attrs['o'] = MC.getAttr('%s.jointOrient' % j)[0]
+            postJointAttrs.append(attrs)
+
+
+        for i, jnt in enumerate(self.jnts):
+            preAttrs = preJointAttrs[i]
+            postAttrs = postJointAttrs[i]
+            for attr in ['r', 't', 's', 'o']:
+                for j in range(3):
+                    self.assertAlmostEqual(preAttrs[attr][j],
+                                           postAttrs[attr][j])
+
+            m = MC.xform(jnt, q=1, ws=1, m=1)
+            for j in range(len(m)):
+                self.assertAlmostEqual(m[j], info[jnt]['matrix'][j])
+
+
 
 class TestControlDiffs(unittest.TestCase):
     def setUp(self):

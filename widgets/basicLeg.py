@@ -6,21 +6,22 @@ import maya.cmds as MC
 
 import logging
 _logger = logging.getLogger(__name__)
+_logger.setLevel(logging.DEBUG)
 
 
 class BasicLeg(core.Widget):
-    def __init__(self, part='basicleg', **kwargs):
+    def __init__(self, part='leg', **kwargs):
         super(BasicLeg, self).__init__(part=part, **kwargs)
         #add parentable Nodes
         self.addParentPart('bnd_hip')
         self.addParentPart('bnd_knee')
         self.addParentPart('bnd_ankle')
+        self.__toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toetip']
 
     def _makeLayout(self, namer):
         """
         build the layout
         """
-        toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toetip']
         positions = [(0,5,0),
                      (0,2.75,1),
                      (0,.5,0),
@@ -32,7 +33,7 @@ class BasicLeg(core.Widget):
         legCtls = {}
         MC.select(cl=1)
         #create/register bind joints and layout controls
-        for i, tok in enumerate(toks):
+        for i, tok in enumerate(self.__toks):
             legJoints[tok] = MC.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
             self.registerBindJoint(legJoints[tok])
             legCtls[tok] = control.makeControl(namer.name(x='layout', d=tok, r='ctl'),
@@ -43,7 +44,7 @@ class BasicLeg(core.Widget):
             utils.snap(legJoints[tok], legCtls[tok], orient=False)
             MC.select(legJoints[tok])
 
-        for i, tok in enumerate(toks):
+        for i, tok in enumerate(self.__toks):
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
             MC.setAttr('%s.r' % legCtls[tok], l=1)
         MC.setAttr('%s.ry' % legCtls['ankle'], l=1)
@@ -92,16 +93,16 @@ class BasicLeg(core.Widget):
 
 
         #make rig controls
-        #ankleIK
-        ankleIkCtl = control.makeControl(namer('ankle', r='ik'),
-                                         shape='jack',
-                                         color='blue')
+        # #ankleIK
+        # ankleIkCtl = control.makeControl(namer('ankle', r='ik'),
+        #                                  shape='jack',
+        #                                  color='blue')
 
-        self.registerControl(ankleIkCtl, 'rig')
-        utils.snap(legJoints['ankle'], ankleIkCtl, orient=False)
-        control.setEditable(ankleIkCtl, True)
-        par = utils.insertNodeAbove(ankleIkCtl)
-        pm.pointConstraint(legJoints['ankle'], par, mo=False)
+        # self.registerControl(ankleIkCtl, 'rig')
+        # utils.snap(legJoints['ankle'], ankleIkCtl, orient=False)
+        # control.setEditable(ankleIkCtl, True)
+        # par = utils.insertNodeAbove(ankleIkCtl)
+        # pm.pointConstraint(legJoints['ankle'], par, mo=False)
 
         #kneeIK
         kneeIkCtl = control.makeControl(namer('knee', r='ik'),
@@ -116,7 +117,7 @@ class BasicLeg(core.Widget):
         control.setEditable(kneeIkCtl, True)
 
         #heel
-        heelCtl = control.makeControl(namer.name(d='heel'),
+        heelCtl = control.makeControl(namer.name(d='', r='ik'),
                                       shape='jack',
                                       color='red',
                                       s=[.5,.5,.5])
@@ -143,39 +144,10 @@ class BasicLeg(core.Widget):
             self.registerControl(ctl, ctlType='rig')
 
             #center and scale it
-            childJnt = legJoints[toks[toks.index(tok)+1]]
+            childJnt = legJoints[self.__toks[self.__toks.index(tok)+1]]
             control.centeredCtl(jnt, childJnt, ctl)
 
         return namer
-
-    def __setupFkCtls(self, bndJnts, rigCtls, fkToks):
-        """Set up the fk controls.  This will delete the original controls that were passed
-        in and rebuild the control shapes on a duplicate of the bind joints
-        @return: dict of {tok:ctl}
-        """
-        fkCtls = utils.dupJntDct(bndJnts, '_bnd_', '_fk_')
-        unusedToks = set(fkCtls.keys()).difference(fkToks)
-        for tok in fkToks:
-            newCtl = fkCtls[tok]
-            oldCtl = rigCtls[tok]
-            info = control.getInfo(oldCtl)
-            control.setInfo(newCtl, control.getInfo(oldCtl))
-            utils.parentShape(newCtl, oldCtl)
-            #make sure the joint is not referenced, otherwise attrs don't show up
-            #in channel box when handle selected
-            MC.setAttr('%s.overrideDisplayType' % newCtl, 0)
-
-        for tok in unusedToks:
-            ctl = fkCtls.pop(tok)
-            if set(MC.listRelatives(ctl) or []).intersection(fkCtls.values()):
-                _logger.warning("Warning - deleting a parent of other controls")
-            pm.delete(ctl)
-            #also delete the rig ctl
-            try:
-                pm.delete(rigCtls.pop(tok))
-            except KeyError:
-                pass
-        return fkCtls
 
 
     def _setupRevFoot(self, namer, ikJnts, rigCtls, ikCtl, orientation, ankleIKH):
@@ -268,22 +240,31 @@ class BasicLeg(core.Widget):
         return revFootJnts
 
     def _makeRig(self, namer):
-        return
-        #add the parenting nodes - this is a required step.  It registers the actual nodes
-        #the rig uses to parent widgets to each other
-        pm.delete(rigCtls['kneeIK'])
+        #gather the bind joints and fk controls that were built
+        bndJnts = []
+        fkCtls = []
+        for tok in self.__toks[:-1]:
+            jnt = namer(tok, r='bnd')
+            fkCtl = namer(tok, r='fk')
+            for node in [jnt, fkCtl]:
+                if not MC.objExists(node):
+                    raise RuntimeError('%s does not exist'  % node)
+            bndJnts.append(jnt)
+            fkCtls.append(fkCtl)
 
-        for tok in ['hip', 'knee', 'ankle']:
-            self.setParentNode('bnd_%s' % tok, bndJnts[tok])
+        for i, tok in enumerate(self.__toks[:3]):
+            self.setParentNode('bnd_%s' % tok, bndJnts[i])
 
         o = utils.Orientation()
         side = self.options.getValue('side')
         if side == 'rt':
             o.setAxis('aim', 'negY')
-            o.reorientJoints(bndJnts.values())
+            o.reorientJoints(bndJnts)
 
-        fkJnts = self.__setupFkCtls(bndJnts, rigCtls,
-                                    ['hip', 'knee', 'ankle', 'ball', 'toe'])
+        fkCtls = control.setupFkCtls(bndJnts, fkCtls, self.__toks[:-1], namer)
+        
+        return
+
         ikJnts = utils.dupJntDct(bndJnts, '_bnd_', '_ik_')
         ikCtl = rigCtls['ankleIK']
         ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)

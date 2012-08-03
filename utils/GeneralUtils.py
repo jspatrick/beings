@@ -188,15 +188,19 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer):
 
     @return: the reverse node created
     """
+    fkIkAttr = pm.PyNode(fkIkAttr)
     reverse = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
-
     fkIkAttr.connect(reverse.inputX)
 
-    fkJntList = []
-    ikJntList = []
-    bindJntList = []
+    fkJntList = fkChain
+    ikJntList = ikChain
+    bindJntList = bindChain
 
     if isinstance(fkChain, dict):
+        fkJntList = []
+        ikJntList = []
+        bindJntList = []
+
         for tok in bindChain.keys():
             if (tok not in fkChain) or (tok not in ikChain):
                 _logger.debug("Skipping blending %s" % tok)
@@ -772,21 +776,37 @@ def createJointsFromDict(jointDict, deleteExisting=False):
     fixInverseScale([pm.nodetypes.Joint(jnt) for jnt in jointDict.keys()])
     return result
 
-def dupJntList(jnts, oldNamePart, newNamePart):
+def dupJntList(jnts, descriptions, namer):
+    """Duplicate the joints in the list, using the namer
+    and descriptions to rename the joints, and parenting
+    them in order of the list
+
+    @param jnts: the list of joints to duplicate
+    @type jnts: list of strings
+    @param descriptions: list of names for the joints
+    @type descriptions: list of strings
+    @param namer: a namer; descritpions will be used to name the joints. """
+
+    if len(jnts) != len(descriptions):
+        raise RuntimeError("jnt list length must equal description list length")
+
     newJnts = []
-    parents = {}
-    for jtn in jnts:
-        newName = re.sub(oldNamePart, newNamePart, jnt)
-        newJnts.append(MC.duplicate(jnt, parentOnly=1, n=newName)[0])
 
-        parent = MC.listRelatives(jnt, parent=1)
-        parent = parent[0] if parent else None
-        if parent in jnts:
-            parents[newName] = re.sub(oldNamePart, newNamePart, parent)
+    for i, jnt in enumerate(jnts):
+        newName = namer(descriptions[i])
+        newJnt = MC.duplicate(jnt, parentOnly=1, n=newName)[0]
+        if newJnt != newName:
+            raise RuntimeError("Error duplicating joints - there is already a node named %s" % newName)
 
-    for jnt, parentJnt in parents.iteritems():
-        MC.parent(jnt, parentJnt)
-        
+        newJnts.append(newJnt)
+
+        if MC.listRelatives(newJnt, parent=1):
+            MC.parent(newJnt, world=1)
+
+
+    for i, jnt in enumerate(newJnts[1:]):
+        MC.parent(jnt, newJnts[i])
+
     fixInverseScale(newJnts)
     return newJnts
 
@@ -806,6 +826,7 @@ def dupJntDct(dct, oldNamePart, newNamePart):
         for tok2, par in dct.items():
             if par == parent:
                 parents[tok] = tok2
+
     for childTok, parentTok in parents.items():
         MC.parent(result[childTok], (result[parentTok]))
 

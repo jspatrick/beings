@@ -636,7 +636,7 @@ def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
     if len(bndJnts) != len(descriptions):
         raise RuntimeError("bind joint length must match rig descriptions")
 
-    fkCtls = {}
+    fkCtls = []
     rebuildData = getStorableXformRebuildData(inNodeList = bndJnts)
 
     substitutions = []
@@ -654,13 +654,13 @@ def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
         newName = namer(descriptions[i], r='fk')
         substitutions.append((bndJnts[i], newName))
             
-        fkCtls[descriptions[i]] = newName
+        fkCtls.append(newName)
 
     MC.delete(rigCtls)
     rebuildData = substituteInData(rebuildData, *substitutions)
     makeStorableXformsFromData(rebuildData)
 
-    for ctl in fkCtls.values():
+    for ctl in fkCtls:
         utils.insertNodeAbove(ctl)
 
     return fkCtls

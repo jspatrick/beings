@@ -74,6 +74,7 @@ class BasicLeg(core.Widget):
                          worldUpVector=[0,-1,0],
                          worldUpType='objectRotation',
                          worldUpObject=l)
+
         #aim the knee at the ankle
         MC.aimConstraint(legCtls['ankle'], legJoints['knee'], aimVector=[0,1,0],
                          upVector=[1,0,0],
@@ -105,16 +106,14 @@ class BasicLeg(core.Widget):
         # pm.pointConstraint(legJoints['ankle'], par, mo=False)
 
         #kneeIK
-        kneeIkCtl = control.makeControl(namer('knee', r='ik'),
-                                        shape='jack',
-                                        color='red',
-                                        s=[.5, .5, .5])
+        toeIkCtl = control.makeControl(namer('toe', r='ik'),
+                                        shape='circle',
+                                        color='red')
 
-        self.registerControl(kneeIkCtl, 'rig')
-        utils.snap(legJoints['knee'], kneeIkCtl, orient=False)
-        par = utils.insertNodeAbove(kneeIkCtl)
-        pm.pointConstraint(legJoints['knee'], par, mo=False)
-        control.setEditable(kneeIkCtl, True)
+        self.registerControl(toeIkCtl, 'rig')
+        utils.snap(legJoints['toe'], toeIkCtl, orient=False)
+        par = utils.insertNodeAbove(toeIkCtl)
+        pm.pointConstraint(legJoints['toe'], par, mo=False)
 
         #heel
         heelCtl = control.makeControl(namer.name(d='', r='ik'),
@@ -150,107 +149,66 @@ class BasicLeg(core.Widget):
         return namer
 
 
-    def _setupRevFoot(self, namer, ikJnts, rigCtls, ikCtl, orientation, ankleIKH):
 
-        #make the heel ctl a movable pivot
-        heelMoveZero = pm.createNode('transform', n=namer.name(d='heel', x='ctl_zero'))
-        utils.snap(rigCtls['heelIK'], heelMoveZero)
-        heelMoveNegpiv = pm.duplicate(heelMoveZero, n=namer.name(d='heel', x='ctl_negpiv'))[0]
-        heelMoveNegpiv.setParent(rigCtls['heelIK'])
-        rigCtls['heelIK'].setParent(heelMoveZero)
+    def __setupFootRoll(self, ikCtl, revFootJnts):
 
-        heelMoveMdn = pm.createNode('multiplyDivide', n=namer.name(r='ik', d='heel_pvt', x='mdn'))
-        rigCtls['heelIK'].t.connect(heelMoveMdn.input1)
-        heelMoveMdn.input2.set(-1, -1, -1)
-        heelMoveMdn.output.connect(heelMoveNegpiv.t)
+        #setup the foot roll
+        MC.addAttr(ikCtl, ln='roll', dv=0, k=1)
+        MC.addAttr(ikCtl, ln='ballBreakAngle', dv=30, k=1)
+        MC.addAttr(ikCtl, ln='toeBreakAngle', dv=45, k=1)
 
-        #create the ik hanldes
-        ikHandles = {}
-        toks = ['ankle', 'ball', 'toe', 'toetip']
-        for i in range(len(toks)-1):
-            start = toks[i]
-            end = toks[i+1]
-            name = namer.name(d='revfoot_%s_to_%s' % (start, end),
-                                 x='ikh',
-                                 r='ik')
-            r = pm.ikHandle(sj=ikJnts[start], ee=ikJnts[end], n=name, sol='ikSCsolver')
-            ikHandles[toks[i+1]] = pm.PyNode(r[0])
-            eff = pm.PyNode(r[1])
-            r[1].rename(name + '_eff')
+        setRangeNodes = {'ball':'',
+                             'toe':'',
+                             'toetip':''}
 
-        #make reverse foot joints, snap them all to the heel and aimed at the toetip
-        revFootJnts = {}
-        revFtToks = ['heel', 'toetip', 'toe', 'toetap', 'ball']
-        for tok in revFtToks:
-            name=namer.name(d='revfoot_%s' % tok, r='ik', x='jnt')
-            revFootJnts[tok] = pm.createNode('joint', n=name)
+        for setRangeNode in setRangeNodes.keys():
+            setRangeNodes[setRangeNode] = MC.createNode('setRange',
+                                                            n=namer('roll_%s' % setRangeNode,
+                                                                    x='srg',
+                                                                    r='ik'))
+            MC.connectAttr('%s.roll' % ikCtl, '%s.valueX' % setRangeNodes[setRangeNode])
 
-        #position and orient the groups
-        utils.snap(rigCtls['heelIK'], revFootJnts['heel'])
-        aimAt(ikJnts['toetip'], revFootJnts['heel'], ikJnts['ankle'], orientation)
-        utils.snap(ikJnts['toetip'], revFootJnts['toetip'])
-        aimAt(ikJnts['toe'], revFootJnts['toetip'], ikJnts['ankle'], orientation)
-        utils.snap(ikJnts['toe'], revFootJnts['toe'])
-        aimAt(ikJnts['ball'], revFootJnts['toe'], ikJnts['ankle'], orientation)
-        utils.snap(ikJnts['toe'], revFootJnts['toetap'])
-        aimAt(ikJnts['ball'], revFootJnts['toetap'], ikJnts['ankle'], orientation)
-        utils.snap(ikJnts['ball'], revFootJnts['ball'])
-        aimAt(ikJnts['ankle'], revFootJnts['ball'], ikJnts['ankle'], orientation)
-        revFootJnts['ball'].setParent(revFootJnts['toe'])
-        revFootJnts['toetap'].setParent(revFootJnts['toetip'])
-        revFootJnts['toe'].setParent(revFootJnts['toetip'])
-        revFootJnts['toetip'].setParent(revFootJnts['heel'])
-        pm.makeIdentity(revFootJnts.values(), apply=True, r=1)
+        #the ball joint's max rotation is the roll angle.
+        MC.setAttr('%s.minX' % setRangeNodes['ball'], -360)
+        MC.setAttr('%s.oldMinX' % setRangeNodes['ball'], -360)
+        MC.connectAttr('%s.ballBreakAngle' % ikCtl, '%s.maxX' % setRangeNodes['ball'])
+        MC.connectAttr('%s.ballBreakAngle' % ikCtl, '%s.oldMaxX' % setRangeNodes['ball'])
+        MC.connectAttr('%s.outValueX' % setRangeNodes['ball'], '%s.rx' % revFootJnts['ball'])
 
-        ikHandles['ball'].setParent(revFootJnts['toe'])
-        ikHandles['toe'].setParent(revFootJnts['toetip'])
-        ikHandles['toetip'].setParent(revFootJnts['toetap'])
-        ankleIKH.setParent(revFootJnts['ball'])
+        #the toe joint's max rotation is the toe break angle, and min is the ball break
+        ballRollPMA = MC.createNode('plusMinusAverage', n=namer('roll_toe', x='pma', r='ik'))
+        MC.setAttr("%s.operation" % ballRollPMA, 2)
+        MC.connectAttr('%s.toeBreakAngle' % ikCtl, '%s.input1D[0]' % ballRollPMA)
+        MC.connectAttr('%s.ballBreakAngle' % ikCtl, '%s.input1D[1]' % ballRollPMA)
+        MC.connectAttr('%s.output1D' % ballRollPMA, '%s.maxX' % setRangeNodes['toe'])
+        MC.connectAttr('%s.ballBreakAngle' % ikCtl, '%s.oldMinX' % setRangeNodes['toe'])
+        MC.connectAttr('%s.toeBreakAngle' % ikCtl, '%s.oldMaxX' % setRangeNodes['toe'])
+        MC.connectAttr('%s.outValueX' % setRangeNodes['toe'], '%s.rx' % revFootJnts['toe'])
 
-        heelZero = pm.createNode('transform',
-                                 n = namer.name(d='revfoot_%s' % tok, r='ik', x='jnt_zero'))
-        utils.snap(revFootJnts['heel'], heelZero)
-
-        revFootJnts['heel'].setParent(heelZero)
-        heelZero.setParent(heelMoveNegpiv)
-        heelMoveZero.setParent(ikCtl)
-
-        #create attrs on the ik handle to control the reverse foot
-        attrs = {revFootJnts['heel']:[('heelLift', 'rx', -1),
-                                      ('heelRock', 'rz', 1),
-                                      ('heelRoll', 'ry', 1)],
-                 revFootJnts['toetip']:[('toeTipLift', 'rx', 1),
-                                        ('toeTipRock', 'rz', 1),
-                                        ('toeTipRoll', 'ry', 1)],
-                 revFootJnts['toe']:[('toeLift', 'rx', 1),
-                                     ('toeTwist', 'ry', 1)],
-                 revFootJnts['toetap']:[('toeTap', 'rx', 1)],
-                 revFootJnts['ball']: [('ballLift', 'rx', 1),
-                                       ('ballTwist', 'ry', 1)]}
-
-        for jnt, attrGrp in attrs.items():
-
-            for attr, axis, mult in attrGrp:
-                mdn = pm.createNode('multiplyDivide', n=namer.name(r='ik', d=attr, x='mdn'))
-                ikCtl.addAttr(attr, k=1, dv=0)
-                pm.connectAttr('%s.%s' % (ikCtl, attr), mdn.input1X.name())
-                mdn.input2X.set(10*mult)
-                pm.connectAttr(mdn.outputX.name(), '%s.%s' % (jnt, axis))
-        heelMoveNegpiv.v.set(0)
-        return revFootJnts
+        #the last joint
+        ballRollPMA = MC.createNode('plusMinusAverage', n=namer('roll_toetip', x='pma', r='ik'))
+        MC.setAttr("%s.input1D[0]" % ballRollPMA, 360)
+        MC.connectAttr('%s.toeBreakAngle' % ikCtl, '%s.input1D[1]' % ballRollPMA)
+        MC.connectAttr('%s.output1D' % ballRollPMA, '%s.oldMaxX' % setRangeNodes['toetip'])
+        MC.connectAttr('%s.toeBreakAngle' % ikCtl, '%s.oldMinX' % setRangeNodes['toetip'])
+        MC.setAttr('%s.maxX' % setRangeNodes['toetip'], 360)
+        MC.connectAttr('%s.outValueX' % setRangeNodes['toetip'], '%s.rx' % revFootJnts['toetip'])
 
     def _makeRig(self, namer):
         #gather the bind joints and fk controls that were built
         bndJnts = []
         fkCtls = []
         for tok in self.__toks[:-1]:
-            jnt = namer(tok, r='bnd')
             fkCtl = namer(tok, r='fk')
-            for node in [jnt, fkCtl]:
-                if not MC.objExists(node):
-                    raise RuntimeError('%s does not exist'  % node)
-            bndJnts.append(jnt)
+            if not MC.objExists(fkCtl):
+                raise RuntimeError('%s does not exist'  % fkCtl)
             fkCtls.append(fkCtl)
+
+        for tok in self.__toks:
+            jnt = namer(tok, r='bnd')
+            if not MC.objExists(jnt):
+                raise RuntimeError('%s does not exist'  % jnt)
+            bndJnts.append(jnt)
 
         for i, tok in enumerate(self.__toks[:3]):
             self.setParentNode('bnd_%s' % tok, bndJnts[i])
@@ -261,44 +219,103 @@ class BasicLeg(core.Widget):
             o.setAxis('aim', 'negY')
             o.reorientJoints(bndJnts)
 
-        fkCtls = control.setupFkCtls(bndJnts, fkCtls, self.__toks[:-1], namer)
-        
-        return
+        fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, self.__toks[:-1], namer)
 
-        ikJnts = utils.dupJntDct(bndJnts, '_bnd_', '_ik_')
-        ikCtl = rigCtls['ankleIK']
-        ikCtl.addAttr('fkIk', min=0, max=1, dv=1, k=1)
+        namer.setTokens(x='jnt', r='ik')
+        ikJnts = utils.dupJntList(bndJnts, self.__toks, namer)
+        namer.setTokens(x='')
 
+        ikCtl = namer('', r='ik')
+        MC.addAttr(ikCtl, ln='fkIk', min=0, max=1, dv=1, k=1)
 
-        fkIkRev = utils.blendJointChains(fkJnts, ikJnts, bndJnts, ikCtl.fkIk, namer)
-        # _logger.debug("rev - %s" % fkIkRev)
-        # MC.connectAttr('%s.fkIk' % ikCtl, '%s.inputX' % fkIkRev)
+        fkIkRev = utils.blendJointChains(fkCtls, ikJnts[:-1], bndJnts[:-1],
+                                         '%s.fkIk' % ikCtl, namer)
 
-        for tok, jnt in ikJnts.items():
-            MC.connectAttr('%s.fkIk' % ikCtl, '%s.v' % jnt)
-            if fkJnts.get(tok):
-                MC.connectAttr('%s.outputX' % fkIkRev, '%s.v' % fkJnts[tok])
-
-        namer.setTokens(r='ik')
+        for ctl in fkCtls:
+            MC.connectAttr('%s.outputX' % fkIkRev, '%s.v' % ctl)
 
 
-        utils.snap(bndJnts['ankle'], ikCtl, orient=False)
-        ikHandle, ikEff = pm.ikHandle(sj=ikJnts['hip'],
-                                      ee=ikJnts['ankle'],
+        ikHandle, ikEff = MC.ikHandle(sj=ikJnts[0],
+                                      ee=ikJnts[2],
                                       solver='ikRPsolver',
                                       n=namer.name(x='ikh'))
-        ikHandle.setParent(ikCtl)
 
         #use the no-flip setup
-        xp = utils.getXProductFromNodes(ikJnts['knee'],  ikJnts['hip'], ikJnts['ankle'])
-        sp = pm.xform(ikJnts['hip'], q=1, ws=1, t=1)
-        l = pm.spaceLocator()
-        pm.xform(l, t=[sp[0] + xp[0], sp[1]+xp[1], sp[2]+xp[2]], ws=1)
-        pm.delete(pm.poleVectorConstraint(l, ikHandle))
-        pm.delete(l)
-        ikHandle.twist.set(90)
+        xp = utils.getXProductFromNodes(ikJnts[1],  ikJnts[0], ikJnts[2])
+        sp = MC.xform(ikJnts[0], q=1, ws=1, t=1)
+        l = MC.spaceLocator()[0]
+        MC.xform(l, t=[sp[0] + xp[0], sp[1]+xp[1], sp[2]+xp[2]], ws=1)
+        MC.delete(MC.poleVectorConstraint(l, ikHandle))
+        MC.delete(l)
+        MC.setAttr("%s.twist" % ikHandle, 90)
+        del l, sp, xp
 
-        revFootJnts = self._setupRevFoot(namer, ikJnts, rigCtls, ikCtl, o, ikHandle)
+        ##set up the reverse foot
+        #create the ik hanldes
+        ikHandles = {}
+        names = ['ankle', 'ball', 'toe', 'toetip']
+        for i in range(len(names)-1):
+
+            startIndex = self.__toks.index(names[i])
+            endIndex = self.__toks.index(names[i+1])
+            start = names[i]
+            end = names[i+1]
+
+            name = namer.name(d='revfoot_%s_to_%s' % (start, end),
+                                 x='ikh',
+                                 r='ik')
+            handle = MC.ikHandle(sj=ikJnts[startIndex], ee=ikJnts[endIndex], n=name, sol='ikSCsolver')
+            ikHandles[names[i+1]] = handle[0]
+            MC.rename(handle[1], name + '_eff')
+
+
+        #setup the toe control to have an inverse pivot
+        toeCtl = namer('toe', r='ik')
+        MC.parent(toeCtl, ikCtl)
+        utils.insertNodeAbove(toeCtl)
+
+        toeCtlInv = MC.createNode('transform', n = namer('toe_inv', r='ik'))
+
+        MC.parent(toeCtlInv, toeCtl)
+        MC.parent(ikHandles.values(), toeCtlInv)
+        MC.parent(ikHandle, toeCtlInv)
+
+        toeCtlInvMdn = MC.createNode('multiplyDivide', n=namer('toe_inv', r='ik', x='mdn'))
+        MC.connectAttr('%s.t' % toeCtl, '%s.input1' % toeCtlInvMdn)
+        MC.setAttr('%s.input2' % toeCtlInvMdn, -1, -1, -1, type='double3')
+        MC.connectAttr('%s.output' % toeCtlInvMdn, '%s.t' % toeCtlInv)
+
+
+        #setup the rev foot joints
+        revFootJnts = {}
+        revFkToks = ['heel', 'toetip', 'toe', 'ball', 'ankle']
+        positions = [ikCtl, ikJnts[-1], ikJnts[-2], ikJnts[-3], ikJnts[-4]]
+        MC.select(cl=1)
+        for i in range(len(revFkToks)):
+            tok = revFkToks[i]
+            posNode = positions[i]
+            j = MC.joint(name=namer('%s_revfoot' % tok, r='ik', x='jnt'),
+                     p = MC.xform(posNode, q=1, t=1, ws=1))
+            revFootJnts[tok] = j
+            if i == 0:
+                MC.setAttr('%s.v' % j, 0)
+        del i, j
+
+        #orient the joints to aim down pos y and up axis along the plane formed by
+        #the upper leg
+        xp = utils.getXProductFromNodes(ikJnts[1],  ikJnts[0], ikJnts[2])
+        for jnt in revFootJnts.values():
+            utils.orientJnt(jnt, aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[xp[0],0,xp[2]])
+        del jnt, xp
+
+        MC.parent(revFootJnts['heel'], toeCtlInv)
+        MC.parent(ikHandles['toetip'], revFootJnts['toetip'])
+        MC.parent(ikHandles['toe'], revFootJnts['toe'])
+        MC.parent(ikHandles['ball'], revFootJnts['ball'])
+        MC.parent(ikHandle, revFootJnts['ankle'])
+
+        #setup the foot roll
+        self.__setupFootRoll(ikCtl, revFootJnts)
 
         self.setNodeCateogry(utils.insertNodeAbove(ikCtl, 'transform'), 'ik')
         return locals()

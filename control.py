@@ -29,6 +29,7 @@ import logging, sys, copy, json, os, re
 import pymel.core as pm
 import maya.mel as MM
 import maya.cmds as MC
+import maya.OpenMaya as OM
 
 import utils
 reload(utils)
@@ -367,19 +368,24 @@ def addStorableXformCategory(xform, *categories):
 
 
 def __applyJointAttrs(xform, **kwargs):
+    """Build a matrix from the current euler rotation values, and build
+    a joint orient matrix.  Multiply the rot matrix by the joint orient
+    inverse matrix, then decompose to get new rotation values.
+    """
     MC.setAttr('%s.jointOrient' % xform, *kwargs['jointOrient'], type='double3')
+    MC.setAttr('%s.r' % xform, *kwargs['rotation'], type='double3')
     MC.setAttr('%s.radius' % xform, kwargs['radius'])
     #when we use the xform command to get and set a matrix,
     #it operates on the final matrix, which has the joint orientation
     #'built in'.  Since we're adding the joint orientation back to the
     #joint, we need to subtract it from the rotation values to preserve
     #the final matrix
-    MC.setAttr('%s.rx' % xform,
-               MC.getAttr('%s.rx' % xform) - kwargs['jointOrient'][0])
-    MC.setAttr('%s.ry' % xform,
-               MC.getAttr('%s.ry' % xform) - kwargs['jointOrient'][1])
-    MC.setAttr('%s.rz' % xform,
-               MC.getAttr('%s.rz' % xform) - kwargs['jointOrient'][2])
+    # MC.setAttr('%s.rx' % xform,
+    #            MC.getAttr('%s.rx' % xform) - kwargs['jointOrient'][0])
+    # MC.setAttr('%s.ry' % xform,
+    #            MC.getAttr('%s.ry' % xform) - kwargs['jointOrient'][1])
+    # MC.setAttr('%s.rz' % xform,
+    #            MC.getAttr('%s.rz' % xform) - kwargs['jointOrient'][2])
 
 def makeStorableXform(xform, **kwargs):
     """Make a storable xform
@@ -396,6 +402,7 @@ def makeStorableXform(xform, **kwargs):
     @keyword jointOrient: apply this joint orientation
     @keyword radius: apply this joint radius"""
     #get args - get defaults if not specified
+
     for k, v in _defaultXformKwargs.items():
         kwargs[k] = kwargs.get(k, v)
 
@@ -435,14 +442,18 @@ def makeStorableXform(xform, **kwargs):
         else:
             #if the node is worldSpace, preserve world transforms;
             #else, preserve local transforms
-            MC.parent(xform, parent, absolute=kwargs['worldSpace'])
             if kwargs['nodeType'] == 'joint':
-                utils.fixInverseScale([xform])
-                #when a joint is parent, values are stuffed in the joint orient
-                #to preserve the orientation.  We want to freeze the rotate to
-                #put all rotations into the orientation, then move those back to
-                #the rotation
-                MC.makeIdentity(xform, apply=1, r=1, t=0, s=1, n=0, jointOrient=0)
+                #connectJoint cmd screws up scale, but keeps new xform from
+                #being made
+                preScale = MC.getAttr('%s.s' % xform)[0]
+                MC.connectJoint(xform, parent, pm=1)
+                #set the scale back
+                MC.setAttr('%s.s' % xform, *preScale, type='double3')
+            else:
+                MC.parent(xform, parent, absolute=kwargs['worldSpace'])
+
+            if kwargs['nodeType'] == 'joint':
+                MC.makeIdentity(xform, apply=1, r=1, t=0, s=0, n=0, jointOrient=0)
                 jo = MC.getAttr('%s.jointOrient' % xform)[0]
                 MC.setAttr('%s.jointOrient' % xform, 0,0,0, type='double3')
                 MC.setAttr('%s.r' % xform, *jo, type='double3')
@@ -487,6 +498,7 @@ def getStorableXformInfo(xform):
     if result['nodeType'] == 'joint':
         result['radius'] = MC.getAttr('%s.radius' % (xform))
         result['jointOrient']  = MC.getAttr('%s.jointOrient' % xform)[0]
+        result['rotation'] = MC.getAttr('%s.r' % xform)[0]
 
     par = MC.listRelatives(xform, parent=1, pa=1)
     if par:
@@ -541,8 +553,11 @@ def getStorableXformRebuildData(inNodeList = None, categories=None):
 def substituteInData(xformData, *args):
     """
     find all instances of the find string and replace with the replaceWith string
+    @param xformData: an xform data dictionary
     @param *args: tuples of (find, replace) regexes
     @return: new data dict
+
+    >>> substituteInData(data, ("^defaultchar_", "newchar_"))
     """
     result = {}
     for k, v in xformData.iteritems():
@@ -552,6 +567,45 @@ def substituteInData(xformData, *args):
             if v['parent']:
                 v['parent'] = re.sub(find, replace, v['parent'])
         result[k] = v
+    return result
+
+def _allParents(node):
+    result = []
+    parts = [x for x in MC.ls(node, l=1)[0].split('|') if x]
+    for i in reversed(range(len(parts))):
+        if i == 0:
+            break
+        result.append(MC.ls('|'.join(parts[:i]))[0])
+    return result
+
+def _sortNodesTopDown(nodeList):
+    """
+    sort the nodes in the list in order of highest in the hierarchy
+    to lowest
+    """
+    nodeRanks = {}
+    for node in nodeList:
+        nodeRanks[node] = 0
+
+    #the lowest nodes in the hierarchy have the largest ranks
+    for node in nodeList:
+        for parent in _allParents(node):
+            if parent in nodeList:
+                nodeRanks[node] += 1
+
+    i = 0
+    result = []
+
+    numNodes = len(nodeRanks)
+    numFound = 0
+    while numNodes > numFound:
+        for node, rank in nodeRanks.iteritems():
+            if rank == i:
+                result.append(node)
+                numFound += 1
+        i += 1
+
+
     return result
 
 def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
@@ -577,13 +631,18 @@ def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
     for name, data in xformData.iteritems():
         makeStorableXform(name, skipParenting=True, skipJointAttrs=True, **data)
 
-    for name, data in xformData.iteritems():
-        makeStorableXform(name, skipMatrix=True, skipParenting=skipParenting, **data)
+    #apply matrices from top to bottom
+    for node in _sortNodesTopDown(xformData.keys()):
+        data = xformData[node]
+        makeStorableXform(node, skipParenting=skipParenting, skipMatrix=1, **data)
 
     return xformData.keys()
 
 
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
+    """
+    Setup a control to be 'centered' down a bone
+    """
 
     o = utils.Orientation()
     o.setAxis('aim', centerDown)
@@ -653,7 +712,7 @@ def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
         #get name substituions for the new joints
         newName = namer(descriptions[i], r='fk')
         substitutions.append((bndJnts[i], newName))
-            
+
         fkCtls.append(newName)
 
     MC.delete(rigCtls)

@@ -345,7 +345,7 @@ class Widget(TreeItem):
         self.__state = 'unbuilt'
         self._joints = set()
         self._controls = set()
-        self._cachedDiffs = {'rig': {}, 'layout': {}}
+        self._cachedDiffs = {}
 
         #widgets have a couple places they store nodes when build.  These are
         #cleared when the widget is deleted
@@ -585,7 +585,7 @@ class Widget(TreeItem):
 
         if altDiffs is not None:
             self.applyDiffs(altDiffs)
-        elif useCachedDiffs:
+        elif useCachedDiffs and self._cachedDiffs:
             self.applyDiffs(self._cachedDiffs)
 
         #build all children
@@ -643,9 +643,12 @@ class Widget(TreeItem):
             for node in self.getNodes():
                 if MC.objExists(node):
                     MC.delete(node)
+        self._joints = set()
+        self._controls = set()
         self._nodes = []
         self.__plugNodes = {}
         self._otherNodes = {}
+
         for category in self.VALID_NODE_CATEGORIES:
             self._nodeCategories[category] = []
         self._nodeStatus = {}
@@ -734,17 +737,15 @@ class Widget(TreeItem):
         passed tot he _makeRig method"""
         self.__validateChildSettings()
 
-        if self.state() == 'rigBuilt':
+        if self.state() == 'rigBuilt' or self.state() == 'layoutBuilt':
             self.delete()
 
-        if self.state() != "layoutBuilt":
-            self.buildLayout(altDiffs=altDiffs)
-        else:
-            if altDiffs:
-                self.delete()
-                self.buildLayout(altDiffs=altDiffs)
-            else:
-                self.cacheDiffs()
+        if altDiffs is not None:
+            self._cachedDiffs = altDiffs
+        elif not self._cachedDiffs:
+            self.buildLayout()
+            self.delete()
+
 
         #this seems to be a bug - if refresh isn't called, there is some odd behavior when things
         #are dupicated
@@ -757,18 +758,17 @@ class Widget(TreeItem):
                         part=self.options.getValue('part'))
         namer.lockToks('c', 'n', 's', 'p') # makes sure they can't be changed by overridden methods
 
-        self.delete()
-
         with utils.NodeTracker() as nt:
             #re-create the rig controls
             rigCtls = control.makeStorableXformsFromData(self._cachedDiffs['rig'], skipParenting=True)
             for ctl in rigCtls:
                 control.flushControlScaleToShape(ctl)
-            bindJnts = control.makeStorableXformsFromData(self._cachedDiffs['joints'])
-
+            bindJnts =  control.makeStorableXformsFromData(self._cachedDiffs['joints'])
 
             #kwarg for debugging
             if returnBeforeBuild:
+                self._nodes = [n for n in nt.getObjects() if MC.objExists(n)]
+                self.__state = 'rigBuilt'
                 return  namer
 
             #make the rig
@@ -1070,7 +1070,7 @@ class CenterOfGravity(Widget):
         if not MC.objExists(cogJnt):
             raise RuntimeError("cannot get control for '%s'" % cogJnt)
         self.setNodeCateogry(cogJnt, 'parent')
-        
+
         MC.parent(rigCtls['body_pivot'], rigCtls['body'])
         MC.parent(rigCtls[''], rigCtls['body_pivot'])
         bodyZero = utils.insertNodeAbove(rigCtls['body'])

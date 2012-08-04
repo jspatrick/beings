@@ -46,7 +46,14 @@ class BasicLeg(core.Widget):
 
         for i, tok in enumerate(self.__toks):
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
-            MC.setAttr('%s.r' % legCtls[tok], l=1)
+            
+            MC.setAttr('%s.s' % legCtls[tok], l=1)
+            if tok != 'ankle':
+                MC.setAttr('%s.r' % legCtls[tok], l=1)
+            else:
+                MC.setAttr('%s.rx' % legCtls[tok], l=1)
+                MC.setAttr('%s.rz' % legCtls[tok], l=1)
+
         MC.setAttr('%s.ry' % legCtls['ankle'], l=1)
 
         ankleCtl = legCtls['ankle']
@@ -93,18 +100,6 @@ class BasicLeg(core.Widget):
             utils.createStretch(legCtls[pr[0]], legCtls[pr[1]], legJoints[pr[0]], namer)
 
 
-        #make rig controls
-        # #ankleIK
-        # ankleIkCtl = control.makeControl(namer('ankle', r='ik'),
-        #                                  shape='jack',
-        #                                  color='blue')
-
-        # self.registerControl(ankleIkCtl, 'rig')
-        # utils.snap(legJoints['ankle'], ankleIkCtl, orient=False)
-        # control.setEditable(ankleIkCtl, True)
-        # par = utils.insertNodeAbove(ankleIkCtl)
-        # pm.pointConstraint(legJoints['ankle'], par, mo=False)
-
         #kneeIK
         toeIkCtl = control.makeControl(namer('toe', r='ik'),
                                         shape='circle',
@@ -149,8 +144,7 @@ class BasicLeg(core.Widget):
         return namer
 
 
-
-    def __setupFootRoll(self, ikCtl, revFootJnts):
+    def __setupFootRoll(self, ikCtl, revFootJnts, namer):
 
         #setup the foot roll
         MC.addAttr(ikCtl, ln='roll', dv=0, k=1)
@@ -163,9 +157,9 @@ class BasicLeg(core.Widget):
 
         for setRangeNode in setRangeNodes.keys():
             setRangeNodes[setRangeNode] = MC.createNode('setRange',
-                                                            n=namer('roll_%s' % setRangeNode,
-                                                                    x='srg',
-                                                                    r='ik'))
+                                                        n=namer('roll_%s' % setRangeNode,
+                                                                x='srg',
+                                                                r='ik'))
             MC.connectAttr('%s.roll' % ikCtl, '%s.valueX' % setRangeNodes[setRangeNode])
 
         #the ball joint's max rotation is the roll angle.
@@ -210,6 +204,8 @@ class BasicLeg(core.Widget):
                 raise RuntimeError('%s does not exist'  % jnt)
             bndJnts.append(jnt)
 
+        MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
+
         for i, tok in enumerate(self.__toks[:3]):
             self.setParentNode('bnd_%s' % tok, bndJnts[i])
 
@@ -223,6 +219,7 @@ class BasicLeg(core.Widget):
 
         namer.setTokens(x='jnt', r='ik')
         ikJnts = utils.dupJntList(bndJnts, self.__toks, namer)
+        MC.setAttr('%s.v' % ikJnts[0], 0)
         namer.setTokens(x='')
 
         ikCtl = namer('', r='ik')
@@ -250,6 +247,7 @@ class BasicLeg(core.Widget):
         MC.setAttr("%s.twist" % ikHandle, 90)
         del l, sp, xp
 
+
         ##set up the reverse foot
         #create the ik hanldes
         ikHandles = {}
@@ -269,6 +267,7 @@ class BasicLeg(core.Widget):
             MC.rename(handle[1], name + '_eff')
 
 
+
         #setup the toe control to have an inverse pivot
         toeCtl = namer('toe', r='ik')
         MC.parent(toeCtl, ikCtl)
@@ -277,19 +276,16 @@ class BasicLeg(core.Widget):
         toeCtlInv = MC.createNode('transform', n = namer('toe_inv', r='ik'))
 
         MC.parent(toeCtlInv, toeCtl)
-        MC.parent(ikHandles.values(), toeCtlInv)
-        MC.parent(ikHandle, toeCtlInv)
 
         toeCtlInvMdn = MC.createNode('multiplyDivide', n=namer('toe_inv', r='ik', x='mdn'))
         MC.connectAttr('%s.t' % toeCtl, '%s.input1' % toeCtlInvMdn)
         MC.setAttr('%s.input2' % toeCtlInvMdn, -1, -1, -1, type='double3')
         MC.connectAttr('%s.output' % toeCtlInvMdn, '%s.t' % toeCtlInv)
 
-
         #setup the rev foot joints
         revFootJnts = {}
         revFkToks = ['heel', 'toetip', 'toe', 'ball', 'ankle']
-        positions = [ikCtl, ikJnts[-1], ikJnts[-2], ikJnts[-3], ikJnts[-4]]
+        positions = [ikCtl, bndJnts[-1], bndJnts[-2], bndJnts[-3], bndJnts[-4]]
         MC.select(cl=1)
         for i in range(len(revFkToks)):
             tok = revFkToks[i]
@@ -308,6 +304,7 @@ class BasicLeg(core.Widget):
             utils.orientJnt(jnt, aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[xp[0],0,xp[2]])
         del jnt, xp
 
+
         MC.parent(revFootJnts['heel'], toeCtlInv)
         MC.parent(ikHandles['toetip'], revFootJnts['toetip'])
         MC.parent(ikHandles['toe'], revFootJnts['toe'])
@@ -315,10 +312,10 @@ class BasicLeg(core.Widget):
         MC.parent(ikHandle, revFootJnts['ankle'])
 
         #setup the foot roll
-        self.__setupFootRoll(ikCtl, revFootJnts)
+        self.__setupFootRoll(ikCtl, revFootJnts, namer)
 
         self.setNodeCateogry(utils.insertNodeAbove(ikCtl, 'transform'), 'ik')
-        return locals()
+
 
 def aimAt(master, slave, upRotObject, orientation, flipUp=False):
     aimVec = orientation.getAxis('aim')

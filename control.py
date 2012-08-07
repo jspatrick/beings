@@ -36,7 +36,7 @@ reload(utils)
 import nodeTag
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.INFO)
+_logger.setLevel(logging.DEBUG)
 
 _handleData = {'s': [1,1,1],
                'r': [0,0,0],
@@ -200,8 +200,8 @@ def makeControl(name, xformType=None, **kwargs):
     @param xformType: if creating a new xform, use this node type.  Defaults
     to transform
     @keyword t: offset the position of the handle shape.
-    @keyword r:: offset the rotation of the handle shape.
-
+    @keyword r: offset the rotation of the handle shape.
+    @keyword s: offset the scale of the handle shape.
     @note: offsets are applied in the control xform's local space
     @raise RuntimeError: if the control exists, and xformType is supplied but does
     not match the current node's xform type
@@ -283,6 +283,7 @@ def flushControlScaleToShape(control):
             setEditable(control, False)
 
 def getEditor(ctl):
+    """If an editor for the control exists, return it.  Else, return None"""
     editor = '%s_editor' % ctl
     if MC.objExists(editor):
         return editor
@@ -317,15 +318,16 @@ def setEditable(ctl, state):
 STORABLE_TAG_NAME = 'recordableXform'
 
 
-_defaultXformKwargs = {'matrix': [1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],
-                       'rotateOrder': 0,
-                       'parent': None,
-                       'worldSpace': False,
-                       'jointOrient': (0,0,0),
-                       'radius': .25,
-                       'nodeType': 'transform',
-                       'categories': (),
-                       'controlArgs': None}
+_xformKwargs = ['matrix',
+                'rotateOrder',
+                'parent',
+                'worldSpace',
+                'jointOrient',
+                'radius',
+                'nodeType',
+                'categories',
+                'controlArgs',
+                'rotation']
 
 
 def setStorableXformAttrs(xform, **kwargs):
@@ -367,34 +369,10 @@ def addStorableXformCategory(xform, *categories):
     return xform
 
 
-def __applyJointAttrs(xform, **kwargs):
-    """Build a matrix from the current euler rotation values, and build
-    a joint orient matrix.  Multiply the rot matrix by the joint orient
-    inverse matrix, then decompose to get new rotation values.
-    """
-    MC.setAttr('%s.jointOrient' % xform, *kwargs['jointOrient'], type='double3')
-    MC.setAttr('%s.r' % xform, *kwargs['rotation'], type='double3')
-    MC.setAttr('%s.radius' % xform, kwargs['radius'])
-    #when we use the xform command to get and set a matrix,
-    #it operates on the final matrix, which has the joint orientation
-    #'built in'.  Since we're adding the joint orientation back to the
-    #joint, we need to subtract it from the rotation values to preserve
-    #the final matrix
-    # MC.setAttr('%s.rx' % xform,
-    #            MC.getAttr('%s.rx' % xform) - kwargs['jointOrient'][0])
-    # MC.setAttr('%s.ry' % xform,
-    #            MC.getAttr('%s.ry' % xform) - kwargs['jointOrient'][1])
-    # MC.setAttr('%s.rz' % xform,
-    #            MC.getAttr('%s.rz' % xform) - kwargs['jointOrient'][2])
 
 def makeStorableXform(xform, **kwargs):
     """Make a storable xform
-    @keyword createNodeOnly: only create the node; do not appy a matrix, parent,
-    etc
-    @keyword skipParenting: do not parent
-    @keyword skipMatrix: do not apply xform
-    @keyword skipJointAttrs: do not apply joint attrs
-
+    @keyword nodeType: the type of node to create.  Defaults to transform
     @keyword worldSpace: apply matrix in worldSpace
     @keyword categories: apply these categories
     @keyword matrix: apply this matrix to the node
@@ -402,11 +380,14 @@ def makeStorableXform(xform, **kwargs):
     @keyword jointOrient: apply this joint orientation
     @keyword radius: apply this joint radius"""
     #get args - get defaults if not specified
-
-    for k, v in _defaultXformKwargs.items():
-        kwargs[k] = kwargs.get(k, v)
+    for key in kwargs:
+        if key not in _xformKwargs:
+            raise RuntimeError("%s is not a supported keyword" % key)
 
     #create or find the node
+    if not kwargs.get('nodeType'):
+        kwargs['nodeType'] = 'transform'
+
     if MC.objExists(xform):
         if MC.nodeType(xform) != kwargs['nodeType']:
             _logger.warning("Cannot change type of existing node '%s'" % xform)
@@ -416,58 +397,73 @@ def makeStorableXform(xform, **kwargs):
 
         xform = MC.createNode(kwargs['nodeType'], name=xform)
 
-    if kwargs.get('createNodeOnly', False):
-        return xform
+
 
     #apply rotate order
-    MC.setAttr('%s.rotateOrder' % xform, kwargs['rotateOrder'])
+    if kwargs.get('rotateOrder', None) is not None:
+        MC.setAttr('%s.rotateOrder' % xform, kwargs['rotateOrder'])
 
     #apply xform
-    if not kwargs.get('skipMatrix', False):
+    if kwargs.get('matrix', None) is not None:
         MC.xform(xform,
                  m=kwargs['matrix'],
                  ws=kwargs['worldSpace'])
 
-    #parent the node
-    parent = kwargs.get('parent', None)
-    skipParenting = kwargs.get('skipParenting', None)
+    #parent the node.  None can be used to parent to the world, so grab something
+    #that's not a valid node name in maya
+    parent = kwargs.get('parent', '~noArg~')
+    nodeType = MC.objectType(xform)
 
-    if skipParenting:
-        if not kwargs['worldSpace'] and parent:
-            _logger.debug("Skipping parenting - local matrix may apply incorrectly")
-
-    elif parent and MC.objExists(parent):
+    if parent != '~noArg~' and parent is not None and MC.objExists(parent):
+        parentNodeType =  MC.objectType(parent)
         if parent in (MC.listRelatives(xform, parent=1) or []):
             _logger.debug("Skipping parenting - already parented")
         else:
             #if the node is worldSpace, preserve world transforms;
             #else, preserve local transforms
-            if kwargs['nodeType'] == 'joint':
+            preOrient = None
+            if nodeType == 'joint':
+                preOrient = MC.getAttr('%s.jointOrient' % xform)[0]
+                print preOrient
+
+
+            if nodeType == 'joint' and parentNodeType == 'joint':
                 #connectJoint cmd screws up scale, but keeps new xform from
                 #being made
-                preScale = MC.getAttr('%s.s' % xform)[0]
+                tmp = MC.getAttr('%s.s' % xform)[0]
                 MC.connectJoint(xform, parent, pm=1)
                 #set the scale back
-                MC.setAttr('%s.s' % xform, *preScale, type='double3')
+                MC.setAttr('%s.s' % xform, *tmp, type='double3')
             else:
                 MC.parent(xform, parent, absolute=kwargs['worldSpace'])
 
-            if kwargs['nodeType'] == 'joint':
+
+            if nodeType == 'joint':
+                #by default, transforms needed to preserve world space are put into joint's orient.  Put them
+                #into rotation instead - it's more obvious and consistent with transform behavior
                 MC.makeIdentity(xform, apply=1, r=1, t=0, s=0, n=0, jointOrient=0)
                 jo = MC.getAttr('%s.jointOrient' % xform)[0]
-                MC.setAttr('%s.jointOrient' % xform, 0,0,0, type='double3')
+                jo = [jo[0] - preOrient[0], jo[1] - preOrient[1], jo[2] - preOrient[2]]
+                MC.setAttr('%s.jointOrient' % xform, *preOrient, type='double3')
                 MC.setAttr('%s.r' % xform, *jo, type='double3')
 
-    # elif parent and not MC.objExists(parent):
-    #     _logger.warning("cannot parent %s to non-existing node '%s'" % \
-    #                     (xform, parent))
 
-    if kwargs['nodeType'] == 'joint' and not \
-      kwargs.get('skipJointAttrs', False):
-        __applyJointAttrs(xform, **kwargs)
+    if nodeType == 'joint':
+        #in the case of a world matrix, we need to explicitly store
+        #euler rotation and orient values, since setting the matrix with the
+        #xform command resets joint orientation to 0
 
-    #build the control
-    if kwargs['controlArgs']:
+        if kwargs.get('jointOrient', None):
+            MC.setAttr('%s.jointOrient' % xform, *kwargs['jointOrient'], type='double3')
+
+        if kwargs.get('rotation', None):
+            MC.setAttr('%s.r' % xform, *kwargs['rotation'], type='double3')
+        if kwargs.get('radius', None):
+            MC.setAttr('%s.radius' % xform, kwargs['radius'])
+
+
+    #build the control handle
+    if kwargs.get('controlArgs', None):
         _logger.debug("controlArgs: %r" %  kwargs['controlArgs'])
         makeControl(xform, xformType=kwargs['nodeType'], **kwargs['controlArgs'])
 
@@ -485,7 +481,7 @@ def getStorableXformInfo(xform):
         raise RuntimeError("%s is not a storable node" % xform)
 
     recordableTag = nodeTag.getTag(xform, STORABLE_TAG_NAME)
-    result = copy.copy(_defaultXformKwargs)
+    result = {}
     result.update(recordableTag)
 
     result['nodeType'] = MC.objectType(xform)
@@ -627,14 +623,21 @@ def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
             v['parent'] = re.sub(sub[0], sub[1], v['parent'])
             xformData[k] = v
 
+    xformDataCopy = copy.deepcopy(xformData)
+    secondPassCopy = copy.deepcopy(xformData)
     #make all the nodes first so they can be parented
-    for name, data in xformData.iteritems():
-        makeStorableXform(name, skipParenting=True, skipJointAttrs=True, **data)
+    for name, data in xformDataCopy.iteritems():
+        data.pop('parent', None)
+        data.pop('jointOrient', None)
+        data.pop('rotation', None)    
+        makeStorableXform(name, **data)
 
     #apply matrices from top to bottom
-    for node in _sortNodesTopDown(xformData.keys()):
-        data = xformData[node]
-        makeStorableXform(node, skipParenting=skipParenting, skipMatrix=1, **data)
+
+    for node in _sortNodesTopDown(secondPassCopy.keys()):
+        data = secondPassCopy[node]
+        data.pop('matrix')
+        makeStorableXform(node,  **data)
 
     return xformData.keys()
 

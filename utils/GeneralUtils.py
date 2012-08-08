@@ -458,11 +458,19 @@ def parentShape(parent, child, deleteChildXform=True):
     Parent the shape nodes of the children to the transform of the parent.
     Return all shapes of the new parent
     """
+    #todo: support this
+    # if child in MC.listRelatives(parent, ad=1):
+    #     raise NotImplementedError("Cannot parent shapes of a child to its parent")
+
     #snap a temp
     shapes = [shape for shape in pm.listRelatives(child, pa=1) if pm.objectType(shape, isAType='geometryShape')]
 
     tmp = MC.createNode('transform', n='TMP')
-    snap(child, tmp, scale=True)
+    snap(child, tmp)
+    # MC.parent(tmp, child)
+    # MC.makeIdentity(tmp, t=1, r=1, s=1)
+    # MC.parent(tmp, world=1)
+
     for shape in shapes:
         pm.parent(shape, tmp, r=True, s=True)
 
@@ -612,20 +620,26 @@ def snap(master, slave, point=True, orient=True, scale=True, ignoreOrient=False)
     @param scale=True: match scale
     @param ignoreOrient: if the master is a joint, add the inverse of its orientation to the
       slave's rotations"""
-
+    master = str(master)
+    slave = str(slave)
+    csts = []
     if point:
-        pm.delete(pm.pointConstraint(master, slave, mo=False))
+        csts.append(MC.pointConstraint(master, slave, mo=False)[0])
     if orient:
-        pm.delete(pm.orientConstraint(master, slave, mo=False))
+        csts.append(MC.orientConstraint(master, slave, mo=False)[0])
     if scale:
-        pm.delete(pm.scaleConstraint(master, slave, mo=False))
+        csts.append(MC.scaleConstraint(master, slave, mo=False)[0])
+    
+    fixJointConstraints(slave)
+    MC.delete(csts)
 
     if ignoreOrient:
         if isinstance(master, pm.nt.Joint):
-            addlRot = master.jo.get()
-            slave.rx.set(slave.rx.get() + -1*(addlRot[0]))
-            slave.ry.set(slave.ry.get() + -1*(addlRot[1]))
-            slave.rz.set(slave.rz.get() + -1*(addlRot[2]))
+            raise NotImplementedError
+            # addlRot = master.jo.get()
+            # slave.rx.set(slave.rx.get() + -1*(addlRot[0]))
+            # slave.ry.set(slave.ry.get() + -1*(addlRot[1]))
+            # slave.rz.set(slave.rz.get() + -1*(addlRot[2]))
 
 def snapMany(master, slaveList, point=True, orient=True, scale=False):
     """snap a list of slvaes to a master's rotate pivot"""

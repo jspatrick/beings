@@ -549,7 +549,7 @@ class Widget(TreeItem):
         side = self.options.getValue('side')
         part = self.options.getValue('part')
         char = self.options.getValue('char')
-        namer = Namer()
+        namer = Namer(char, side, part)
         namer.setTokens(side=side, part=part, c=char)
         self._joints = set()
         result = None
@@ -585,8 +585,9 @@ class Widget(TreeItem):
 
         if altDiffs is not None:
             self.applyDiffs(altDiffs)
+
         elif useCachedDiffs and self._cachedDiffs:
-            self.applyDiffs(self._cachedDiffs)
+            self.applyDiffs(self.getDiffs(cached=True))
 
         #build all children
         if children:
@@ -659,16 +660,28 @@ class Widget(TreeItem):
         """
         Store tweaks internally
         """
-        self._cachedDiffs['rig'] = control.getStorableXformRebuildData(inNodeList=self._controls,
+        diffs = {}
+        diffs['rig'] = control.getStorableXformRebuildData(inNodeList=self._controls,
                                                                        categories=['rig'])
-        self._cachedDiffs['layout'] = control.getStorableXformRebuildData(inNodeList=self._controls,
+        diffs['layout'] = control.getStorableXformRebuildData(inNodeList=self._controls,
                                                                        categories=['layout'])
-        self._cachedDiffs['joints'] = control.getStorableXformRebuildData(inNodeList=self._joints)
+        diffs['joints'] = control.getStorableXformRebuildData(inNodeList=self._joints)
+
+        for diffType in ['rig', 'layout', 'joints']:
+            new = {}
+            for nodeName, diffData in diffs[diffType].iteritems():
+                toks = utils.Namer.getTokensFromName(nodeName)
+                key = '%s|%s' % (toks['resolution'], toks['description'])
+                new[key] = diffData
+            self._cachedDiffs[diffType] = new
+
         #if this is mirrored, cache diffs on other rig too
         if self.mirroredState() == 'source':
             other = self._getMirrorableWidget()
             if other:
                 other.cacheDiffs()
+
+
 
     def setDiffs(self, diffDct):
         """Set diffs"""
@@ -676,12 +689,15 @@ class Widget(TreeItem):
 
     def getDiffs(self, cached=False):
         """
-        get the object's tweaks, if built
+        get the object's tweaks
         @param cached=False: return tweaks cached in memory
         """
+        result = {}
+        fixNames=False
         if self.state() == 'layout':
             if cached:
-                return self._cachedDiffs
+                result =copy.deepcopy(self._cachedDiffs)
+                fixNames = True
             else:
                 result = {}
                 result['rig'] = control.getStorableXformRebuildData(inNodeList=self._controls,
@@ -690,9 +706,26 @@ class Widget(TreeItem):
                                                                        categories=['layout'])
                 result['joints'] = control.getStorableXformRebuildData(inNodeList=self._joints,
                                                                        categories=['joints'])
-                return result
         else:
-            return self._cachedDiffs
+            result =  copy.deepcopy(self._cachedDiffs)
+            fixNames = True
+
+        if fixNames:
+            char = self.options.getValue('char')
+            side = self.options.getValue('side')
+            part = self.options.getValue('part')
+
+            namer = utils.Namer(char, side, part)
+            for diffType in ['rig', 'layout', 'joints']:
+                new = {}
+                for nameparts, diffData in result[diffType].iteritems():
+                    resolution, description = nameparts.split('|')
+                    fullName = namer(r=resolution, d=description)
+                    new[fullName] = diffData
+
+                result[diffType] = new
+
+        return result
 
     @BuildCheck('layoutBuilt')
     def applyDiffs(self, diffDict):
@@ -705,6 +738,8 @@ class Widget(TreeItem):
         #rig controls are in world space
         for diffDct in [layoutDiffs, rigDiffs]:
             for nodeName, info in diffDct.items():
+                if not MC.objExists(nodeName):
+                    _logger.warning("skipping non-existant '%s'" % nodeName)
                 control.makeStorableXform(nodeName, **info)
 
     def setNodeCateogry(self, node, category):
@@ -751,19 +786,18 @@ class Widget(TreeItem):
         #are dupicated
         MC.refresh()
 
-        namer = Namer()
-        namer.setTokens(c=self.options.getValue('char'),
-                        n='',
-                        side=self.options.getValue('side'),
-                        part=self.options.getValue('part'))
-        namer.lockToks('c', 'n', 's', 'p') # makes sure they can't be changed by overridden methods
+        namer = Namer(self.options.getValue('char'),
+                      side=self.options.getValue('side'),
+                      part=self.options.getValue('part'))
+        namer.lockToks('c', 's', 'p') # makes sure they can't be changed by overridden methods
 
         with utils.NodeTracker() as nt:
             #re-create the rig controls
-            rigCtls = control.makeStorableXformsFromData(self._cachedDiffs['rig'], skipParenting=True)
+            diffs = self.getDiffs(cached=True)
+            rigCtls = control.makeStorableXformsFromData(diffs['rig'], skipParenting=True)
             for ctl in rigCtls:
                 control.flushControlScaleToShape(ctl)
-            bindJnts =  control.makeStorableXformsFromData(self._cachedDiffs['joints'])
+            bindJnts =  control.makeStorableXformsFromData(diffs['joints'])
 
             #kwarg for debugging
             if returnBeforeBuild:
@@ -844,9 +878,9 @@ class Widget(TreeItem):
 
         direct = ['tz', 'ty', 'rx', 'sx', 'sy', 'sz']
         inverted = ['tx', 'ry', 'rz']
-        namer = Namer(c=self.options.getValue('char'),
-                      s=self.options.getValue('side'),
-                      p=self.options.getValue('part'))
+        namer = Namer(self.options.getValue('char'),
+                      self.options.getValue('side'),
+                      self.options.getValue('part'))
 
         for thisDct, otherDct in [(thisCtlDct, otherCtlDct), (thisRigDct, otherRigDct)]:
             for k, thisCtl in thisDct.items():
@@ -960,12 +994,12 @@ class Root(Widget):
         if self.root() == self:
             rigType = self.options.getValue('rigType')
             top = MC.createNode('transform',
-                                name=namer.name(d=rigType, p='',
-                                                s='',x='rig', force=True))
+                                name=namer.name(d='%s_rig' % rigType, p='',
+                                                s='', force=True))
             self._otherNodes['top'] = top
             dnt = MC.createNode('transform',
-                                name=namer.name(d=rigType, p='',
-                                                s='', x='dnt', force=True))
+                                name=namer.name(d='%s_dnt' % rigType, p='',
+                                                s='', force=True))
             MC.parent(dnt,top)
             self._otherNodes['dnt'] = str(dnt)
 
@@ -1080,7 +1114,7 @@ class CenterOfGravity(Widget):
         #create the inverted pivot
         name = namer.name(d='pivot_inverse')
         pivInv = utils.insertNodeAbove(rigCtls[''], name=name)
-        mdn = MC.createNode('multiplyDivide', n=namer.name(d='piv_inverse', x='mdn'))
+        mdn = MC.createNode('multiplyDivide', n=namer.name(d='piv_inverse_mdn'))
         MC.setAttr('%s.input2' % mdn, -1,-1,-1, type='double3')
         MC.connectAttr('%s.t' % rigCtls['body_pivot'], '%s.input1' % mdn)
         MC.connectAttr('%s.output' % mdn, '%s.t' % pivInv)

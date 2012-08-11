@@ -13,9 +13,11 @@ class BasicLeg(core.Widget):
     def __init__(self, part='leg', **kwargs):
         super(BasicLeg, self).__init__(part=part, **kwargs)
         #add parentable Nodes
+
         self.addParentPart('bnd_hip')
         self.addParentPart('bnd_knee')
         self.addParentPart('bnd_ankle')
+
         self.__toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toetip']
 
     def _makeLayout(self, namer):
@@ -32,11 +34,12 @@ class BasicLeg(core.Widget):
         legJoints = {}
         legCtls = {}
         MC.select(cl=1)
+
         #create/register bind joints and layout controls
         for i, tok in enumerate(self.__toks):
             legJoints[tok] = MC.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
             self.registerBindJoint(legJoints[tok])
-            legCtls[tok] = control.makeControl(namer.name(x='layout', d=tok, r='ctl'),
+            legCtls[tok] = control.makeControl(namer.name(d='%s_layout' % tok, r='ctl'),
                                                shape='sphere',
                                                s=[0.3, 0.3, 0.3])
 
@@ -46,7 +49,7 @@ class BasicLeg(core.Widget):
 
         for i, tok in enumerate(self.__toks):
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
-            
+
             MC.setAttr('%s.s' % legCtls[tok], l=1)
             if tok != 'ankle':
                 MC.setAttr('%s.r' % legCtls[tok], l=1)
@@ -157,8 +160,7 @@ class BasicLeg(core.Widget):
 
         for setRangeNode in setRangeNodes.keys():
             setRangeNodes[setRangeNode] = MC.createNode('setRange',
-                                                        n=namer('roll_%s' % setRangeNode,
-                                                                x='srg',
+                                                        n=namer('roll_%s_srg' % setRangeNode,
                                                                 r='ik'))
             MC.connectAttr('%s.roll' % ikCtl, '%s.valueX' % setRangeNodes[setRangeNode])
 
@@ -170,7 +172,7 @@ class BasicLeg(core.Widget):
         MC.connectAttr('%s.outValueX' % setRangeNodes['ball'], '%s.rx' % revFootJnts['ball'])
 
         #the toe joint's max rotation is the toe break angle, and min is the ball break
-        ballRollPMA = MC.createNode('plusMinusAverage', n=namer('roll_toe', x='pma', r='ik'))
+        ballRollPMA = MC.createNode('plusMinusAverage', n=namer('roll_toe_pma', r='ik'))
         MC.setAttr("%s.operation" % ballRollPMA, 2)
         MC.connectAttr('%s.toeBreakAngle' % ikCtl, '%s.input1D[0]' % ballRollPMA)
         MC.connectAttr('%s.ballBreakAngle' % ikCtl, '%s.input1D[1]' % ballRollPMA)
@@ -180,7 +182,7 @@ class BasicLeg(core.Widget):
         MC.connectAttr('%s.outValueX' % setRangeNodes['toe'], '%s.rx' % revFootJnts['toe'])
 
         #the last joint
-        ballRollPMA = MC.createNode('plusMinusAverage', n=namer('roll_toetip', x='pma', r='ik'))
+        ballRollPMA = MC.createNode('plusMinusAverage', n=namer('roll_toetip_pma', r='ik'))
         MC.setAttr("%s.input1D[0]" % ballRollPMA, 360)
         MC.connectAttr('%s.toeBreakAngle' % ikCtl, '%s.input1D[1]' % ballRollPMA)
         MC.connectAttr('%s.output1D' % ballRollPMA, '%s.oldMaxX' % setRangeNodes['toetip'])
@@ -217,10 +219,10 @@ class BasicLeg(core.Widget):
 
         fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, self.__toks[:-1], namer)
 
-        namer.setTokens(x='jnt', r='ik')
+        namer.setTokens(r='ik')
         ikJnts = utils.dupJntList(bndJnts, self.__toks, namer)
         MC.setAttr('%s.v' % ikJnts[0], 0)
-        namer.setTokens(x='')
+
 
         ikCtl = namer('', r='ik')
         MC.addAttr(ikCtl, ln='fkIk', min=0, max=1, dv=1, k=1)
@@ -235,7 +237,7 @@ class BasicLeg(core.Widget):
         ikHandle, ikEff = MC.ikHandle(sj=ikJnts[0],
                                       ee=ikJnts[2],
                                       solver='ikRPsolver',
-                                      n=namer.name(x='ikh'))
+                                      n=namer.name('ikh'))
 
         #use the no-flip setup
         xp = utils.getXProductFromNodes(ikJnts[1],  ikJnts[0], ikJnts[2])
@@ -259,8 +261,7 @@ class BasicLeg(core.Widget):
             start = names[i]
             end = names[i+1]
 
-            name = namer.name(d='revfoot_%s_to_%s' % (start, end),
-                                 x='ikh',
+            name = namer.name(d='revfoot_%s_to_%s_ikh' % (start, end),
                                  r='ik')
             handle = MC.ikHandle(sj=ikJnts[startIndex], ee=ikJnts[endIndex], n=name, sol='ikSCsolver')
             ikHandles[names[i+1]] = handle[0]
@@ -277,7 +278,7 @@ class BasicLeg(core.Widget):
 
         MC.parent(toeCtlInv, toeCtl)
 
-        toeCtlInvMdn = MC.createNode('multiplyDivide', n=namer('toe_inv', r='ik', x='mdn'))
+        toeCtlInvMdn = MC.createNode('multiplyDivide', n=namer('toe_inv_mdn', r='ik'))
         MC.connectAttr('%s.t' % toeCtl, '%s.input1' % toeCtlInvMdn)
         MC.setAttr('%s.input2' % toeCtlInvMdn, -1, -1, -1, type='double3')
         MC.connectAttr('%s.output' % toeCtlInvMdn, '%s.t' % toeCtlInv)
@@ -290,8 +291,12 @@ class BasicLeg(core.Widget):
         for i in range(len(revFkToks)):
             tok = revFkToks[i]
             posNode = positions[i]
-            j = MC.joint(name=namer('%s_revfoot' % tok, r='ik', x='jnt'),
-                     p = MC.xform(posNode, q=1, t=1, ws=1))
+            pos = MC.xform(posNode, q=1, t=1, ws=1)
+            if i == 1:
+                pos[1] = MC.xform(positions[0], q=1, t=1, ws=1)[1]
+            
+            j = MC.joint(name=namer('%s_revfoot_jnt' % tok, r='ik'),
+                     p = pos )
             revFootJnts[tok] = j
             if i == 0:
                 MC.setAttr('%s.v' % j, 0)

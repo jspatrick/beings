@@ -36,7 +36,7 @@ reload(utils)
 import nodeTag
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
+_logger.setLevel(logging.INFO)
 
 _handleData = {'s': [1,1,1],
                'r': [0,0,0],

@@ -77,6 +77,10 @@ class TestControl(unittest.TestCase):
         self.assertNotEqual(pp[2], ppPost[2])
 
 class TestStorableXform(unittest.TestCase):
+    def __init__(self):
+        TestStorableXform.__init__(self)
+        self._nodetype = 'transform'
+
     def setUp(self):
         MC.file(newFile=1, f=1)
 

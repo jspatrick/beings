@@ -513,6 +513,7 @@ class Widget(TreeItem):
 
     def registerBindJoint(self, jnt):
         '''Register bind joints to be duplicated'''
+        jnt = str(jnt)
         self._joints.add(jnt)
         control.setStorableXformAttrs(jnt, worldSpace=True, categories=['bindJnt'])
 

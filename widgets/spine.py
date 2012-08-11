@@ -327,6 +327,7 @@ def createAimedLocs(posLocs, upLocs, name, namer, uniScaleAttr=None, upType='obj
 
 
 
+
 class Spine(core.Widget):
     def __init__(self, part='spine', **kwargs):
         super(Spine, self).__init__(part=part, **kwargs)
@@ -377,13 +378,12 @@ class Spine(core.Widget):
         fkCtls = []
         for i in range(numJnts):
             tok = ascii_lowercase[i]
-            fkTok = 'fk_%s' % tok
 
             jnt = pm.joint(p=[0, i*jntSpacing, 0], n = namer.name(r='bnd', d=tok))
             spineJnts.append(jnt)
 
             self.registerBindJoint(jnt)
-            fkCtl = CTL.makeControl(namer.name('%s_ctl' % fkTok, r='rig'),
+            fkCtl = CTL.makeControl(namer.name('%s_ctl' % tok, r='fk'),
                                     shape='square',
                                     scale=[1, 0.3, 0.5])
             fkCtls.append(pm.PyNode(fkCtl))
@@ -404,10 +404,10 @@ class Spine(core.Widget):
         for i in range(numIkCtls):
             tok = ascii_lowercase[i]
             ikTok = 'ik_%s' % tok
-            ikRigCtl = CTL.makeControl(namer.name('%s_ctl' % ikTok, r='rig'),
+            ikRigCtl = CTL.makeControl(namer.name('%s_ctl' % tok, r='ik'),
                                        shape='cube',
                                        scale=[1.5, 0.2, 1.5],
-                                       color='lite blue')            
+                                       color='lite blue')
             self.registerControl(ikRigCtl, ctlType='rig')
             ikRigCtl = pm.PyNode(ikRigCtl)
 
@@ -487,32 +487,49 @@ class Spine(core.Widget):
             pm.parentConstraint(loc, spineJnts[i])
             loc.v.set(0)
 
-    def _makeRig(self, namer, jnts, ctls):
 
-        jntList = []
+    def __prepBindJoints(self, namer):
+        """Flush scale and freeze joints"""
+        jnts = []
+        for i in range(self.options.getValue('numBndJnts')):
+            jnt = namer(alphaSuf=i, r='bnd')
+            if not MC.objExists(jnt):
+                raise RuntimeError("Cannot find %s" % fkCtl)
+
+            if i == 0:
+                MC.makeIdentity(jnt, apply=1, r=1, s=1, t=0, n=0)
+            jnts.append(pm.PyNode(jnt))
+            l = ascii_lowercase[i]
+            self.setParentNode('bnd_%s' % l, jnt)
+        return jnts
+
+
+    def _makeRig(self, namer):
+        jntList = self.__prepBindJoints(namer)
+
         ikCtlList = []
         fkCtlList = []
         toks = []
         numJnts = self.options.getValue('numBndJnts')
-        numIkCtls = self.options.getValue('numIkCtls')
-
-
         for i in range(numJnts):
-            l = ascii_lowercase[i]
-            toks.append(l)
+            tok = ascii_lowercase[i]
+            toks.append(tok)
+            fkCtl = namer('%s_ctl' % tok, r='fk')
+            fkCtlList.append(pm.PyNode(fkCtl))
+            if not MC.objExists(fkCtl):
+                raise RuntimeError("Cannot find %s" % fkCtl)
+            self.setParentNode('fkCtl_%s' % tok, fkCtl)
 
-            fkCtl = ctls['fk_%s' % l]
-            self.setParentNode('bnd_%s' % l, jnts[l])
-            self.setParentNode('fkCtl_%s' % l, fkCtl)
-            jntList.append(jnts[l])
-            fkCtlList.append(fkCtl)
 
+        numIkCtls = self.options.getValue('numIkCtls')
         for i in range(numIkCtls):
             l = ascii_lowercase[i]
-            ikCtl = ctls['ik_%s' % l]
+            ikCtl = namer('%s_ctl' % l, r='ik')
+            if not MC.objExists(ikCtl):
+                raise RuntimeError("Cannot find %s" % fkCtl)
             utils.insertNodeAbove(ikCtl)
             self.setParentNode('ikCtl_%s' % l, ikCtl)
-            ikCtlList.append(ikCtl)
+            ikCtlList.append(pm.PyNode(ikCtl))
 
         #parent the ik controls to each other -
         numOthers = numIkCtls-2
@@ -540,7 +557,10 @@ class Spine(core.Widget):
         tipIkCtl.uniformIkStretch.connect(ikSpineNode.uniformStretch)
 
         #move shapes in controls to joints
-        fkCtls = CTL.setupFkCtls(jntList, fkCtlList, toks, namer)
+
+        fkCtls = CTL.setupFkCtls([str(x) for x in jntList],
+                                 [str(x) for x in fkCtlList],
+                                 toks, namer)
 
 
         utils.blendJointChains(fkCtls, ikJnts, jntList, tipIkCtl.fkIkBlend, namer)
@@ -550,7 +570,7 @@ class Spine(core.Widget):
         ikJnts[0].v.set(0)
 
 
-        return (namer, jnts, ctls)
+        return namer
 
     def createIkSpineSystem(self, jnts, ctls, namer=None, part=None):
         """
@@ -579,7 +599,7 @@ class Spine(core.Widget):
         ikSpineNode.addAttr('stretchAmt', k=1, dv=1, min=0, max=1)
 
         ikSpineNode.addAttr('inputScale', k=1, dv=1)
-        core.Root.tagInputScaleAttr(ikSpineNode, 'inputScale')
+        core.Root.tagInputScaleAttr(str(ikSpineNode), 'inputScale')
 
         origCurve = cvCurveFromNodes(ctls)
         pm.rename(origCurve, namer('crv'))

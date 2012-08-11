@@ -135,7 +135,7 @@ class Namer(object):
         @param alphaSuf=None: add an alphabetic suffix based on an integer index
         @type alphaSuf: int
         """
-        alphaSuf = kwargs.pop('alphaSuf', False)
+        alphaSuf = kwargs.pop('alphaSuf', None)
 
         #make a descrition value from args and alphaSuf
         key = 'description'
@@ -148,7 +148,7 @@ class Namer(object):
             dparts = list(args)
         if d:
             dparts.extend(d.split('_'))
-        if alphaSuf:
+        if alphaSuf is not None:
             dparts.append(string.ascii_lowercase[alphaSuf])
 
         if dparts:

@@ -165,12 +165,12 @@ def createStretch(distNode1, distNode2, stretchJnt, namer, stretchAttr='sy'):
     stretchJnt = pm.PyNode(stretchJnt)
     if not namer.getToken('part'):
         _logger.warning('You should really give the namer a part...')
-    dist = pm.createNode('distanceBetween', n=namer.name(d='stretch', x='dst'))
+    dist = pm.createNode('distanceBetween', n=namer.name(d='stretch_dst'))
     pm.select(dist)
     distNode1.worldMatrix.connect(dist.inMatrix1)
     distNode2.worldMatrix.connect(dist.inMatrix2)
     staticDist = dist.distance.get()
-    mdn  = pm.createNode('multiplyDivide', n=namer.name(d='stretch', x='mdn'))
+    mdn  = pm.createNode('multiplyDivide', n=namer.name(d='stretch_mdn'))
     dist.distance.connect(mdn.input1X)
     mdn.input2X.set(staticDist)
     mdn.operation.set(2) #divide
@@ -189,7 +189,7 @@ def blendJointChains(fkChain, ikChain, bindChain, fkIkAttr, namer):
     @return: the reverse node created
     """
     fkIkAttr = pm.PyNode(fkIkAttr)
-    reverse = pm.createNode('reverse', n=namer.name(d='fkik', x='rev'))
+    reverse = pm.createNode('reverse', n=namer.name(d='fkik_rev'))
     fkIkAttr.connect(reverse.inputX)
 
     fkJntList = fkChain

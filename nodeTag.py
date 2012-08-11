@@ -25,6 +25,7 @@ def _addTagAttr(nodes, tagName):
             MC.addAttr(node, ln=tagAttr, dt='string')
 
 def setTag(node, tagName, dct):
+    node = str(node)
     if not isinstance(dct, dict):
         raise TypeError("tag value must be a dictionary")
 

@@ -951,7 +951,7 @@ class Root(Widget):
                     uniScaleNodes = NT.getNodesWithTag('uniformScaleInput',
                                                             inNodeList = child.getNodes())
                     for node in uniScaleNodes:
-                        attr = getTag(node, 'uniformScaleInput')['attr']
+                        attr = NT.getTag(node, 'uniformScaleInput')['attr']
 
                         _logger.info("Connecting uniform scale to %s.%s" % (node, attr))
                         MC.connectAttr('%s.uniformScale' % self._otherNodes['master'],

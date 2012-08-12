@@ -109,7 +109,7 @@ class Namer(object):
             name = str(name)
             if not name:
                 continue
-            
+
             key = self._fullToken(token)
 
             if key == 'side':
@@ -201,3 +201,32 @@ class Namer(object):
         new = self.name(*args, **kwargs)
         node.rename(new)
         return node
+
+
+def getGenericNodeName(fullNodeName):
+    """
+    From a control, get an 'id' that includes the resolution and description. These
+    are the two pieces of a node name that aren't provided by the core namer.
+    """
+    assert ("^" not in fullNodeName)
+    toks = Namer.getTokensFromName(fullNodeName)
+    return '%s^%s' % (toks['resolution'], toks['description'])
+
+def getFullNodeName(genericNodeName, namer=None, char=None, side=None, part=None):
+    """
+    Get a full node name from a generic name
+    @param genericNodeName: the node name with a '^' character
+    @param namer: a namer used for naming
+
+    """
+    try:
+        assert ("^" in genericNodeName)
+    except AssertionError:
+        _logger.error("bad generic name '%r'" % genericNodeName)
+        raise
+    
+    if not namer:
+        namer = Namer(char, side, part)
+
+    res, description = genericNodeName.split('^')
+    return namer(r=res, d=description)

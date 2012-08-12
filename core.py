@@ -43,6 +43,7 @@ def _setupLogging():
 _setupLogging()
 
 
+#todo: move this to a module, ditch the singleton
 class WidgetRegistry(object):
     """Singleton that keeps data about widgets that are part of the system"""
     instance = None
@@ -244,6 +245,8 @@ class TreeItem(Observable):
 
 def duplicateBindJoints(jointList, namer, resolution='bnd'):
     """
+    Depreciated
+
     Duplicate the bind joints.  Give a new prefix
     @param jointDict: a dict of {'jointToken', jointName}
     @param namer: a namer object used to name the new joints
@@ -671,8 +674,7 @@ class Widget(TreeItem):
         for diffType in ['rig', 'layout', 'joints']:
             new = {}
             for nodeName, diffData in diffs[diffType].iteritems():
-                toks = utils.Namer.getTokensFromName(nodeName)
-                key = '%s|%s' % (toks['resolution'], toks['description'])
+                key = utils.getGenericNodeName(nodeName)
                 new[key] = diffData
             self._cachedDiffs[diffType] = new
 
@@ -683,22 +685,27 @@ class Widget(TreeItem):
                 other.cacheDiffs()
 
 
-
-    def setDiffs(self, diffDct):
+    def setDiffs(self, diffs):
         """Set diffs"""
-        self._cachedDiffs = diffDct
+        for diffType in ['rig', 'layout', 'joints']:
+            new = {}
+            for nodeName, diffData in diffs[diffType].iteritems():
+                new[key] = diffData
+            self._cachedDiffs[diffType] = new
 
-    def getDiffs(self, cached=False):
+
+    def getDiffs(self, cached=False, generic=False):
         """
         get the object's tweaks
         @param cached=False: return tweaks cached in memory
         """
         result = {}
         fixNames=False
-        if self.state() == 'layout':
+        if self.state() == 'layoutBuilt':
             if cached:
                 result =copy.deepcopy(self._cachedDiffs)
-                fixNames = True
+                if not generic:
+                    fixNames = True
             else:
                 result = {}
                 result['rig'] = control.getStorableXformRebuildData(inNodeList=self._controls,
@@ -707,21 +714,33 @@ class Widget(TreeItem):
                                                                        categories=['layout'])
                 result['joints'] = control.getStorableXformRebuildData(inNodeList=self._joints,
                                                                        categories=['joints'])
+
+
+                if generic:
+                    tmp = result
+                    result = {}
+                    for type_ in ['rig', 'layout', 'joints']:
+                        new = {}
+                        for name, data in tmp[type_].iteritems():
+                            genericName = utils.getGenericNodeName(name)
+                            new[genericName] = data
+                        result[type_] = new
+
         else:
             result =  copy.deepcopy(self._cachedDiffs)
-            fixNames = True
+            if not generic:
+                fixNames = True
 
         if fixNames:
             char = self.options.getValue('char')
             side = self.options.getValue('side')
             part = self.options.getValue('part')
 
-            namer = utils.Namer(char, side, part)
             for diffType in ['rig', 'layout', 'joints']:
                 new = {}
                 for nameparts, diffData in result[diffType].iteritems():
-                    resolution, description = nameparts.split('|')
-                    fullName = namer(r=resolution, d=description)
+
+                    fullName = utils.getFullNodeName(nameparts, char=char, side=side, part=part)
                     new[fullName] = diffData
 
                 result[diffType] = new
@@ -866,61 +885,84 @@ class Widget(TreeItem):
 
     def mirroredState(self): return self._mirroring
 
+        #todo: remove from class
     @BuildCheck('layoutBuilt')
     def mirror(self, other):
         '''
         Mirror this widget to another widget.  this assumes controls are in world space.
         Templates mirrored controls
         '''
-        thisCtlDct = self._differs['layout'].getObjs()
-        otherCtlDct = other._differs['layout'].getObjs()
-        thisRigDct = self._differs['rig'].getObjs()
-        otherRigDct = other._differs['rig'].getObjs()
-
+        diffs = self.getDiffs(generic=True)
+        otherDiffs = other.getDiffs(generic=True)
+        print diffs
+        print otherDiffs
         direct = ['tz', 'ty', 'rx', 'sx', 'sy', 'sz']
         inverted = ['tx', 'ry', 'rz']
         namer = Namer(self.options.getValue('char'),
-                      self.options.getValue('side'),
-                      self.options.getValue('part'))
+                          self.options.getValue('side'),
+                          self.options.getValue('part'))
 
-        for thisDct, otherDct in [(thisCtlDct, otherCtlDct), (thisRigDct, otherRigDct)]:
-            for k, thisCtl in thisDct.items():
-                otherCtl = otherDct.get(k, None)
-                otherCtl.template.set(1)
-                if not otherCtl:
-                    _logger.warning("Cannot mirror '%s' - it is not in the other rig" % k)
+        otherNamer = Namer(other.options.getValue('char'),
+                           other.options.getValue('side'),
+                           other.options.getValue('part'))
+
+        for ctlType in ['layout', 'rig']:
+            rebuildData = diffs[ctlType]
+            otherRebuildData = otherDiffs[ctlType]
+
+            for genericCtl in diffs[ctlType].keys():
+                otherGenericCtlData = otherRebuildData.get(genericCtl, None)
+                if not otherGenericCtlData:
+                    _logger.warning("Skipping mirror for non-diffed target ctl '%s'" % genericCtl)
+                    continue
+                otherCtl = utils.getFullNodeName(genericCtl, namer=otherNamer)
+                if not MC.objExists(otherCtl):
+                    _logger.warning("Skipping mirror for non-existant target ctl '%s'" % otherCtl)
+                    continue
+                thisCtl = utils.getFullNodeName(genericCtl, namer=namer)
+                if not MC.objExists(thisCtl):
+                    _logger.warning("Skipping mirror for non-existant source ctl '%s'" % thisCtl)
                     continue
 
-                for attr in direct:
-                    try:
-                        MC.connectAttr('%s.%s' % (thisCtl, attr),
-                                       '%s.%s' % (otherCtl, attr))
-                    except RuntimeError:
-                        pass
-                    except Exception, e:
-                        _logger.warning("Error during connection: %s" % str(e))
+                ctls = [(thisCtl, otherCtl)]
 
-                for attr in inverted:
-                    fromAttr = '%s.%s' % (thisCtl, attr)
-                    toAttr = '%s.%s' % (otherCtl, attr)
-                    char = self.options.getValue('char')
-                    side = self.options.getValue('char')
-                    mdn = MC.createNode('multiplyDivide',
-                                        n=namer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
+                if control.getEditor(thisCtl):
+                    ctls.append((control.getEditor(thisCtl), control.getEditor(otherCtl)))
+                    
+                del thisCtl, otherCtl
+                for thisCtl, otherCtl in ctls:
 
-                    MC.setAttr('%s.input2X' % mdn, -1)
-                    MC.setAttr('%s.opreatinon' % mdn, 1)
+                    MC.setAttr('%s.template' % otherCtl, 1)
+                    for attr in direct:
+                        try:
+                            MC.connectAttr('%s.%s' % (thisCtl, attr),
+                                           '%s.%s' % (otherCtl, attr))
+                        except RuntimeError:
+                            pass
+                        except Exception, e:
+                            _logger.warning("Error during connection: %s" % str(e))
 
-                    MC.connectAttr(fromAttr, '%s.input1X' % mdn)
-                    try:
-                        MC.connectAttr('%s.outputX' % mdn, toAttr)
-                    except RuntimeError:
-                        MC.delete(mdn)
-                    except Exception, e:
-                        _logger.warning("Error during connection: %s" % str(e))
-                        MC.delete(mdn)
-                    else:
-                        self._nodes.append(mdn)
+                    for attr in inverted:
+                        fromAttr = '%s.%s' % (thisCtl, attr)
+                        toAttr = '%s.%s' % (otherCtl, attr)
+                        char = self.options.getValue('char')
+                        side = self.options.getValue('char')
+                        mdn = MC.createNode('multiplyDivide',
+                                            n=namer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
+
+                        MC.setAttr('%s.input2X' % mdn, -1)
+                        MC.setAttr('%s.operation' % mdn, 1)
+
+                        MC.connectAttr(fromAttr, '%s.input1X' % mdn)
+                        try:
+                            MC.connectAttr('%s.outputX' % mdn, toAttr)
+                        except RuntimeError:
+                            MC.delete(mdn)
+                        except Exception, e:
+                            _logger.warning("Error during connection: %s" % str(e))
+                            MC.delete(mdn)
+                        else:
+                            self._nodes.append(mdn)
 
 class Root(Widget):
     """Builds a master control and main hierarchy of a rig"""

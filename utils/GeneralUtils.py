@@ -610,7 +610,6 @@ def unparentNodesFromTree(tree):
             if child.getParent() != None:
                 child.setParent(world=True)
 
-
 def snap(master, slave, point=True, orient=True, scale=True, ignoreOrient=False):
     """snap the slave to the position and orientation of the master's rotate pivot
     @param master: the driver
@@ -622,16 +621,29 @@ def snap(master, slave, point=True, orient=True, scale=True, ignoreOrient=False)
       slave's rotations"""
     master = str(master)
     slave = str(slave)
-    csts = []
-    if point:
-        csts.append(MC.pointConstraint(master, slave, mo=False)[0])
-    if orient:
-        csts.append(MC.orientConstraint(master, slave, mo=False)[0])
-    if scale:
-        csts.append(MC.scaleConstraint(master, slave, mo=False)[0])
     
-    fixJointConstraints(slave)
-    MC.delete(csts)
+    tmp = MC.createNode('transform', n='SNAP_TMP')
+    MC.parent(tmp, master)
+    MC.makeIdentity(tmp, t=1, r=1, s=1)
+
+    slaveParent = MC.listRelatives(slave, parent=1)
+    if not slaveParent:
+        MC.parent(tmp, world=1)
+    else:
+        MC.parent(tmp, slaveParent[0])
+
+
+    t = MC.getAttr('%s.t' % tmp)[0]
+    r = MC.getAttr('%s.r' % tmp)[0]
+    s = MC.getAttr('%s.s' % tmp)[0]
+    MC.delete(tmp)
+
+    if point:
+        MC.setAttr('%s.t' % slave, *t, type='double3')
+    if orient:
+        MC.setAttr('%s.r' % slave, *r, type='double3')
+    if scale:
+        MC.setAttr('%s.s' % slave, *s, type='double3')
 
     if ignoreOrient:
         if isinstance(master, pm.nt.Joint):

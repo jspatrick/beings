@@ -7,8 +7,9 @@ import pymel.core as PM
 from PyQt4 import QtCore
 
 import control as control
+reload(control)
 import utils as utils
-
+reload(utils)
 
 from utils.Naming import Namer
 import options
@@ -1105,8 +1106,8 @@ class RigModel(QtCore.QAbstractItemModel):
             parent = parentIndex.internalPointer()
         children = parent.children()
         if not children:
-            return QtCore.QModelIndex()
-        
+            return QModelIndex()
+
         child = children[row]
         return self.createIndex(row, col, child)
 

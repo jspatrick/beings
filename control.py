@@ -307,7 +307,7 @@ def setEditable(ctl, state):
         MC.setAttr('%s.t' % editor, *info['t'], type='double3')
         MC.setAttr('%s.r' % editor, *info['r'], type='double3')
         MC.setAttr('%s.s' % editor, *info['s'], type='double3')
-
+        MC.setAttr("%s.shear" % editor, 0,0,0, type='double3')
         utils.parentShape(editor, ctl, deleteChildXform=False)
 
     else:
@@ -629,7 +629,7 @@ def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
     for name, data in xformDataCopy.iteritems():
         data.pop('parent', None)
         data.pop('jointOrient', None)
-        data.pop('rotation', None)    
+        data.pop('rotation', None)
         makeStorableXform(name, **data)
 
     #apply matrices from top to bottom
@@ -660,16 +660,12 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     #set up network to measure the distance
 
     mdn = MC.createNode('multiplyDivide', n='%s_centeredctl_mdn' % ctl)
-    dd = MC.distanceDimension(startPoint=[0,0,0], endPoint=[5,5,5])
-    startLoc = MC.listConnections('%s.startPoint' % dd)[0]
-    endLoc = MC.listConnections('%s.endPoint' % dd)[0]
-    MC.setAttr("%s.v" % startLoc, 0)
-    MC.setAttr("%s.v" % endLoc, 0)
+    MC.select(cl=1)
+    dd = MC.createNode('distanceBetween', n='%s_center_dd' % ctl)
+    MC.connectAttr('%s.worldMatrix' % startJoint, "%s.im1" % dd)
+    MC.connectAttr('%s.worldMatrix' % endJoint, "%s.im2" % dd)    
 
-    MC.pointConstraint(startJoint, startLoc)
-    MC.pointConstraint(endJoint, endLoc)
     MC.connectAttr('%s.distance' % dd, '%s.input1X' % mdn)
-    MC.setAttr('%s.v' % MC.listRelatives(dd, parent=1)[0], 0)
 
     #find the amount we need to scale by. Ctls are built to a scale of 1
     #unit by default.  We need to scale by half the distance * multiplier to scale ctl
@@ -692,7 +688,7 @@ def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
     Zero nodes will be placed above the controls
     @return: list of new joint controls
     """
-    
+
     if len(bndJnts) != len(rigCtls):
         raise RuntimeError("bind joint length must match rig ctls")
     if len(bndJnts) != len(descriptions):

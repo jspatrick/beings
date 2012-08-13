@@ -1,14 +1,14 @@
 import logging, re, copy, os, sys
 print sys.executable
-from beings.observer import Observable
+
+from beings.treeItem import TreeItem
 from PyQt4 import QtGui, QtCore
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
-logging.basicConfig(level=logging.INFO)
+
 
 class OptionCollection(Observable):
-    def __init__(self, parent=None):
+    def __init__(self):
         '''
         A collection of options
         '''
@@ -29,7 +29,7 @@ class OptionCollection(Observable):
         self.__defaults[optName] = optType(defaultVal)
         self.__rules[optName] = {}
         self.__rules[optName]['optType'] = optType
-        self.__rules[optName]['provided'] = kwargs.get('provided', False)
+        self.__rules[optName]['hidden'] = kwargs.get('hidden', False)
         self.__rules[optName]['min'] =  kwargs.get('min', None)
         self.__rules[optName]['max'] = kwargs.get('max', None)
         presets = kwargs.get('presets')
@@ -118,8 +118,15 @@ class OptionCollection(Observable):
         for opt, val in data.items():
             self.setValue(opt, val)
 
-    def getAllOpts(self):
-        return copy.deepcopy(self.__options)
+    def getAllOpts(self, includeHidden=True):
+        result = copy.deepcopy(self.__options)
+        if not includeHidden:
+            tmp = result
+            result = {}
+            for opt, val in tmp.iteritems():
+                if not self.__rules[opt]['hidden']:
+                    result[opt] = val
+        return result
 
     def setAllOpts(self, optDct):
         for optName, optVal in optDct.items():
@@ -148,7 +155,7 @@ class OptionCollectionModel(QtCore.QAbstractItemModel):
     def __refresh(self):
         #todo: instead of resetting, compare new data against old and modify
         #as needed
-        opts = self.__optionCollection.getAllOpts()
+        opts = self.__optionCollection.getAllOpts(includeHidden=False)
         self.__keys = sorted(opts.keys())
         self.__values = [opts[k] for k in self.__keys]
         self.reset()
@@ -162,6 +169,17 @@ class OptionCollectionModel(QtCore.QAbstractItemModel):
             return len(self.__keys)
         return 0
 
+    def headerData(self, section, orientation, role):
+        if orientation == QtCore.Qt.Horizontal:
+            if role == QtCore.Qt.DisplayRole:
+                if section == 0:
+                    return "Option"
+                elif section == 1:
+                    return "Value"
+
+        return QtCore.QVariant()
+
+    
     def data(self, index, role):
         if index.isValid() and role == QtCore.Qt.DisplayRole:
             row = index.row()
@@ -226,6 +244,8 @@ class OptionCollectionModel(QtCore.QAbstractItemModel):
             flags = flags | QtCore.Qt.ItemIsEditable
 
         return flags
+
+
 
 if __name__ == '__main__':
     import beings.options as O

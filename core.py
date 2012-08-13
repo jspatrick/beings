@@ -7,20 +7,22 @@ import pymel.core as PM
 from PyQt4 import QtCore
 
 import control as control
-reload(control)
 import utils as utils
-reload(utils)
+
 
 from utils.Naming import Namer
-from observer import Observable
-from options import OptionCollection
+import options
+reload(options)
+
+import treeItem
+reload(treeItem)
 import nodeTag as NT
-reload(NT)
 
 
+
+beingsLogger = logging.getLogger('beings')
+beingsLogger.setLevel(logging.INFO)
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
-logging.basicConfig(level=logging.INFO)
 
 #set up logging
 
@@ -29,13 +31,14 @@ class BeingsFilter(logging.Filter):
         logging.Filter.__init__(self, name=name)
     def filter(self, record):
         '''Add contextual info'''
-        msg = '[function: %s: line: %i] : %s' % \
-              (record.funcName, record.lineno, record.msg)
-        record.msg= msg
+        if record.levelno < logging.INFO:
+            msg = '[function: %s: line: %i] : %s' % \
+                (record.funcName, record.lineno, record.msg)
+            record.msg= msg
+
         return True
 
 def _setupLogging():
-    rootLogger = logging.getLogger()
     _beingsRootLogger = logging.getLogger('beings')
     for fltr in _beingsRootLogger.filters:
         _beingsRootLogger.removeFilter(fltr)
@@ -55,6 +58,9 @@ class WidgetRegistry(object):
         return cls.instance
 
     def register(self, class_, niceName=None, description=None):
+        module = class_.__module__
+        classname = class_.__name__
+
         if niceName is None:
             niceName = class_.__name__
         if description is None:
@@ -67,19 +73,27 @@ class WidgetRegistry(object):
         else:
             _logger.info("Registering '%s'" % niceName)
 
-        self._widgets[niceName] = class_
-        self._descriptions[niceName] = class_
+        self._widgets[niceName] = (module, classname)
+        self._descriptions[niceName] = description
 
     def widgetName(self, instance):
-        """Get the widget name from the instnace"""
-        cls = instance.__class__
+        """Get the widget name from the instance"""
+        className = instance.__class__.__name__
+        moduleName = instance.__class__.__module__
+
         for k, v in self._widgets.items():
-            if v == cls:
+            if v[0] == moduleName and v[1] == className:
                 return k
+        raise RuntimeError("could not get widget name for %r" % instance)
+
     def widgetNames(self):
         return self._widgets.keys()
+
     def getInstance(self, widgetName):
-        return self._widgets[widgetName]()
+        moduleName, className = self._widgets[widgetName]
+        module = sys.modules[moduleName]
+        return getattr(module, className)()
+
     def getDescription(self, widgetName):
         return self._descriptions[widgetName]
 
@@ -112,135 +126,6 @@ class BuildCheck(object):
         new.__doc__   = method.__doc__
         new.__dict__.update(method.__dict__)
         return new
-
-
-class TreeItem(Observable):
-    """
-    An object that may have children and a parent.
-    Tree items form a directed acyclical graph.
-
-    Tree items must define their available plugs.
-    When children are added, they are added
-    to a particular plug in the parent item.
-    Plugs must be configured on the TreeItem instances
-    before children are added.
-
-    The root tree item may have a null plug ("").
-    As soon as the item is not a root, this null
-    plug is removed.
-    """
-
-    def __init__(self, plugs=[]):
-        super(TreeItem, self).__init__()
-
-        if not plugs:
-            plugs = []
-        self.__parent = None
-        self.__plugs = set([str(p) for p in plugs])
-
-        self.__children = []
-        self.__childPlugs = []
-
-    def plugs(self): return list(self.__plugs)
-    def addPlug(self, plugName):
-        self.__plugs.add(str(plugName))
-    def rmPlug(self, plugName): self.__plugs.difference_update(str(plugName))
-    def parent(self): return self.__parent
-    def _setParent(self, parent):
-        self.__parent = parent
-
-    def children(self, recursive=False):
-        result = []
-        for child in self.__children:
-            if recursive:
-                result.extend(child.children())
-            result.append(child)
-        return result
-
-    def childIndex(self, child):
-        return self.__children.index(child)
-
-    def root(self):
-        node = self
-        while node.__parent is not None:
-            node = node.__parent
-        return node
-
-    def addedChild(self, child):
-        """Can be overridden by subclasses to customize behvaior after a
-        child is added"""
-
-
-    def removedChild(self, child):
-        """Can be overridden by subclassed to customize behavior after a child
-        is removed"""
-
-
-    def addChild(self, child, plug=""):
-        if not self.__plugs:
-            raise RuntimeError("must add plugs to the parent before adding a child")
-        if not plug:
-            _logger.debug("plug not specified, using first available")
-            plug = self.plugs()[0]
-        elif plug not in self.plugs():
-            raise KeyError("Invalid plug '%s'" % plug)
-
-        #don't allow the same instance in the tree twice
-        root = self.root()
-        ids = [id(w) for w in root.children(recursive=True)]
-        ids.append(id(root))
-        if id(child) in ids:
-            raise RuntimeError("Cannot add the same instance twice")
-
-        child._setParent(self)
-        self.__children.append(child)
-        self.__childPlugs.append(plug)
-        self.addedChild(child)
-
-        self.notify('addedChild', parent=self, child=child)
-        parent = self.parent()
-        while parent:
-            parent.notify('addedChild', parent=self, child=child)
-            parent = parent.parent()
-
-    def rmChild(self, child, reparentChildren=False):
-        """
-        Remove a child
-        @param reparentChildren=True: if True, reparent child's children to the this obj.
-        """
-
-        if reparentChildren:
-            grandChildren = child.children(recursive=False)
-            plug = self.plugs()[0]
-
-            for grandChild in grandChildren:
-                child.rmChild(grandChild)
-                self.addChild(grandChild, plug=plug)
-
-        index = self.childIndex(child)
-        self.__children.pop(index)
-        self.__childPlugs.pop(index)
-        child._setParent(None)
-        self.removedChild(child)
-
-        self.notify('removedChild', parent=self, child=child)
-
-        parent = self.parent()
-        while parent:
-            parent.notify('removedChild', parent=self, child=child)
-            parent = parent.parent()
-
-        return child
-
-    def plugOfChild(self, child): return self.__childPlugs[self.childIndex(child)]
-
-    def setChildPlug(self, child, plug):
-        if plug not in self.plugs():
-            _logger.warning("invalid plug '%s'" % plug)
-            return False
-        index = self.childIndex(child)
-        self.__childPlugs[index] = plug
-
 
 
 def duplicateBindJoints(jointList, namer, resolution='bnd'):
@@ -315,7 +200,7 @@ def _addControlToDisplayLayer(ctl, layer):
                        '%s.overrideEnabled' % shape)
 
 
-class Widget(TreeItem):
+class Widget(treeItem.PluggedTreeItem):
     '''
     A tree item that builds things in Maya.
 
@@ -335,11 +220,11 @@ class Widget(TreeItem):
         super(Widget, self).__init__(plugs=plugs)
 
         #set up options
-        self.options = OptionCollection()
+        self.options = options.OptionCollection()
         self.__origPartName = part
-        self.options.addOpt('part', part)
-        self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'])
-        self.options.addOpt('char', 'defaultchar')
+        self.options.addOpt('part', part, hidden=True)
+        self.options.addOpt('side', 'cn', presets=['cn', 'lf', 'rt'], hidden=True)
+        self.options.addOpt('char', 'defaultchar', hidden=True)
 
         self.options.subscribe('optChanged', self._optionChanged)
         self.options.subscribe('optAboutToChange', self._optionAboutToChange)
@@ -659,6 +544,7 @@ class Widget(TreeItem):
         self._nodeStatus = {}
         self.__state = 'unbuilt'
 
+
     @BuildCheck('layoutBuilt')
     def cacheDiffs(self):
         """
@@ -685,14 +571,17 @@ class Widget(TreeItem):
                 other.cacheDiffs()
 
 
-    def setDiffs(self, diffs):
+    def setDiffs(self, diffs, generic=False):
         """Set diffs"""
-        for diffType in ['rig', 'layout', 'joints']:
-            new = {}
-            for nodeName, diffData in diffs[diffType].iteritems():
-                new[key] = diffData
-            self._cachedDiffs[diffType] = new
-
+        if not generic:
+            for diffType in ['rig', 'layout', 'joints']:
+                new = {}
+                for nodeName, diffData in diffs[diffType].iteritems():
+                    key = utils.getGenericNodeName(nodeName)
+                    new[key] = copy.deepcopy(diffData)
+                self._cachedDiffs[diffType] = new
+        else:
+            self._cachedDiffs = copy.deepcopy(diffs)
 
     def getDiffs(self, cached=False, generic=False):
         """
@@ -928,7 +817,7 @@ class Widget(TreeItem):
 
                 if control.getEditor(thisCtl):
                     ctls.append((control.getEditor(thisCtl), control.getEditor(otherCtl)))
-                    
+
                 del thisCtl, otherCtl
                 for thisCtl, otherCtl in ctls:
 
@@ -1210,13 +1099,15 @@ class RigModel(QtCore.QAbstractItemModel):
         self.reset()
 
     def index(self, row, col, parentIndex):
-#        if not self.hasIndex(row, col, parentIndex):
-#            return QtCore.QModelIndex()
         if not parentIndex.isValid():
             parent = self.root
         else:
             parent = parentIndex.internalPointer()
-        child = parent.children()[row]
+        children = parent.children()
+        if not children:
+            return QtCore.QModelIndex()
+        
+        child = children[row]
         return self.createIndex(row, col, child)
 
     def parent(self, index):
@@ -1246,8 +1137,6 @@ class RigModel(QtCore.QAbstractItemModel):
         return QtCore.Qt.MoveAction | QtCore.Qt.CopyAction
 
     def flags(self, index):
-#        if not index.isValid():
-#            return QtCore.Qt.ItemIsEnabled
         flags =  QtCore.Qt.ItemIsEnabled | \
                 QtCore.Qt.ItemIsSelectable | \
                 QtCore.Qt.ItemIsEditable | \
@@ -1389,7 +1278,7 @@ def getSaveData(widget):
             wdata['parentID'] = str(id(widget.parent()))
             wdata['plug'] = str(widget.parent().plugOfChild(widget))
         wdata['options'] = widget.options.getData()
-        wdata['diffs'] = widget.getDiffs()
+        wdata['diffs'] = widget.getDiffs(generic=True)
         wdata['widgetName'] = registry.widgetName(widget)
         result[str(id(widget))] = wdata
 
@@ -1423,7 +1312,7 @@ def rigFromData(data):
     for id_, dct in data.items():
         wdg = registry.getInstance(dct['widgetName'])
         idWidgets[id_] = wdg
-        wdg.setDiffs(dct['diffs'])
+        wdg.setDiffs(dct['diffs'], generic=True)
         wdg.options.setFromData(dct['options'])
 
     #parent them into rig

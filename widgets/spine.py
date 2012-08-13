@@ -7,13 +7,10 @@ import pymel.core as pm
 
 import beings.core as core
 import beings.utils as utils
-reload(utils)
 import beings.control as CTL
 from PyQt4 import QtCore
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
-
 
 
 def cvCurveFromNodes(nodes, name='crv'):

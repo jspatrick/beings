@@ -8,7 +8,6 @@ import logging, copy
 import maya.cmds as MC
 from beings.utils.Exceptions import * #@UnusedWildImport
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
 
 TAG_PREFIX = 'beingsTag_'
 

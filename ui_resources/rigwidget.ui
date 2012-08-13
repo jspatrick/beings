@@ -117,22 +117,30 @@
            <enum>QTabWidget::Rounded</enum>
           </property>
           <property name="currentIndex">
-           <number>2</number>
+           <number>0</number>
           </property>
           <widget class="QWidget" name="widgetOptions">
            <attribute name="title">
             <string>Widget</string>
            </attribute>
+           <layout class="QVBoxLayout" name="verticalLayout">
+            <item>
+             <widget class="QTreeView" name="widgetOptionsView"/>
+            </item>
+           </layout>
           </widget>
           <widget class="QWidget" name="rigOptions">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
            <attribute name="title">
             <string>Rig</string>
            </attribute>
-          </widget>
-          <widget class="QWidget" name="controlOptions">
-           <attribute name="title">
-            <string>Control</string>
-           </attribute>
+           <layout class="QVBoxLayout" name="verticalLayout_3">
+            <item>
+             <widget class="QTreeView" name="rigOptionsView"/>
+            </item>
+           </layout>
           </widget>
          </widget>
         </item>

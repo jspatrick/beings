@@ -36,7 +36,7 @@ reload(utils)
 import nodeTag
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.INFO)
+
 
 _handleData = {'s': [1,1,1],
                'r': [0,0,0],
@@ -692,7 +692,7 @@ def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
     Zero nodes will be placed above the controls
     @return: list of new joint controls
     """
-
+    
     if len(bndJnts) != len(rigCtls):
         raise RuntimeError("bind joint length must match rig ctls")
     if len(bndJnts) != len(descriptions):

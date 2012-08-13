@@ -25,7 +25,7 @@ class Arm(core.Widget):
         build the layout
         """
         positions = [(0,0,0),
-                     (2.5,0,0),
+                     (2.5,0,-.5),
                      (5,0,0),
                      (6,0,0)]
         MC.select(cl=1)
@@ -97,7 +97,7 @@ class Arm(core.Widget):
 
         self.registerControl(handCtl, 'rig')
         par = utils.insertNodeAbove(handCtl)
-        MC.parentConstraint(jnts['hand'], par)
+        MC.pointConstraint(jnts['hand'], par)
 
         #setup hand tip
         MC.parent(layoutCtls['hand_tip'], layoutCtls['hand'])
@@ -114,6 +114,32 @@ class Arm(core.Widget):
                          worldUpType='object',
                          worldUpObject=handUpCtl)
 
+        #pole vector
+        pvPar = MC.createNode('transform', name=namer('pv_par_pvPar'))
+        MC.pointConstraint(layoutCtls['uparm'], layoutCtls['hand'], pvPar)
+        MC.aimConstraint(layoutCtls['hand'], pvPar, aimVector=[0,1,0],
+                         upVector=[1,0,0],
+                         worldUpType='object',
+                         worldUpObject=layoutCtls['loarm'])
+
+        pv = control.makeControl(namer('polevec', r='ik'),
+                                       shape='diamond',
+                                       color='salmon',
+                                       s=[.2,.2,.2])
+
+        self.registerControl(pv, 'rig')
+        MC.parent(pv, pvPar)
+        MC.makeIdentity(pv, t=1, r=1, s=1)
+        zero = utils.insertNodeAbove(pv)
+
+        dst = MC.createNode('distanceBetween', name=namer('pv_dst'))
+        MC.connectAttr('%s.worldMatrix' % pvPar, '%s.im1' % dst)
+        MC.connectAttr('%s.worldMatrix' % layoutCtls['uparm'], '%s.im2' % dst)
+        mdn = MC.createNode('multiplyDivide', n=namer('pv_dst_mdn'))
+        MC.connectAttr('%s.distance' % dst, '%s.input1X' % mdn)
+        MC.setAttr('%s.input2X' % mdn, 2)
+        MC.connectAttr("%s.outputX" % mdn, "%s.tx" % zero)
+        MC.setAttr('%s.tz' % pv, l=1)
 
         #FK
         for tok, jnt in jnts.items():
@@ -136,7 +162,7 @@ class Arm(core.Widget):
 
 
     def _makeRig(self, namer):
-        return
+
         #gather the bind joints and fk controls that were built
         bndJnts = []
         fkCtls = []
@@ -151,11 +177,11 @@ class Arm(core.Widget):
             if not MC.objExists(jnt):
                 raise RuntimeError('%s does not exist'  % jnt)
             bndJnts.append(jnt)
+            if tok != 'hand_tip':
+                self.setParentNode('bnd_%s' % tok, jnt)
 
         MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
 
-        for i, tok in enumerate(self.__toks[:3]):
-            self.setParentNode('bnd_%s' % tok, bndJnts[i])
 
         o = utils.Orientation()
         side = self.options.getValue('side')
@@ -170,100 +196,56 @@ class Arm(core.Widget):
         MC.setAttr('%s.v' % ikJnts[0], 0)
 
 
-        ikCtl = namer('', r='ik')
+        ikCtl = namer('hand', r='ik')
         MC.addAttr(ikCtl, ln='fkIk', min=0, max=1, dv=1, k=1)
-
         fkIkRev = utils.blendJointChains(fkCtls, ikJnts[:-1], bndJnts[:-1],
                                          '%s.fkIk' % ikCtl, namer)
-
         for ctl in fkCtls:
             MC.connectAttr('%s.outputX' % fkIkRev, '%s.v' % ctl)
-
 
         ikHandle, ikEff = MC.ikHandle(sj=ikJnts[0],
                                       ee=ikJnts[2],
                                       solver='ikRPsolver',
                                       n=namer.name('ikh'))
+        MC.parent(ikHandle, ikCtl)
+        MC.setAttr('%s.v' % ikHandle, 0)
+
+        #setup pole vec for ik ctl
+        pv = namer('polevec', r='ik')
+        MC.poleVectorConstraint(pv, ikHandle)
+        self.setNodeCateogry(utils.insertNodeAbove(pv), 'ik')
+
+        toks = ['%s_handjnt' % n for n in self.__toks[-2:]]
+        ikHandJnts = utils.dupJntList(bndJnts[-2:], toks, namer)
+        MC.parent(ikHandJnts[0], ikJnts[1])
+        oc = MC.orientConstraint(ikHandJnts[0], ikJnts[2])[0]
+        utils.fixInverseScale(ikHandJnts)
+        utils.fixJointConstraints(ikJnts[2])
+
+        MC.addAttr(ikCtl, ln='handIk', min=0, max=1, dv=0, k=1)
+        MC.connectAttr('%s.handIk' % ikCtl, '%s.%sW0' % (oc, ikHandJnts[0]))
+
+        tipIkHandle, tipIkEff = MC.ikHandle(sj=ikHandJnts[0],
+                                      ee=ikHandJnts[-1],
+                                      solver='ikSCsolver',
+                                      n=namer.name('tip_ikh'))
+        MC.parent(tipIkHandle, ikCtl)
+        tipHandlePos = o.newOrientSpaceVector([2, 0, 0])
+        _logger.debug('new tip handle pos: %r' % tipHandlePos)
+        MC.setAttr("%s.t" % tipIkHandle, *tipHandlePos, type='double3')
+        MC.setAttr("%s.v" % tipIkHandle, 0)
+
 
         #use the no-flip setup
-        xp = utils.getXProductFromNodes(ikJnts[1],  ikJnts[0], ikJnts[2])
-        sp = MC.xform(ikJnts[0], q=1, ws=1, t=1)
-        l = MC.spaceLocator()[0]
-        MC.xform(l, t=[sp[0] + xp[0], sp[1]+xp[1], sp[2]+xp[2]], ws=1)
-        MC.delete(MC.poleVectorConstraint(l, ikHandle))
-        MC.delete(l)
-        MC.setAttr("%s.twist" % ikHandle, 90)
-        del l, sp, xp
+        # xp = utils.getXProductFromNodes(ikJnts[1],  ikJnts[0], ikJnts[2])
+        # sp = MC.xform(ikJnts[0], q=1, ws=1, t=1)
+        # l = MC.spaceLocator()[0]
+        # MC.xform(l, t=[sp[0] + xp[0], sp[1]+xp[1], sp[2]+xp[2]], ws=1)
+        # MC.delete(MC.poleVectorConstraint(l, ikHandle))
+        # MC.delete(l)
+        # MC.setAttr("%s.twist" % ikHandle, 90)
 
-
-        ##set up the reverse foot
-        #create the ik hanldes
-        ikHandles = {}
-        names = ['ankle', 'ball', 'toe', 'toetip']
-        for i in range(len(names)-1):
-
-            startIndex = self.__toks.index(names[i])
-            endIndex = self.__toks.index(names[i+1])
-            start = names[i]
-            end = names[i+1]
-
-            name = namer.name(d='revfoot_%s_to_%s_ikh' % (start, end),
-                                 r='ik')
-            handle = MC.ikHandle(sj=ikJnts[startIndex], ee=ikJnts[endIndex], n=name, sol='ikSCsolver')
-            ikHandles[names[i+1]] = handle[0]
-            MC.rename(handle[1], name + '_eff')
-
-
-
-        #setup the toe control to have an inverse pivot
-        toeCtl = namer('toe', r='ik')
-        MC.parent(toeCtl, ikCtl)
-        utils.insertNodeAbove(toeCtl)
-
-        toeCtlInv = MC.createNode('transform', n = namer('toe_inv', r='ik'))
-
-        MC.parent(toeCtlInv, toeCtl)
-
-        toeCtlInvMdn = MC.createNode('multiplyDivide', n=namer('toe_inv_mdn', r='ik'))
-        MC.connectAttr('%s.t' % toeCtl, '%s.input1' % toeCtlInvMdn)
-        MC.setAttr('%s.input2' % toeCtlInvMdn, -1, -1, -1, type='double3')
-        MC.connectAttr('%s.output' % toeCtlInvMdn, '%s.t' % toeCtlInv)
-
-        #setup the rev foot joints
-        revFootJnts = {}
-        revFkToks = ['heel', 'toetip', 'toe', 'ball', 'ankle']
-        positions = [ikCtl, bndJnts[-1], bndJnts[-2], bndJnts[-3], bndJnts[-4]]
-        MC.select(cl=1)
-        for i in range(len(revFkToks)):
-            tok = revFkToks[i]
-            posNode = positions[i]
-            pos = MC.xform(posNode, q=1, t=1, ws=1)
-            if i == 1:
-                pos[1] = MC.xform(positions[0], q=1, t=1, ws=1)[1]
-
-            j = MC.joint(name=namer('%s_revfoot_jnt' % tok, r='ik'),
-                     p = pos )
-            revFootJnts[tok] = j
-            if i == 0:
-                MC.setAttr('%s.v' % j, 0)
-        del i, j
-
-        #orient the joints to aim down pos y and up axis along the plane formed by
-        #the upper leg
-        xp = utils.getXProductFromNodes(ikJnts[1],  ikJnts[0], ikJnts[2])
-        for jnt in revFootJnts.values():
-            utils.orientJnt(jnt, aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[xp[0],0,xp[2]])
-        del jnt, xp
-
-
-        MC.parent(revFootJnts['heel'], toeCtlInv)
-        MC.parent(ikHandles['toetip'], revFootJnts['toetip'])
-        MC.parent(ikHandles['toe'], revFootJnts['toe'])
-        MC.parent(ikHandles['ball'], revFootJnts['ball'])
-        MC.parent(ikHandle, revFootJnts['ankle'])
-
-        #setup the foot roll
-        self.__setupFootRoll(ikCtl, revFootJnts, namer)
+        return
 
         self.setNodeCateogry(utils.insertNodeAbove(ikCtl, 'transform'), 'ik')
 

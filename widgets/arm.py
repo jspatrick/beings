@@ -77,16 +77,6 @@ class Arm(core.Widget):
                          worldUpType='objectRotation',
                          worldUpObject=l)
 
-        # #setup IK
-        # for pr in [('ankle', 'ball'), ('ball', 'toe'), ('toe', 'toetip')]:
-        #     handle = MC.ikHandle(solver='ikSCsolver', sj=legJoints[pr[0]],
-        #                          ee=legJoints[pr[1]],
-        #                          n=namer.name(d='%s_ikh' % pr[1]))[0]
-        #     MC.parent(handle, layoutCtls[pr[1]])
-        #     MC.makeIdentity(handle)
-        #     MC.setAttr("%s.v" % handle, 0)
-        #     utils.createStretch(layoutCtls[pr[0]], layoutCtls[pr[1]], legJoints[pr[0]], namer)
-
 
 
         #hand
@@ -235,29 +225,7 @@ class Arm(core.Widget):
         MC.setAttr("%s.t" % tipIkHandle, *tipHandlePos, type='double3')
         MC.setAttr("%s.v" % tipIkHandle, 0)
 
-
-        #use the no-flip setup
-        # xp = utils.getXProductFromNodes(ikJnts[1],  ikJnts[0], ikJnts[2])
-        # sp = MC.xform(ikJnts[0], q=1, ws=1, t=1)
-        # l = MC.spaceLocator()[0]
-        # MC.xform(l, t=[sp[0] + xp[0], sp[1]+xp[1], sp[2]+xp[2]], ws=1)
-        # MC.delete(MC.poleVectorConstraint(l, ikHandle))
-        # MC.delete(l)
-        # MC.setAttr("%s.twist" % ikHandle, 90)
-
-        return
-
         self.setNodeCateogry(utils.insertNodeAbove(ikCtl, 'transform'), 'ik')
 
-
-def aimAt(master, slave, upRotObject, orientation, flipUp=False):
-    aimVec = orientation.getAxis('aim')
-    upVec = orientation.getAxis('up')
-    worldUpVec = upVec
-    if flipUp:
-        worldUpVec = [x*-1 for x in worldUpVec]
-    cst = pm.aimConstraint(master, slave, aim=aimVec, u=upVec, wu=worldUpVec,
-                     mo=False, wut='objectRotation')
-    pm.delete(cst)
 
 core.WidgetRegistry().register(Arm, "Arm", "A basic IK/FK arm")

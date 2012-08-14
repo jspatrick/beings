@@ -1,7 +1,8 @@
 import logging, re, copy, os, sys
 print sys.executable
 
-from beings.treeItem import TreeItem
+from observer import Observable
+
 from PyQt4 import QtGui, QtCore
 
 _logger = logging.getLogger(__name__)
@@ -179,7 +180,7 @@ class OptionCollectionModel(QtCore.QAbstractItemModel):
 
         return QtCore.QVariant()
 
-    
+
     def data(self, index, role):
         if index.isValid() and role == QtCore.Qt.DisplayRole:
             row = index.row()

@@ -128,15 +128,28 @@ class PluggedTreeItem(TreeItem):
 
     def setChildPlug(self, child, plug):
         if plug not in self.plugs():
-            _logger.warning("invalid plug '%s'" % plug)
-            return False
+            raise RuntimeError("invalid plug '%s'" % plug)
+
         index = self.childIndex(child)
         self.__childPlugs[index] = plug
 
     def plugs(self): return list(self.__plugs)
     def addPlug(self, plugName):
         self.__plugs.add(str(plugName))
-    def rmPlug(self, plugName): self.__plugs.difference_update(str(plugName))
+
+    def rmPlug(self, plugName):
+        new = self.__plugs.difference([str(plugName)])
+        if not new:
+            raise RuntimeError("Cannot remove all plugs")
+
+        for child in self.children():
+            currentPlug = self.plugOfChild(child)
+            if currentPlug not in new:
+                newPlug = list(new)[0]
+                self.setChildPlug(child, list(new)[0])
+                self.notify("childPlugChanged", newPlug=newPlug, oldPlug=currentPlug)
+                
+        self.__plugs = new
 
     def addChild(self, child, plug=""):
         if not self.__plugs:

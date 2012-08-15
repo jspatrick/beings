@@ -14,9 +14,9 @@ class Arm(core.Widget):
         super(Arm, self).__init__(part=part, **kwargs)
         #add parentable Nodes
 
-        self.addParentPart('bnd_uparm')
-        self.addParentPart('bnd_loarm')
-        self.addParentPart('bnd_hand')
+        self.addPlug('bnd_uparm')
+        self.addPlug('bnd_loarm')
+        self.addPlug('bnd_hand')
 
         self.__toks = ['uparm', 'loarm', 'hand', 'hand_tip']
 
@@ -168,7 +168,7 @@ class Arm(core.Widget):
                 raise RuntimeError('%s does not exist'  % jnt)
             bndJnts.append(jnt)
             if tok != 'hand_tip':
-                self.setParentNode('bnd_%s' % tok, jnt)
+                self.setPlugNode('bnd_%s' % tok, jnt)
 
         MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
 

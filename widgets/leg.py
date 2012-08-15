@@ -13,9 +13,9 @@ class Leg(core.Widget):
         super(Leg, self).__init__(part=part, **kwargs)
         #add parentable Nodes
 
-        self.addParentPart('bnd_hip')
-        self.addParentPart('bnd_knee')
-        self.addParentPart('bnd_ankle')
+        self.addPlug('bnd_hip')
+        self.addPlug('bnd_knee')
+        self.addPlug('bnd_ankle')
 
         self.__toks = ['hip', 'knee', 'ankle', 'ball', 'toe', 'toetip']
 
@@ -208,7 +208,7 @@ class Leg(core.Widget):
         MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
 
         for i, tok in enumerate(self.__toks[:3]):
-            self.setParentNode('bnd_%s' % tok, bndJnts[i])
+            self.setPlugNode('bnd_%s' % tok, bndJnts[i])
 
         o = utils.Orientation()
         side = self.options.getValue('side')

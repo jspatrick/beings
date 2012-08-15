@@ -96,9 +96,9 @@ class OptionCollection(Observable):
         min_ = self.__rules[optName].get('min', None)
         max_ = self.__rules[optName].get('max', None)
         if min_ is not None and val < min_:
-            raise ValueError('Minimum val is %; got %s' % (min_, val))
+            raise ValueError('Minimum val is %s; got %s' % (min_, val))
         if max_ is not None and val > max:
-            raise ValueError('Maximum val is %; got %s' % (max_, val))
+            raise ValueError('Maximum val is %s; got %s' % (max_, val))
 
         self.__options[optName] = val
 

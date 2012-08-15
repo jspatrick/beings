@@ -261,8 +261,7 @@ class Widget(treeItem.PluggedTreeItem):
         child._mirroring = ''
         super(Widget, self).removedChild(child)
 
-    def addParentPart(self, part): self.addPlug(part)
-    def setParentNode(self, part, node):
+    def setPlugNode(self, part, node):
         if part not in self.plugs():
             raise RuntimeError("invalid plug '%s'" % part)
         self.__plugNodes[part] = str(node)
@@ -869,7 +868,7 @@ class Root(Widget):
     def __init__(self, part='master'):
         super(Root, self).__init__(part=part)
         self.options.setPresets('side', 'cn')
-        self.addParentPart('master')
+        self.addPlug('master')
         self.options.addOpt('rigType', 'core', presets=['core'])
 
     def childCompletedBuild(self, child, buildType):
@@ -922,7 +921,7 @@ class Root(Widget):
 
     def _makeRig(self, namer):
         masterCtl = namer(r='ctl')
-        self.setParentNode('master', masterCtl)
+        self.setPlugNode('master', masterCtl)
 
         if self.root() == self:
             rigType = self.options.getValue('rigType')
@@ -954,10 +953,10 @@ class CenterOfGravity(Widget):
     def __init__(self, part='cog', **kwargs):
         super(CenterOfGravity, self).__init__(part=part, **kwargs)
         self.options.setPresets('side', 'cn')
-        self.addParentPart('cog_bnd')
-        self.addParentPart('cog_ctl')
-        self.addParentPart('body_ctl')
-        self.addParentPart('pivot_ctl')
+        self.addPlug('cog_bnd')
+        self.addPlug('cog_ctl')
+        self.addPlug('body_ctl')
+        self.addPlug('pivot_ctl')
 
     def childCompletedBuild(self, child, buildType):
         """Find all child nodes set to 'cog' or 'ik'"""
@@ -1058,10 +1057,10 @@ class CenterOfGravity(Widget):
 
         #assign the nodes:
 
-        self.setParentNode('cog_ctl', rigCtls[''])
-        self.setParentNode('body_ctl', rigCtls['body'])
-        self.setParentNode('pivot_ctl', rigCtls['body_pivot'])
-        self.setParentNode('cog_bnd', cogJnt)
+        self.setPlugNode('cog_ctl', rigCtls[''])
+        self.setPlugNode('body_ctl', rigCtls['body'])
+        self.setPlugNode('pivot_ctl', rigCtls['body_pivot'])
+        self.setPlugNode('cog_bnd', cogJnt)
 
         #tag controls
 

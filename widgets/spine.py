@@ -332,28 +332,39 @@ class Spine(core.Widget):
         self.options.addOpt('numBndJnts', 5, optType=int, min=3, max=24)
         self.options.addOpt('numIkCtls', 4, optType=int, min=2)
 
-        for i in range(self.options.getValue('numBndJnts')):
-            self.addParentPart('bnd_%s' % ascii_lowercase[i])
-            self.addParentPart('fkCtl_%s' % ascii_lowercase[i])
+        self.__setPlugs(self.options.getValue('numBndJnts'), 'numBndJnts')
+        self.__setPlugs(self.options.getValue('numIkCtls'), 'numIkCtls')
 
-        for i in range(self.options.getValue('numIkCtls')):
-            self.addParentPart('ikCtl_%s' % ascii_lowercase[i])
+        self.options.subscribe('optChanged', self.__optionChanged)
 
-        self.options.subscribe('optSet', self.__optionSet)
 
-    def childCompletedBuild(self, child, buildType):
-        super(Spine, self).childCompletedBuild(child, buildType)
+    def __setPlugs(self, numPlugs, optName):
 
-    def __optionSet(self, event):
-        if event.optName != 'numBndJnts':
+        if optName == 'numBndJnts':
+            plugTypes = ['bnd', 'fkCtl']
+        elif optName == 'numIkCtls':
+            plugTypes = ['ikCtl']
+
+        for plugType in plugTypes:
+
+            newPlugs = set(['%s_%s' % (plugType, ascii_lowercase[i]) for i in range(numPlugs)])
+            currentPlugs = set([x for x in self.plugs() if x.startswith('%s_' % plugType)])
+
+            toRemove = currentPlugs.difference(newPlugs)
+            toAdd = newPlugs.difference(currentPlugs)
+
+            _logger.debug("Adding plugs: %s; Removing plugs: %s" % (toAdd, toRemove))
+
+            for plug in toRemove:
+                self.rmPlug(plug)
+            for plug in toAdd:
+                self.addPlug(plug)
+
+    def __optionChanged(self, event):
+        if event.optName not in ['numBndJnts', 'numIkCtls']:
             return
 
-        for part in self.plugs():
-            self.rmPlug(part)
-
-        for i in range(self.options.getValue('numBndJnts')):
-            self.addParentPart('bnd_%s' % ascii_lowercase[i])
-            self.addParentPart('fkCtl_%s' % ascii_lowercase[i])
+        self.__setPlugs(event.newVal, event.optName)
 
 
     def _makeLayout(self, namer):
@@ -497,7 +508,7 @@ class Spine(core.Widget):
                 MC.makeIdentity(jnt, apply=1, r=1, s=1, t=0, n=0)
             jnts.append(pm.PyNode(jnt))
             l = ascii_lowercase[i]
-            self.setParentNode('bnd_%s' % l, jnt)
+            self.setPlugNode('bnd_%s' % l, jnt)
         return jnts
 
 
@@ -515,7 +526,7 @@ class Spine(core.Widget):
             fkCtlList.append(pm.PyNode(fkCtl))
             if not MC.objExists(fkCtl):
                 raise RuntimeError("Cannot find %s" % fkCtl)
-            self.setParentNode('fkCtl_%s' % tok, fkCtl)
+            self.setPlugNode('fkCtl_%s' % tok, fkCtl)
 
 
         numIkCtls = self.options.getValue('numIkCtls')
@@ -525,7 +536,7 @@ class Spine(core.Widget):
             if not MC.objExists(ikCtl):
                 raise RuntimeError("Cannot find %s" % fkCtl)
             utils.insertNodeAbove(ikCtl)
-            self.setParentNode('ikCtl_%s' % l, ikCtl)
+            self.setPlugNode('ikCtl_%s' % l, ikCtl)
             ikCtlList.append(pm.PyNode(ikCtl))
 
         #parent the ik controls to each other -

@@ -7,15 +7,40 @@ reload(FKC)
 fkc = FKC.FkChain()
 fkc.buildLayout()
 """
+from string import ascii_lowercase
 import maya.cmds as MC
 import beings.core as core
+import logging
 from beings import control
 from beings import utils
+
+_logger = logging.getLogger(__name__)
+_logger.setLevel(logging.DEBUG)
 
 class FkChain(core.Widget):
     def __init__(self):
         super(FkChain, self).__init__()
         self.options.addOpt('numBones', 1, min=1, optType=int)
+        self.options.subscribe('optChanged', self.__optionChanged)
+        self.__setPlugs(1)
+        
+    def __setPlugs(self, newNumBones):
+        newPlugs = set(['fk_%s' % ascii_lowercase[i] for i in range(newNumBones)])
+        currentPlugs = set(self.plugs())
+        toRemove = currentPlugs.difference(newPlugs)
+        toAdd = newPlugs.difference(currentPlugs)
+        _logger.debug("Adding plugs: %s; Removing plugs: %s" % (toAdd, toRemove))
+
+        for plug in toRemove:
+            self.rmPlug(plug)
+        for plug in toAdd:
+            self.addPlug(plug)
+
+            
+    def __optionChanged(self, event):
+        if event.optName != 'numBones':
+            return
+        self.__setPlugs(event.newVal)
 
 
     def _makeLayout(self, namer):
@@ -91,8 +116,16 @@ class FkChain(core.Widget):
                 #MC.setAttr('%s.%s' % (ups[i], attr) , l=1)
                 MC.setAttr('%s.%s' % (par, attr) , l=1)
 
-        #TODO: add twist ctl
 
+    def _makeRig(self, namer):
+        jntCnt =  self.options.getValue('numBones') + 1
+        toks = string.ascii_lowercase[:jntCnt]
+        bndJnts = [namer(r='bnd', alphaSuf=i) for i in range(jntCnt)]
+        fkCtls = [namer(r='fk', alphaSuf=i) for i in range(jntCnt-1)]
 
+        fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, toks[:-1], namer)
+        MC.delete(bndJnts[0])
+        for i, ctl in enumerate(fkCtls):
+            self.setPlugNode('fk_%s' % ascii_lowercase[i], ctl)
 
 core.WidgetRegistry().register(FkChain, "Fk Chain", "An Fk joint chain")

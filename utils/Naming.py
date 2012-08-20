@@ -125,6 +125,7 @@ class Namer(object):
     def setTokens(self, **kwargs):
         self._validateTokens(**kwargs)
         for token, name in kwargs.items():
+            token = self._fullToken(token)
             name = str(name)
             self.__namedTokens[token] = name
 
@@ -224,7 +225,7 @@ def getFullNodeName(genericNodeName, namer=None, char=None, side=None, part=None
     except AssertionError:
         _logger.error("bad generic name '%r'" % genericNodeName)
         raise
-    
+
     if not namer:
         namer = Namer(char, side, part)
 

@@ -205,6 +205,7 @@ def closestPointOnNurbsObj(crv, node):
     pnt = fn.closestPoint(OM.MPoint(*wsPos))
     return [pnt.x, pnt.y, pnt.z]
 
+
 def closestParamOnCurve(crv, node):
     pnt = closestPointOnNurbsObj(crv, node)
     crvFn = getShape(crv).__apimfn__()
@@ -215,7 +216,17 @@ def closestParamOnCurve(crv, node):
 
     return su.getDouble(pDouble)
 
+def closestParamOnSurface(surf, node):
+    pnt = closestPointOnNurbsObj(surf, node)
+    srfFn = getShape(surf).__apimfn__()
+    suU = OM.MScriptUtil()
+    suV = OM.MScriptUtil()
+    pDoubleU = suU.asDoublePtr()
+    pDoubleV = suV.asDoublePtr()
 
+    srfFn.getParamAtPoint(OM.MPoint(*pnt), pDoubleU, pDoubleV)
+
+    return (suU.getDouble(pDoubleU), suV.getDouble(pDoubleV))
 
 def getShape(node):
     node = pm.PyNode(node)
@@ -319,8 +330,6 @@ def createAimedLocs(posLocs, upLocs, name, namer, uniScaleAttr=None, upType='obj
         result.append(posLoc)
 
     return result
-
-
 
 
 

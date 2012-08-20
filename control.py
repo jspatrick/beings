@@ -430,6 +430,8 @@ def makeStorableXform(xform, **kwargs):
             if nodeType == 'joint' and parentNodeType == 'joint':
                 #connectJoint cmd screws up scale, but keeps new xform from
                 #being made
+                if MC.listRelatives(xform, parent=1):
+                    MC.parent(xform, world=1)
                 tmp = MC.getAttr('%s.s' % xform)[0]
                 MC.connectJoint(xform, parent, pm=1)
                 #set the scale back
@@ -663,7 +665,7 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     MC.select(cl=1)
     dd = MC.createNode('distanceBetween', n='%s_center_dd' % ctl)
     MC.connectAttr('%s.worldMatrix' % startJoint, "%s.im1" % dd)
-    MC.connectAttr('%s.worldMatrix' % endJoint, "%s.im2" % dd)    
+    MC.connectAttr('%s.worldMatrix' % endJoint, "%s.im2" % dd)
 
     MC.connectAttr('%s.distance' % dd, '%s.input1X' % mdn)
 
@@ -719,6 +721,8 @@ def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
     makeStorableXformsFromData(rebuildData)
 
     for ctl in fkCtls:
-        utils.insertNodeAbove(ctl)
 
+        att = utils.insertNodeAbove(ctl)
+        for node in [ctl, att]:
+            MC.setAttr('%s.drawStyle' % node, 2)
     return fkCtls

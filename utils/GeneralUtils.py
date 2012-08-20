@@ -2,6 +2,8 @@
 This module contains general utilities.  If a function is used in other
 utilities, it should be defined here.
 '''
+
+#TODO:  rm unused function
 import logging, inspect, sys, re, string
 import pymel.core as pm
 import maya.cmds as MC
@@ -148,7 +150,9 @@ def setupFkCtls(bndJnts, rigCtls, fkToks, namer):
         info = control.getInfo(oldCtl)
         control.setInfo(newCtl, control.getInfo(oldCtl))
         utils.parentShape(newCtl, oldCtl)
-        newCtl.rename(namer(fkToks[i], r='fk'))
+        newCtl = newCtl.rename(namer(fkToks[i], r='fk'))
+        MC.setAttr('%s.drawStyle' % newCtl, 2)
+
 
     pm.delete(rigCtls)
 
@@ -621,7 +625,7 @@ def snap(master, slave, point=True, orient=True, scale=True, ignoreOrient=False)
       slave's rotations"""
     master = str(master)
     slave = str(slave)
-    
+
     tmp = MC.createNode('transform', n='SNAP_TMP')
     MC.parent(tmp, master)
     MC.makeIdentity(tmp, t=1, r=1, s=1)

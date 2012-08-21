@@ -715,7 +715,7 @@ class Widget(treeItem.PluggedTreeItem):
         if altDiffs is not None:
             self._cachedDiffs = altDiffs
         elif not self._cachedDiffs:
-            self.buildLayout()
+            self.buildLayout(lock=False)
             self.delete()
 
 

@@ -393,6 +393,8 @@ def setupIkSplineJnts(jntList, crv, surf, ikNode,
     #can use the surface for orientation
     jntNames = ['%s_pos_jnt_%s' % (nodeName, ascii_lowercase[i]) for i in range(len(jntList))]
     splinePosJnts = utils.dupJntList(jntList, jntNames, namer)
+    for jnt in splinePosJnts:
+        control.setLockTag(jnt, uu=['t', 'r'])
 
     #these are the actual joints that will be oriented and positioned correctly
     jntNames = ['%s_jnt_%s' % (nodeName,ascii_lowercase[i]) for i in range(len(jntList))]
@@ -681,17 +683,33 @@ def bindNodesToSurface(nodes, surface, skipTipOrient=False):
         #utils.fixJointConstraints(nodes[i])
 
 
-class Spine(core.Widget):
+class Spine2(core.Widget):
     def __init__(self):
-        super(HeadNeck, self).__init__('neck')
-        
-        self.options.addOpt('numBones', 6, min=1, optType=int)
+        super(Spine2, self).__init__('spine')
+
+        self.options.addOpt('numJnts', 6, min=2, optType=int)
         self.options.addOpt('numIkCtls', 4, min=2, optType=int)
+
         self.options.subscribe('optChanged', self.__optionChanged)
+
         self.__setPlugs()
 
+    def __getToks(self, bndJnts=False, ikCtls=False):
+        toks = []
+        if bndJnts:
+            toks = ['pelvis']
+            for i in range(self.options.getValue('numJnts')):
+                toks.append('%s' % ascii_lowercase[i])
+
+        if ikCtls:
+            for i in range(self.options.getValue('numIkCtls')):
+                toks.append('ctl_%s' % ascii_lowercase[i])
+
+        return toks
+
     def __setPlugs(self):
-        newPlugs = set(self.__getToks()[:-1])
+
+        newPlugs = set(self.__getToks(bndJnts=True, ikCtls=True))
         currentPlugs = set([x for x in self.plugs()])
         toRemove = currentPlugs.difference(newPlugs)
         toAdd = newPlugs.difference(currentPlugs)
@@ -707,16 +725,8 @@ class Spine(core.Widget):
         self.__setPlugs()
 
 
-    def __getToks(self):
-        toks = []
-        for i in range(self.options.getValue('numNeckBones')):
-            toks.append('neck_%s' % ascii_lowercase[i])
-        toks.extend(['head', 'head_tip'])
-        return toks
-
-
     def _makeLayout(self, namer):
-        neckJntCnt =  self.options.getValue('numNeckBones')
+
 
         MC.select(cl=1)
         jnts = []
@@ -726,84 +736,87 @@ class Spine(core.Widget):
         #the number of ik controls will really be 1 greater than this, because
         #we will parent the first ik control the the first fk control and hide
         #it
-        numIkCtls = self.options.getValue('numIkCtls') + 1
-        numJnts = self.options.getValue('numNeckBones') + 1
+        numIkCtls = self.options.getValue('numIkCtls')
+        numJnts = self.options.getValue('numJnts')
 
         ctlKwargs = {'shape': 'sphere',
                      'color': 'purple',
                      's': [1.5, .5, 1.5]}
+
         doubleEndPoints=False
         if numIkCtls == 2:
             doubleEndPoints=True
+
         nurbsObjs = createBeingsSplineObjs(numIkCtls, numJnts, namer=namer,
                                            ctlKwargs = ctlKwargs,
                                            doubleEndPoints=doubleEndPoints)
-        del ctlKwargs
 
-        #rename & regiser joints and add a 'tip' joint
-        toks = self.__getToks()
-        jnts = []
-        for i, jnt in enumerate(nurbsObjs['jnts']):
-            jnt = MC.rename(jnt, namer(toks[i], r='bnd'))
-            jnts.append(jnt)
-            self.registerBindJoint(jnt)
+        jntToks = self.__getToks(bndJnts=True)
+
+        #create a pelvis joint that will remain oriented to the base control
+        jnts = nurbsObjs['jnts']
+        baseJnt = MC.joint(name=jntToks[0])
+        utils.fixInverseScale([baseJnt])
+        jnts.insert(0, baseJnt)
+
+        for i in range(len(jnts)):
+            jnts[i] = MC.rename(jnts[i], namer(jntToks[i], r='bnd'))
+            self.registerBindJoint(jnts[i])
+
+
 
         tipXform = MC.xform(jnts[-1], q=1, t=1, ws=1)
         tipXform[1] = tipXform[1] + 2
         MC.select(jnts[-1])
         tip = MC.joint(p=tipXform,
-                 n=namer(toks[-1], r='bnd'))
+                 n=namer('tip', r='bnd'))
         jnts.append(tip)
-        self.registerBindJoint(tip)
 
         bindNodesToSurface(jnts[:-1], nurbsObjs['surface'], skipTipOrient=True)
         #MC.orientConstraint(nurbsObjs['ikCtls'][-1], jnts[-2])
 
 
+        #create ik rig controls
         ikRigCtls = []
+        ikToks = self.__getToks(ikCtls=True)
         for i, ctl in enumerate(nurbsObjs['ikCtls']):
-            self.registerControl(ctl, 'layout')
-            if i > 0:
-                kwargs = {'color': 'red',
-                          'shape': 'sphere'}
-                if i < (numIkCtls-1):
-                    n = namer('ctl', r='ik', alphaSuf=i-1)
-                else:
-                    n = namer('head_ctl', r='ik')
-                rigCtl = control.makeControl(n, **kwargs)
-                MC.parent(rigCtl, ctl)
-                MC.makeIdentity(rigCtl, t=1, r=1, s=1)
-                control.setEditable(rigCtl, True)
-                self.registerControl(rigCtl, 'rig')
-                ikRigCtls.append(rigCtl)
+            self.registerControl(ctl, 'layout', uk=['ty','tz'])
 
-        control.centeredCtl(jnts[-2], jnts[-1], ikRigCtls[-1])
+            kwargs = {'color': 'yellow',
+                      'shape': 'square',
+                      's': [2, 2, 2]}
 
-        rigCtls = []
-        for i, tok in enumerate(toks):
+            n = namer(ikToks[i], r='ik')
 
-            if tok != 'head_tip':
-                kwargs = {'color':'green',
-                          'shape':'cube',
-                          's': [2,2,2]}
+            rigCtl = control.makeControl(n, **kwargs)
+            MC.parent(rigCtl, ctl)
+            MC.makeIdentity(rigCtl, t=1, r=1, s=1)
+            control.setEditable(rigCtl, True)
+            self.registerControl(rigCtl, 'rig')
+            ikRigCtls.append(rigCtl)
 
-                rigCtl = control.makeControl(namer(tok, r='fk'), **kwargs)
-                self.registerControl(rigCtl, 'rig')
-                rigCtls.append(rigCtl)
-                utils.snap(jnts[i], rigCtl)
-                MC.parent(rigCtl, jnts[i])
 
-                control.centeredCtl(jnts[i], jnts[i+1], rigCtl)
-                control.setEditable(rigCtl, True)
+        for i, tok in enumerate(jntToks[1:]):
+            kwargs = {'color':'green',
+                      'shape':'doublePin',
+                      's': [2,2,2]}
+
+            rigCtl = control.makeControl(namer(tok, r='fk'), **kwargs)
+            utils.snap(jnts[i+1], rigCtl)
+            MC.parent(rigCtl, jnts[i+1])
+
+            control.setEditable(rigCtl, True)
+            self.registerControl(rigCtl, 'rig')
+
 
         #make a tip joint control
         tipCtl = control.makeControl(namer('tip_layout'),
                                      shape='cube',
-                                     s=[.35, .35, .35],
-                                     color='blue')
-        utils.snap(jnts[-1], tipCtl)
+                                     s=[.75, .75, .75],
+                                     color='purple')
+        utils.snap(tip, tipCtl)
         MC.parent(tipCtl, nurbsObjs['ikCtls'][-1])
-        self.registerControl(tipCtl, 'layout')
+        self.registerControl(tipCtl, 'layout', uk=['ty', 'tz'])
         MC.pointConstraint(tipCtl, jnts[-1])
         MC.aimConstraint(tipCtl, jnts[-2],
                          aimVector = [0,1,0],
@@ -811,102 +824,39 @@ class Spine(core.Widget):
                          worldUpVector=[1,0,0])
 
 
-        return
-
-        for i, tok in enumerate(self.__getToks()):
-            ctlKwargs = {'color': 'yellow',
-                         'shape': 'sphere',
-                         's': [.5, .5, .5]}
-
-            if tok == 'head_tip':
-                ctlKwargs['shape'] = 'cube'
-                ctlKwargs['s'] = [.35, .35, .35]
-                ctlKwargs['color'] = 'blue'
-
-                jnt = MC.joint(p=[0,i*2+2, 0], n=namer(tok, r='bnd'))
-            else:
-                jnt = MC.joint(p=[0,i*2, 0], n=namer(tok, r='bnd'))
-
-            if tok == 'head':
-                ctlKwargs['shape'] = 'cube'
-                ctlKwargs['s'] = [.75, .75, .75]
-
-            self.registerBindJoint(jnt)
-            jnts.append(jnt)
-
-            layoutCtl = control.makeControl(namer('layout_%s' % tok, r='fk'),
-                                            **ctlKwargs)
-
-            self.registerControl(layoutCtl, 'layout')
-            layoutCtls.append(layoutCtl)
-            utils.snap(jnt, layoutCtl)
-
-
-            if tok != 'head_tip':
-                kwargs = {'color':'green',
-                          'shape':'circle'}
-
-                if tok == 'head':
-                    kwargs['shape'] = 'sphere'
-
-                rigCtl = control.makeControl(namer(tok, r='fk'), **kwargs)
-                self.registerControl(rigCtl, 'rig')
-                rigCtls.append(rigCtl)
-                utils.snap(jnt, rigCtl)
-                MC.parent(rigCtl, jnt)
-
-
-            if tok != 'head_tip':
-                MC.setAttr("%s.tx" % layoutCtl, l=1)
-
-            MC.select(jnt)
-
-
-
-        MC.parent(layoutCtls[-1], layoutCtls[-2])
-        return
-
     def _makeRig(self, namer):
 
-        neckJntCnt =  self.options.getValue('numNeckBones') + 1
+        jntCnt =  self.options.getValue('numJnts')
         ikCtlCnt =  self.options.getValue('numIkCtls')
-        toks = self.__getToks()
-        bndJnts = [namer(t, r='bnd') for t in toks]
+        jntToks = self.__getToks(bndJnts=True)
+        ctlToks = self.__getToks(ikCtls=True)
+
+        bndJnts = [namer(t, r='bnd') for t in jntToks]
 
         MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
 
         namer.setTokens(r='fk')
-        #fkJnts = utils.dupJntList(bndJnts, toks, namer)
 
-        fkCtls = [namer(t, r='fk') for t in toks[:-1]]
-        fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, toks[:-1], namer)
+        fkCtls = [namer(t, r='fk') for t in jntToks[1:]]
+        fkCtls = control.setupFkCtls(bndJnts[1:], fkCtls, jntToks[1:], namer)
+        for ctl in fkCtls:
+            control.setLockTag(ctl, uk=['rx', 'ry', 'rz'])
 
-        for i, tok in enumerate(toks[:-1]):
-            self.setPlugNode(tok, fkCtls[i])
+        for i, tok in enumerate(jntToks):
+            self.setPlugNode(tok, bndJnts[i])
 
         namer.setTokens(r='ik')
-        ikJnts = utils.dupJntList(bndJnts, toks, namer)
+        ikJnts = utils.dupJntList(bndJnts[1:], jntToks[1:], namer)
         MC.setAttr('%s.v' % ikJnts[0], 0)
 
         ikCtls = []
-        for i in range(ikCtlCnt):
-            if i < (ikCtlCnt-1):
-                n = namer('ctl', r='ik', alphaSuf=i)
-                utils.insertNodeAbove(n)
-            else:
-                n = namer('head_ctl', r='ik')
+
+        for tok in ctlToks:
+            n = namer(tok, r='ik')
+            utils.insertNodeAbove(n)
+            control.setLockTag(n, uk=['r', 't'])
             ikCtls.append(n)
-
-
-        baseIkCtl = MC.createNode('transform', n=namer('base', r='ik'))
-        utils.snap(bndJnts[0], baseIkCtl, orient=False)
-        ikCtls.insert(0, baseIkCtl)
-
-        tmp = MC.createNode('transform', n="TMP")
-        utils.parentShape(tmp, ikCtls[-1], deleteChildXform=False)
-        utils.snap(bndJnts[-2], ikCtls[-1])
-        utils.parentShape(ikCtls[-1], tmp)
-        utils.insertNodeAbove(ikCtls[-1])
+            self.setPlugNode(tok, n)
 
         #doubling the cvs on the end allows us to build a curve with only 2 controls,
         #but causes popping otherwise.  Only use if needed
@@ -920,25 +870,59 @@ class Spine(core.Widget):
         bindControlsToShape(ikCtls, crv,  doubleEndPoints=doubleEndPoints)
         bindControlsToShape(ikCtls, srf,  doubleEndPoints=doubleEndPoints)
 
-        ikNode = setupSpineIkNode(ikCtls, ikJnts[:-1], nodeName='splinik', namer=namer,
+        ikNode = setupSpineIkNode(ikCtls, ikJnts, nodeName='splinik', namer=namer,
                          crv=crv, surf=srf)
+
         self.setNodeCateogry(ikNode, 'dnt')
         MC.setAttr("%s.v" % ikNode, 0)
+
+
+        #parent the fk control to the ik control
+        MC.parent(fkCtls[0], ikCtls[0])
+        utils.fixInverseScale(fkCtls[0])
+
+        #constrain the pelvis jnt to the first ik control
+        MC.parentConstraint(ikCtls[0], bndJnts[0])
+        MC.scaleConstraint(ikCtls[0], bndJnts[0])
+
         #tag this node so the master connect the uniform scale
         core.Root.tagInputScaleAttr(ikNode, 'inputScaleAmt')
 
-        MC.addAttr(ikCtls[-1], ln='fkIk', dv=0, k=1, min=0, max=1)
+        MC.addAttr(ikCtls[-1], ln='fkIk', dv=1, k=1, min=0, max=1)
         MC.addAttr(ikCtls[-1], ln='stretchAmt', dv=0, k=1, min=0, max=1)
         MC.addAttr(ikCtls[-1], ln='evenStretchAmt', dv=0, k=1, min=0, max=1)
+
+        control.setLockTag(ikCtls[-1], uk=['fkIk', 'stretchAmt', 'evenStretchAmt'])
 
         MC.connectAttr('%s.stretchAmt' % ikCtls[-1], '%s.stretchAmt' % ikNode)
         MC.connectAttr('%s.evenStretchAmt' % ikCtls[-1], '%s.evenStretchAmt' % ikNode)
 
 
-        ikReverse = utils.blendJointChains(fkCtls, ikJnts[:-1], bndJnts[:-1], '%s.fkIk' % ikCtls[-1], namer)
+        #parent the ikCtls
+        parentToFirst = []
+        parentToLast = []
+
+        numParentedCtlsPerSide = (ikCtlCnt/2)-1
+
+        parentToFirst = ikCtls[1:1+numParentedCtlsPerSide]
+        parentToFirst = ikCtls[-1:-1-numParentedCtlsPerSide- ikCtlCnt % 2]
+
+        _logger.debug('parentToFirst: %s' % parentToFirst)
+        _logger.debug('parentToLast: %s' % parentToLast)        
+        for node in parentToFirst:
+            zero = MC.listRelatives(node, parent=1)[0]
+            MC.parent(zero, ikCtls[0])
+
+        for node in parentToLast:
+            zero = MC.listRelatives(node, parent=1)[0]
+            MC.parent(zero, ikCtls[-1])
+
+
+        ikReverse = utils.blendJointChains(fkCtls, ikJnts, bndJnts[1:], '%s.fkIk' % ikCtls[-1], namer)
         for ctl in fkCtls:
             MC.connectAttr('%s.outputX' % (ikReverse), '%s.v' % ctl)
         for ctl in ikCtls[1:-1]:
             MC.connectAttr('%s.fkIk' % (ikCtls[-1]), '%s.v' % ctl)
 
-core.WidgetRegistry().register(HeadNeck, "Neck and Head", "An Fk Neck and head")
+
+core.WidgetRegistry().register(Spine2, "Neck and Head", "An Fk Neck and head")

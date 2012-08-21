@@ -211,10 +211,8 @@ def setLockTag(ctl, **kwargs):
     locked
     """
 
-    if not (isControl(ctl) or isEditor(ctl)):
-        raise RuntimeError('%s is not a control or editor' % ctl)
     if nodeTag.hasTag(ctl, LOCKS_TAG_NAME):
-        current = nodeTag.getTag(node, LOCKS_TAG_NAME)
+        current = nodeTag.getTag(ctl, LOCKS_TAG_NAME)
     else:
         current = copy.deepcopy(_defaultLocks)
 

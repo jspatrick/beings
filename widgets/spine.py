@@ -781,7 +781,7 @@ class Spine(core.Widget):
             self.registerControl(ctl, 'layout', uk=['ty','tz'])
 
             kwargs = {'color': 'yellow',
-                      'shape': 'square',
+                      'shape': 'circle',
                       's': [2, 2, 2]}
 
             n = namer(ikToks[i], r='ik')
@@ -796,7 +796,7 @@ class Spine(core.Widget):
 
         for i, tok in enumerate(jntToks[1:]):
             kwargs = {'color':'green',
-                      'shape':'doublePin',
+                      'shape':'cube',
                       's': [2,2,2]}
 
             rigCtl = control.makeControl(namer(tok, r='fk'), **kwargs)
@@ -820,6 +820,7 @@ class Spine(core.Widget):
                          aimVector = [0,1,0],
                          upVector = [1,0,0],
                          worldUpVector=[1,0,0])
+        MC.parentConstraint(jnts[-2], ikRigCtls[-1])
 
 
     def _makeRig(self, namer):
@@ -907,7 +908,7 @@ class Spine(core.Widget):
 
         _logger.debug('parentToFirst: %s' % parentToFirst)
         _logger.debug('parentToLast: %s' % parentToLast)
-        
+
         for node in parentToFirst:
             zero = MC.listRelatives(node, parent=1)[0]
             MC.parent(zero, ikCtls[0])
@@ -924,4 +925,4 @@ class Spine(core.Widget):
             MC.connectAttr('%s.fkIk' % (ikCtls[-1]), '%s.v' % ctl)
 
 
-core.WidgetRegistry().register(Spine, "Neck and Head", "An Fk Neck and head")
+core.WidgetRegistry().register(Spine, "Spine", "An Ik/Fk spine")

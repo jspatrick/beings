@@ -25,9 +25,9 @@ class Arm(core.Widget):
         build the layout
         """
         positions = [(0,0,0),
-                     (2.5,0,-.5),
-                     (5,0,0),
-                     (6,0,0)]
+                     (10,0,-2),
+                     (20,0,0),
+                     (25,0,0)]
         MC.select(cl=1)
 
         jnts = {}
@@ -37,10 +37,9 @@ class Arm(core.Widget):
             jnts[tok] = MC.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
             self.registerBindJoint(jnts[tok])
             layoutCtls[tok] = control.makeControl(namer.name(d='%s_layout' % tok, r='ctl'),
-                                               shape='sphere',
-                                               s=[0.3, 0.3, 0.3])
+                                               shape='sphere')
 
-            self.registerControl(layoutCtls[tok], 'layout')
+            self.registerControl(layoutCtls[tok], 'layout', uk=['t', 'r'])
             utils.snap(jnts[tok], layoutCtls[tok], orient=False)
             MC.select(jnts[tok])
 
@@ -79,34 +78,58 @@ class Arm(core.Widget):
 
 
 
-        #hand
-        handCtl = control.makeControl(namer.name(d='hand', r='ik'),
-                                      shape='jack',
-                                      color='red',
-                                      s=[.5,.5,.5])
 
-        self.registerControl(handCtl, 'rig')
-        par = utils.insertNodeAbove(handCtl)
-        MC.pointConstraint(jnts['hand'], par)
 
         #setup hand tip
         MC.parent(layoutCtls['hand_tip'], layoutCtls['hand'])
         handUpCtl = control.makeControl(namer('hand_up', r='ctl'),
                                                     shape='cube',
-                                                    s=[.2, .2, .2],
+                                                    s=[.75, .75, .75],
                                                     color='green')
-        self.registerControl(handUpCtl, 'layout')
+        self.registerControl(handUpCtl, 'layout', uk=['t', 'r'])
         MC.parent(handUpCtl, layoutCtls['hand'])
         MC.makeIdentity(handUpCtl, t=1, r=1, s=1)
-        MC.setAttr('%s.ty' % handUpCtl, 1)
-        MC.aimConstraint(layoutCtls['hand_tip'], jnts['hand'], aimVector=[0,1,0],
-                         upVector=[-1,0,0],
+        MC.setAttr('%s.ty' % handUpCtl, 3)
+
+
+        aimVec = [0,1,0]
+        upVec = [-1,0,0]
+        if self.options.getValue('side') == 'rt':
+            upVec = [1,0,0]
+
+        MC.aimConstraint(layoutCtls['hand_tip'], jnts['hand'],
+                         aimVector=aimVec,
+                         upVector=upVec,
                          worldUpType='object',
                          worldUpObject=handUpCtl)
+
+        MC.pointConstraint(layoutCtls['hand_tip'], jnts['hand_tip'])
+
+
+        #hand
+        handCtl = control.makeControl(namer.name(d='ctl', r='ik'),
+                                      shape='jack',
+                                      color='red',
+                                      s=[2,2,2])
+
+
+        control.setEditable(handCtl, True)
+
+        self.registerControl(handCtl, 'rig')
+
+        par = utils.insertNodeAbove(handCtl)
+        utils.snap(jnts['hand'], par, orient=False)
+
+        MC.parentConstraint(jnts['hand'], par, mo=True)
+
 
         #pole vector
         pvPar = MC.createNode('transform', name=namer('pv_par_pvPar'))
         MC.pointConstraint(layoutCtls['uparm'], layoutCtls['hand'], pvPar)
+
+
+
+
         MC.aimConstraint(layoutCtls['hand'], pvPar, aimVector=[0,1,0],
                          upVector=[1,0,0],
                          worldUpType='object',
@@ -115,11 +138,13 @@ class Arm(core.Widget):
         pv = control.makeControl(namer('polevec', r='ik'),
                                        shape='diamond',
                                        color='salmon',
-                                       s=[.2,.2,.2])
-
-        self.registerControl(pv, 'rig')
+                                       s=[.5,.5,.5])
         MC.parent(pv, pvPar)
         MC.makeIdentity(pv, t=1, r=1, s=1)
+
+        control.setEditable(pv, True)
+        self.registerControl(pv, 'rig')
+
         zero = utils.insertNodeAbove(pv)
 
         dst = MC.createNode('distanceBetween', name=namer('pv_dst'))
@@ -138,7 +163,8 @@ class Arm(core.Widget):
             ctl = control.makeControl(namer.name(tok, r='fk'),
                                 shape='cube',
                                 color='yellow',
-                                s=[.35, .35, .35])
+                                s=[2,2,2])
+
             control.setEditable(ctl, True)
             utils.snap(jnt, ctl)
 
@@ -151,6 +177,35 @@ class Arm(core.Widget):
         return namer
 
 
+    def _preMirror(self, thisCtl, otherCtl, thisNamer, otherNamer):
+        """do ik control mirroring"""
+        direct = ['tx', 'ty', 'sx', 'sy', 'sz', 'rz']
+        inverted = ['tz', 'ry', 'rx']
+
+        if thisCtl == thisNamer('ctl_editor', r='ik'):
+
+            for attr in direct:
+
+                MC.connectAttr('%s.%s' % (thisCtl, attr),
+                               '%s.%s' % (otherCtl, attr))
+
+            for attr in inverted:
+                fromAttr = '%s.%s' % (thisCtl, attr)
+                toAttr = '%s.%s' % (otherCtl, attr)
+                mdn = MC.createNode('multiplyDivide',
+                                    n=thisNamer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
+
+                MC.setAttr('%s.input2X' % mdn, -1)
+                MC.setAttr('%s.operation' % mdn, 1)
+
+                MC.connectAttr(fromAttr, '%s.input1X' % mdn)
+                MC.connectAttr('%s.outputX' % mdn, toAttr)
+
+            return True
+
+
+        return False
+
     def _makeRig(self, namer):
 
         #gather the bind joints and fk controls that were built
@@ -162,6 +217,7 @@ class Arm(core.Widget):
                 raise RuntimeError('%s does not exist'  % fkCtl)
             fkCtls.append(fkCtl)
 
+
         for tok in self.__toks:
             jnt = namer(tok, r='bnd')
             if not MC.objExists(jnt):
@@ -172,24 +228,47 @@ class Arm(core.Widget):
 
         MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
 
+        ikCtl = namer('ctl', r='ik')
+        if not MC.objExists(ikCtl):
+            raise RuntimeError("cannot find '%s'" % ikCtl)
 
         o = utils.Orientation()
         side = self.options.getValue('side')
         if side == 'rt':
             o.setAxis('aim', 'negY')
             o.reorientJoints(bndJnts)
+            MC.setAttr('%s.rx' % ikCtl,
+                       (180 + MC.getAttr('%s.rx' % ikCtl) % 360))
+            MC.setAttr('%s.rz' % ikCtl,
+                       (180 + MC.getAttr('%s.rz' % ikCtl) % 360))
+
 
         fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, self.__toks[:-1], namer)
+        for ctl in fkCtls:
+            control.setLockTag(ctl, uk=['r'])
+
 
         namer.setTokens(r='ik')
         ikJnts = utils.dupJntList(bndJnts, self.__toks, namer)
+        for jnt in ikJnts:
+            control.setLockTag(jnt, uu=['r', 't', 's'])
+
         MC.setAttr('%s.v' % ikJnts[0], 0)
 
 
-        ikCtl = namer('hand', r='ik')
+
+        #keep the ik hand control rotated
+        par = MC.createNode('transform', n='%s_zero' % ikCtl)
+        utils.snap(ikCtl, par, orient=False)
+        MC.parent(ikCtl, par)
+
+        self.setNodeCateogry(par, 'ik')
+
         MC.addAttr(ikCtl, ln='fkIk', min=0, max=1, dv=1, k=1)
         fkIkRev = utils.blendJointChains(fkCtls, ikJnts[:-1], bndJnts[:-1],
                                          '%s.fkIk' % ikCtl, namer)
+        control.setLockTag(ikCtl, uk=['t', 'r', 'fkIk'])
+
         for ctl in fkCtls:
             MC.connectAttr('%s.outputX' % fkIkRev, '%s.v' % ctl)
 
@@ -202,30 +281,20 @@ class Arm(core.Widget):
 
         #setup pole vec for ik ctl
         pv = namer('polevec', r='ik')
+        MC.setAttr('%s.r' % pv, 0, 0, 0, type='double3')
+        control.setLockTag(ikCtl, uk=['t'])
+
         MC.poleVectorConstraint(pv, ikHandle)
-        self.setNodeCateogry(utils.insertNodeAbove(pv), 'ik')
+        MC.parent(utils.insertNodeAbove(pv), ikCtl)
 
-        toks = ['%s_handjnt' % n for n in self.__toks[-2:]]
-        ikHandJnts = utils.dupJntList(bndJnts[-2:], toks, namer)
-        MC.parent(ikHandJnts[0], ikJnts[1])
-        oc = MC.orientConstraint(ikHandJnts[0], ikJnts[2])[0]
-        utils.fixInverseScale(ikHandJnts)
-        utils.fixJointConstraints(ikJnts[2])
 
-        MC.addAttr(ikCtl, ln='handIk', min=0, max=1, dv=0, k=1)
-        MC.connectAttr('%s.handIk' % ikCtl, '%s.%sW0' % (oc, ikHandJnts[0]))
+        #orient the hand to the ik control
+        handOrientJnt = MC.duplicate(ikJnts[2], rc=1, po=1)[0]
+        handOrientJnt = MC.rename(handOrientJnt, namer('handorient_space', r='ik'))
+        MC.parent(handOrientJnt, ikCtl)
+        MC.setAttr('%s.v' % handOrientJnt, 0)
+        MC.orientConstraint(handOrientJnt, ikJnts[2])
 
-        tipIkHandle, tipIkEff = MC.ikHandle(sj=ikHandJnts[0],
-                                      ee=ikHandJnts[-1],
-                                      solver='ikSCsolver',
-                                      n=namer.name('tip_ikh'))
-        MC.parent(tipIkHandle, ikCtl)
-        tipHandlePos = o.newOrientSpaceVector([2, 0, 0])
-        _logger.debug('new tip handle pos: %r' % tipHandlePos)
-        MC.setAttr("%s.t" % tipIkHandle, *tipHandlePos, type='double3')
-        MC.setAttr("%s.v" % tipIkHandle, 0)
-
-        self.setNodeCateogry(utils.insertNodeAbove(ikCtl, 'transform'), 'ik')
 
 
 core.WidgetRegistry().register(Arm, "Arm", "A basic IK/FK arm")

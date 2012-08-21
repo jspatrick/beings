@@ -812,12 +812,11 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
 
     MC.connectAttr('%s.distance' % dd, '%s.input1X' % mdn)
 
-    #find the amount we need to scale by. Ctls are built to a scale of 1
-    #unit by default.  We need to scale by half the distance * multiplier to scale ctl
-    #back to 1
+    #find the amount we need to scale by. Ctls are generally built to a scale of 1
+    #unit by default.  
     scale = getInfo(ctl)['s']
     scale = scale[utils.indexFromVector(o.getAxis('aim'))]
-    scale = (1.0/scale)/2.0
+    scale = (1.0/scale)
     MC.setAttr("%s.input2X" % mdn, scale)
 
     scaleAttr = 'scale%s' % o.getAxis('aim', asString=True)[3]

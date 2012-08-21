@@ -107,7 +107,7 @@ class HeadNeck(core.Widget):
         for i, ctl in enumerate(nurbsObjs['ikCtls']):
             self.registerControl(ctl, 'layout')
             if i > 0:
-                kwargs = {'color': 'red',
+                kwargs = {'color': 'yellow',
                           'shape': 'sphere'}
                 if i < (numIkCtls-1):
                     n = namer('ctl', r='ik', alphaSuf=i-1)

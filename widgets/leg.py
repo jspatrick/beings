@@ -23,12 +23,12 @@ class Leg(core.Widget):
         """
         build the layout
         """
-        positions = [(0,5,0),
-                     (0,2.75,1),
-                     (0,.5,0),
-                     (0,0,0.5),
-                     (0,0,1),
-                     (0,0,1.5)]
+        positions = [(0,20,0),
+                     (0,12,1),
+                     (0,3,0),
+                     (0,0,3),
+                     (0,0,6),
+                     (0,0,8)]
 
         legJoints = {}
         legCtls = {}
@@ -38,31 +38,34 @@ class Leg(core.Widget):
         for i, tok in enumerate(self.__toks):
             legJoints[tok] = MC.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
             self.registerBindJoint(legJoints[tok])
+
             legCtls[tok] = control.makeControl(namer.name(d='%s_layout' % tok, r='ctl'),
                                                shape='sphere',
-                                               s=[0.3, 0.3, 0.3])
+                                               color='purple')
 
-            self.registerControl(legCtls[tok], 'layout')
+            if tok == 'ankle':
+                self.registerControl(legCtls[tok], 'layout', uk=['t', 'rx', 'rz'])
+            elif tok in ['ball', 'toe']:
+                self.registerControl(legCtls[tok], 'layout', uk=['ty', 'tz'])
+            elif tok == 'toetip':
+                self.registerControl(legCtls[tok], 'layout', uk=['tz'])
+            else:
+                self.registerControl(legCtls[tok], 'layout', uk=['t'])
+
             utils.snap(legJoints[tok], legCtls[tok], orient=False)
             MC.select(legJoints[tok])
 
         for i, tok in enumerate(self.__toks):
             utils.orientJnt(legJoints[tok], aimVec=[0,1,0], upVec=[1,0,0], worldUpVec=[1,0,0])
 
-            MC.setAttr('%s.s' % legCtls[tok], l=1)
-            if tok != 'ankle':
-                MC.setAttr('%s.r' % legCtls[tok], l=1)
-            else:
-                MC.setAttr('%s.rx' % legCtls[tok], l=1)
-                MC.setAttr('%s.rz' % legCtls[tok], l=1)
-
-        MC.setAttr('%s.ry' % legCtls['ankle'], l=1)
 
         ankleCtl = legCtls['ankle']
-        for tok in ['ball', 'toe', 'toetip']:
+        for tok in ['ball', 'toe']:
             ctl = legCtls[tok]
             MC.parent(ctl, ankleCtl)
-            MC.setAttr('%s.tx' % ctl, l=1)
+
+        MC.parentConstraint(legCtls['ankle'], utils.insertNodeAbove(legCtls['toetip']),
+                            skipTranslate=['y'], mo=True)
 
         MC.pointConstraint(legCtls['hip'], legJoints['hip'], mo=False)
         MC.pointConstraint(legCtls['knee'], legJoints['knee'], mo=False)
@@ -101,30 +104,45 @@ class Leg(core.Widget):
             MC.setAttr("%s.v" % handle, 0)
             utils.createStretch(legCtls[pr[0]], legCtls[pr[1]], legJoints[pr[0]], namer)
 
-
         #kneeIK
-        toeIkCtl = control.makeControl(namer('toe', r='ik'),
+        toeIkCtl = control.makeControl(namer('toe_ctl', r='ik'),
                                         shape='circle',
-                                        color='red')
-
+                                        color='red',
+                                        s=[2,2,2])
+        toeLayoutCtl = control.makeControl(namer('toe_layout_ctl', r='ik'),
+                                                 shape='cube',
+                                                 color='purple',
+                                                 s=[2, .75, 2])
+        control.setEditable(toeIkCtl, True)
         self.registerControl(toeIkCtl, 'rig')
-        utils.snap(legJoints['toe'], toeIkCtl, orient=False)
-        par = utils.insertNodeAbove(toeIkCtl)
-        pm.pointConstraint(legJoints['toe'], par, mo=False)
+
+        self.registerControl(toeLayoutCtl, 'layout', uk=['tx', 'tz'])
+        MC.parent(toeIkCtl, toeLayoutCtl)
+
+
+        utils.snap(legJoints['toe'], toeLayoutCtl, orient=False)
+        par = utils.insertNodeAbove(toeLayoutCtl)
+        pm.pointConstraint(legJoints['toe'], par, mo=False, skip='y')
 
         #heel
-        heelCtl = control.makeControl(namer.name(d='', r='ik'),
+        heelCtl = control.makeControl(namer.name(d='heel_ctl', r='ik'),
                                       shape='jack',
                                       color='red',
-                                      s=[.5,.5,.5])
+                                      s=[2,2,2])
 
+        heelLayoutCtl = control.makeControl(namer('heel_layout_ctl', r='ik'),
+                                                 shape='cube',
+                                                 color='purple',
+                                                 s=[3, 1, 3])
+        self.registerControl(heelLayoutCtl, 'layout', uk=['tx', 'tz'])
+        MC.parent(heelCtl, heelLayoutCtl)
+        
+        utils.snap(legJoints['ball'], heelLayoutCtl, orient=False)
+        MC.setAttr("%s.tz" % heelLayoutCtl, -.5)
+        par = utils.insertNodeAbove(heelLayoutCtl)
+        pm.parentConstraint(legCtls['ankle'], par, mo=True, skipTranslate=['y'])
+        control.setEditable(heelCtl, True)
         self.registerControl(heelCtl, 'rig')
-        utils.snap(legJoints['ball'], heelCtl, orient=False)
-
-        MC.setAttr("%s.tz" % heelCtl, -.5)
-        par = utils.insertNodeAbove(heelCtl)
-        pm.parentConstraint(legJoints['ball'], par, mo=True)
-
 
         #FK
         for tok, jnt in legJoints.items():
@@ -132,8 +150,8 @@ class Leg(core.Widget):
                 continue
             ctl = control.makeControl(namer.name(tok, r='fk'),
                                 shape='cube',
-                                color='yellow',
-                                scale=[.35, .35, .35])
+                                color='green',
+                s=[2,2,2])
             control.setEditable(ctl, True)
             utils.snap(jnt, ctl)
 
@@ -206,6 +224,8 @@ class Leg(core.Widget):
             bndJnts.append(jnt)
 
         MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
+        for jnt in bndJnts:
+            control.setLockTag(jnt, uu=['t', 'r', 's'])
 
         for i, tok in enumerate(self.__toks[:3]):
             self.setPlugNode('bnd_%s' % tok, bndJnts[i])
@@ -223,7 +243,7 @@ class Leg(core.Widget):
         MC.setAttr('%s.v' % ikJnts[0], 0)
 
 
-        ikCtl = namer('', r='ik')
+        ikCtl = namer('heel_ctl', r='ik')
         MC.addAttr(ikCtl, ln='fkIk', min=0, max=1, dv=1, k=1)
 
         fkIkRev = utils.blendJointChains(fkCtls, ikJnts[:-1], bndJnts[:-1],
@@ -293,7 +313,7 @@ class Leg(core.Widget):
             pos = MC.xform(posNode, q=1, t=1, ws=1)
             if i == 1:
                 pos[1] = MC.xform(positions[0], q=1, t=1, ws=1)[1]
-            
+
             j = MC.joint(name=namer('%s_revfoot_jnt' % tok, r='ik'),
                      p = pos )
             revFootJnts[tok] = j

@@ -145,7 +145,7 @@ class RigViewDelegate(QItemDelegate):
                     self.connect(rmDeleteAction, SIGNAL('triggered()'),
                                  partial(widget.parent().rmChild, widget))
                     menu.addAction(rmDeleteAction)
-                    
+
                 else:
                     rmDeleteAction = QAction("Remove", self)
                     self.connect(rmDeleteAction, SIGNAL('triggered()'),
@@ -286,12 +286,14 @@ class RigWidget(QWidget):
     @PopupError()
     def on_buildLayoutBtn_released(self):
         self.rigView.model().root.buildLayout()
+        self.rigView.model().root.lockNodes()
 
     @pyqtSlot()
     @PopupError()
     def on_buildRigBtn_released(self):
         self.rigView.model().root.buildRig()
-
+        self.rigView.model().root.lockNodes()
+        
     @pyqtSlot()
     @PopupError()
     def on_deleteRigBtn_released(self):

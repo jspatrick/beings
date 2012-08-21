@@ -129,6 +129,7 @@ class BuildCheck(object):
         return new
 
 
+
 def duplicateBindJoints(jointList, namer, resolution='bnd'):
     """
     Depreciated
@@ -402,6 +403,8 @@ class Widget(treeItem.PluggedTreeItem):
     def registerBindJoint(self, jnt):
         '''Register bind joints to be created in the rig build'''
         jnt = str(jnt)
+        control.setLockTag(jnt, uu=['t', 'r', 's'])
+        
         self._joints.add(jnt)
         control.setStorableXformAttrs(jnt, worldSpace=True, categories=['bindJnt'])
 
@@ -450,7 +453,7 @@ class Widget(treeItem.PluggedTreeItem):
         self._controls.add(ctl)
 
 
-    def buildLayout(self, useCachedDiffs=True, altDiffs=None, children=True, lock=True):
+    def buildLayout(self, useCachedDiffs=True, altDiffs=None, children=True):
         if self.state() != 'unbuilt':
             if self.state() == 'layoutBuilt':
                 self.cacheDiffs()
@@ -519,11 +522,6 @@ class Widget(treeItem.PluggedTreeItem):
 
         #notify relatives build finished
         self.__notifyBuildComplete('layout')
-
-
-        if lock:
-            for node in self.getNodes():
-                control.setLocks(node)
 
         return result
 
@@ -702,7 +700,7 @@ class Widget(treeItem.PluggedTreeItem):
             raise utils.BeingsError("Invalid status '%s'" % status)
         status = self._nodeStatus[node] = status
 
-    def buildRig(self, altDiffs=None, returnBeforeBuild=False, skipCallbacks=False, lock=True):
+    def buildRig(self, altDiffs=None, returnBeforeBuild=False, skipCallbacks=False):
         """build the rig
         @param altDiffs=None: Use the provided diff dict instead of the internal diffs
         @param returnBeforeBuild=False:  for developing rig methods.  Returns the args
@@ -715,7 +713,7 @@ class Widget(treeItem.PluggedTreeItem):
         if altDiffs is not None:
             self._cachedDiffs = altDiffs
         elif not self._cachedDiffs:
-            self.buildLayout(lock=False)
+            self.buildLayout()
             self.delete()
 
 
@@ -761,11 +759,14 @@ class Widget(treeItem.PluggedTreeItem):
         if not skipCallbacks:
             self.__notifyBuildComplete('rig')
 
-        if lock:
-            for node in self.getNodes():
-                control.setLocks(node)
-
         return result
+
+    def lockNodes(self, recursive=True):
+        for node in self.getNodes():
+            control.setLocks(node)
+        if recursive:
+            for child in self.children():
+                child.lockNodes(recursive=recursive)
 
     def _makeRig(self, namer):
         return namer
@@ -807,8 +808,12 @@ class Widget(treeItem.PluggedTreeItem):
     def mirroredState(self): return self._mirroring
 
         #todo: remove from class
+
+    def _preMirror(self, thisCtl, otherCtl, thisNamer, otherNamer):
+        return False
+
     @BuildCheck('layoutBuilt')
-    def mirror(self, other):
+    def mirror(self, other, template=False):
         '''
         Mirror this widget to another widget.  this assumes controls are in world space.
         Templates mirrored controls
@@ -851,9 +856,21 @@ class Widget(treeItem.PluggedTreeItem):
                     ctls.append((control.getEditor(thisCtl), control.getEditor(otherCtl)))
 
                 del thisCtl, otherCtl
+
                 for thisCtl, otherCtl in ctls:
 
-                    MC.setAttr('%s.template' % otherCtl, 1)
+                    if template:
+                        MC.setAttr('%s.template' % otherCtl, 1)
+
+                    #widgets may need to define custom mirroring.  They can do this
+                    #via a callback.  If the return value is True, then the callback
+                    #set up the mirroring and can be skipped
+                    with utils.NodeTracker() as nt:
+                        if self._preMirror(thisCtl, otherCtl, namer, otherNamer):
+                            self._nodes.extend(nt.getObjects())
+                            continue
+
+
                     for attr in direct:
                         try:
                             MC.connectAttr('%s.%s' % (thisCtl, attr),
@@ -866,8 +883,8 @@ class Widget(treeItem.PluggedTreeItem):
                     for attr in inverted:
                         fromAttr = '%s.%s' % (thisCtl, attr)
                         toAttr = '%s.%s' % (otherCtl, attr)
-                        char = self.options.getValue('char')
-                        side = self.options.getValue('char')
+
+
                         mdn = MC.createNode('multiplyDivide',
                                             n=namer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
 

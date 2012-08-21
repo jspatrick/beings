@@ -387,7 +387,7 @@ class Widget(treeItem.PluggedTreeItem):
                     for n in self.getNodes():
                         if MC.objectType(n, isAType='transform') and not MC.listRelatives(n, parent=1):
                             if n not in otherCategoryNodes:
-                                _logger.warning("Directly parenting uncategoried top-level node '%s'"\
+                                _logger.debug("Directly parenting uncategoried top-level node '%s'"\
                                                 % n)
                                 nodes.append(n)
 
@@ -404,7 +404,7 @@ class Widget(treeItem.PluggedTreeItem):
         '''Register bind joints to be created in the rig build'''
         jnt = str(jnt)
         control.setLockTag(jnt, uu=['t', 'r', 's'])
-        
+
         self._joints.add(jnt)
         control.setStorableXformAttrs(jnt, worldSpace=True, categories=['bindJnt'])
 
@@ -762,8 +762,10 @@ class Widget(treeItem.PluggedTreeItem):
         return result
 
     def lockNodes(self, recursive=True):
-        for node in self.getNodes():
+        nodes = [x for x in self.getNodes() if MC.objectType(x, isAType='dagNode')]
+        for node in nodes:
             control.setLocks(node)
+            
         if recursive:
             for child in self.children():
                 child.lockNodes(recursive=recursive)

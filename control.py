@@ -36,7 +36,7 @@ reload(utils)
 import nodeTag
 
 _logger = logging.getLogger(__name__)
-
+_logger.setLevel(logging.DEBUG)
 
 _handleData = {'s': [1,1,1],
                'r': [0,0,0],
@@ -265,7 +265,9 @@ def setLocks(node):
 
     lockData = getLockTag(node)
 
-    attrs = MC.listAttr(node, l=False, k=False, se=True)
+    attrs = set(MC.listAttr(node, k=True) or [])
+    attrs.update(MC.listAttr(node, cb=True) or [])
+
     for attr in attrs:
         #don't lock compound attributes - just lock the 'leaf' children
         if not MC.attributeQuery(attr, n=node, ex=1):
@@ -279,18 +281,27 @@ def setLocks(node):
         except:
             _logger.debug("Cannot lock %s.%s" % (node, attr))
 
+    d = {'unlockedKeyable': {'l': False, 'k': True},
+         'unlockedUnkeyable': {'l': False, 'k': False},
+         'lockedKeyable': {'l': True, 'k': False}}
 
-    for attr in lockData['unlockedUnkeyable']:
-        for childAttr in _getLeafAttributes(node, attr):
-            MC.setAttr('%s.%s' % (node, childAttr), l=False)
+    for lType, kwargs in d.items():
+        for attr in lockData[lType]:
+            for childAttr in _getLeafAttributes(node, attr):
+                
+                _logger.debug("setting %s: %s" % (lType, "%s.%s" % (node, childAttr)))
 
-    for attr in lockData['lockedKeyable']:
-        for childAttr in _getLeafAttributes(node, attr):
-            MC.setAttr('%s.%s' % (node, childAttr), k=True)
+                MC.setAttr('%s.%s' % (node, childAttr), **kwargs)
 
-    for attr in lockData['unlockedKeyable']:
-        for childAttr in _getLeafAttributes(node, attr):
-            MC.setAttr('%s.%s' % (node, childAttr), k=True, l=False)
+    # for attr in lockData['unlockedUnkeyable']:
+
+    # for attr in lockData['lockedKeyable']:
+    #     for childAttr in _getLeafAttributes(node, attr):
+    #         MC.setAttr('%s.%s' % (node, childAttr), k=True)
+
+    # for attr in lockData['unlockedKeyable']:
+    #     for childAttr in _getLeafAttributes(node, attr):
+    #         MC.setAttr('%s.%s' % (node, childAttr), k=True, l=False)
 
 
 def isControl(xform):
@@ -337,6 +348,7 @@ def makeControl(name, xformType=None, **kwargs):
         name = MC.createNode(xformType, name=name, parent=None)
 
     xform = name
+
     #delete any shapes that exist
     for shape in MC.listRelatives(xform, type='geometryShape', pa=1) or []:
         MC.delete(shape)
@@ -813,7 +825,7 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     MC.connectAttr('%s.distance' % dd, '%s.input1X' % mdn)
 
     #find the amount we need to scale by. Ctls are generally built to a scale of 1
-    #unit by default.  
+    #unit by default.
     scale = getInfo(ctl)['s']
     scale = scale[utils.indexFromVector(o.getAxis('aim'))]
     scale = (1.0/scale)

@@ -19,11 +19,11 @@ _logger.setLevel(logging.DEBUG)
 
 class FkChain(core.Widget):
     def __init__(self):
-        super(FkChain, self).__init__()
+        super(FkChain, self).__init__('fkchain')
         self.options.addOpt('numBones', 1, min=1, optType=int)
         self.options.subscribe('optChanged', self.__optionChanged)
         self.__setPlugs(1)
-        
+
     def __setPlugs(self, newNumBones):
         newPlugs = set(['fk_%s' % ascii_lowercase[i] for i in range(newNumBones)])
         currentPlugs = set(self.plugs())
@@ -36,7 +36,7 @@ class FkChain(core.Widget):
         for plug in toAdd:
             self.addPlug(plug)
 
-            
+
     def __optionChanged(self, event):
         if event.optName != 'numBones':
             return
@@ -58,33 +58,44 @@ class FkChain(core.Widget):
             if i < jntCnt -1:
                 rigCtl = control.makeControl(namer(r='fk', alphaSuf=i), color='green',
                                          shape='cube')
+
+                control.setEditable(rigCtl, True)
                 self.registerControl(rigCtl, 'rig')
                 rigCtls.append(rigCtl)
-            layoutCtl = control.makeControl(namer('layout_ctl', r='fk', alphaSuf=i),
-                                            color='yellow', shape='sphere')
-            upCtl = control.makeControl(namer('layout_twist_ctl', r='fk', alphaSuf=i),
-                                            color='blue', shape='triangle', t=[1.5,0,0],
-                s=[.2, .2, .2])
 
-            up = MC.createNode('transform', n=namer('layout_twist_up', r='fk', alphaSuf=i))
-            MC.parent(up, upCtl)
-            MC.setAttr('%s.t' % up, 2, 0, 0, type='double3')
-            ups.append(up)
+            layoutCtl = control.makeControl(namer('layout_ctl', r='fk', alphaSuf=i),
+                                            color='purple', shape='sphere')
+
+            if i < (jntCnt-1):
+                upCtl = control.makeControl(namer('layout_twist_ctl', r='fk', alphaSuf=i),
+                                            color='blue', shape='triangle', t=[1.5,0,0],
+                                            s=[.2, .2, .2])
+
+                up = MC.createNode('transform', n=namer('layout_twist_up', r='fk', alphaSuf=i))
+                MC.parent(up, upCtl)
+                MC.setAttr('%s.t' % up, 2, 0, 0, type='double3')
+                ups.append(up)
+                utils.snap(jnt, upCtl)
+                MC.parent(upCtl, layoutCtl)
+                self.registerControl(upCtl, 'layout', uk=['ry'])
 
             utils.snap(jnt, layoutCtl)
             utils.snap(jnt, rigCtl)
-            utils.snap(jnt, upCtl)
+
             layoutCtlZeros.append(utils.insertNodeAbove(layoutCtl))
             MC.parent(rigCtl, jnt)
-            MC.parent(upCtl, layoutCtl)
+
 
             MC.pointConstraint(layoutCtl, jnt)
 
             utils.fixJointConstraints(jnt)
 
 
-            self.registerControl(layoutCtl, 'layout')
+            self.registerControl(layoutCtl, 'layout', uk=['t'])
+
+
             MC.select(jnt)
+
         MC.select(cl=1)
 
         #aim each fkControl at the next one
@@ -97,6 +108,8 @@ class FkChain(core.Widget):
 
             control.centeredCtl(jnts[i], jnts[i+1], rigCtls[i])
 
+            upVec = [1,0,0]
+
             MC.aimConstraint(nextCtl, thisCtl,
                              aimVector=[0,1,0],
                              upVector=[1,0,0],
@@ -104,7 +117,7 @@ class FkChain(core.Widget):
 
             MC.aimConstraint(nextCtl, jnts[i],
                              aimVector=[0,1,0],
-                             upVector=[1,0,0],
+                             upVector=upVec,
                              worldUpType='object',
                              worldUpObject = ups[i])
 
@@ -117,13 +130,56 @@ class FkChain(core.Widget):
                 MC.setAttr('%s.%s' % (par, attr) , l=1)
 
 
+    def _preMirror(self, thisCtl, otherCtl, thisNamer, otherNamer):
+        """do ik control mirroring"""
+        direct = ['tx', 'ty', 'sx', 'sy', 'sz', 'rz']
+        inverted = ['tz', 'ry', 'rx']
+
+        if thisCtl == thisNamer('ctl_editor', r='ik'):
+
+            for attr in direct:
+
+                MC.connectAttr('%s.%s' % (thisCtl, attr),
+                               '%s.%s' % (otherCtl, attr))
+
+            for attr in inverted:
+                fromAttr = '%s.%s' % (thisCtl, attr)
+                toAttr = '%s.%s' % (otherCtl, attr)
+                mdn = MC.createNode('multiplyDivide',
+                                    n=thisNamer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
+
+                MC.setAttr('%s.input2X' % mdn, -1)
+                MC.setAttr('%s.operation' % mdn, 1)
+
+                MC.connectAttr(fromAttr, '%s.input1X' % mdn)
+                MC.connectAttr('%s.outputX' % mdn, toAttr)
+
+            return True
+
+
+        return False
+
     def _makeRig(self, namer):
         jntCnt =  self.options.getValue('numBones') + 1
-        toks = string.ascii_lowercase[:jntCnt]
+        toks = ascii_lowercase[:jntCnt]
         bndJnts = [namer(r='bnd', alphaSuf=i) for i in range(jntCnt)]
+        for jnt in bndJnts:
+            MC.makeIdentity(jnt, apply=True, r=1, s=1, t=1)
         fkCtls = [namer(r='fk', alphaSuf=i) for i in range(jntCnt-1)]
 
+
+        o = utils.Orientation()
+        side = self.options.getValue('side')
+        if side == 'rt':
+            o.setAxis('aim', 'negY')
+            o.reorientJoints(bndJnts)
+        return
+
         fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, toks[:-1], namer)
+
+        for ctl in fkCtls:
+            control.setLockTag(ctl, uk=['r', 's'])
+
         MC.delete(bndJnts[0])
         for i, ctl in enumerate(fkCtls):
             self.setPlugNode('fk_%s' % ascii_lowercase[i], ctl)

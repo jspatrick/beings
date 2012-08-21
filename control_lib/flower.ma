@@ -1,6 +1,6 @@
 //Maya ASCII 2012 scene
-//Name: text.ma
-//Last modified: Mon, Aug 20, 2012 09:15:57 PM
+//Name: flower.ma
+//Last modified: Mon, Aug 20, 2012 09:35:32 PM
 //Codeset: UTF-8
 requires maya "2012";
 requires "stereoCamera" "10.0";
@@ -13,12 +13,14 @@ fileInfo "osv" "Mac OS X 10.7.4";
 fileInfo "license" "student";
 createNode transform -s -n "persp";
 	setAttr ".v" no;
-	setAttr ".t" -type "double3" 28 21 28 ;
-	setAttr ".r" -type "double3" -27.938352729602379 44.999999999999972 -5.172681101354183e-14 ;
+	setAttr ".t" -type "double3" 0.5116875446767547 5.3400616580208933 0.64152296990529512 ;
+	setAttr ".r" -type "double3" -74.138352729732915 84.599999999992932 0 ;
+	setAttr ".rp" -type "double3" 4.4408920985006262e-16 -3.5527136788005009e-15 0 ;
+	setAttr ".rpt" -type "double3" -1.3327583293093068e-15 5.643522391894951e-16 1.7603842796977624e-15 ;
 createNode camera -s -n "perspShape" -p "persp";
 	setAttr -k off ".v" no;
 	setAttr ".fl" 34.999999999999986;
-	setAttr ".coi" 44.82186966202994;
+	setAttr ".coi" 5.5144343383553682;
 	setAttr ".imn" -type "string" "persp";
 	setAttr ".den" -type "string" "persp_depth";
 	setAttr ".man" -type "string" "persp_mask";
@@ -52,187 +54,29 @@ createNode camera -s -n "frontShape" -p "front";
 	setAttr ".o" yes;
 createNode transform -s -n "side";
 	setAttr ".v" no;
-	setAttr ".t" -type "double3" 100.1 0 0 ;
+	setAttr ".t" -type "double3" 100.1 0.26459956773595816 -0.2102335113324777 ;
 	setAttr ".r" -type "double3" 0 89.999999999999986 0 ;
 createNode camera -s -n "sideShape" -p "side";
 	setAttr -k off ".v" no;
 	setAttr ".rnd" no;
 	setAttr ".coi" 100.1;
-	setAttr ".ow" 30;
+	setAttr ".ow" 6.7374916802361078;
 	setAttr ".imn" -type "string" "side";
 	setAttr ".den" -type "string" "side_depth";
 	setAttr ".man" -type "string" "side_mask";
 	setAttr ".hc" -type "string" "viewSet -s %camera";
 	setAttr ".o" yes;
-createNode transform -n "curve1";
-	setAttr ".r" -type "double3" -90 0 0 ;
-createNode nurbsCurve -n "curveShape1" -p "curve1";
+createNode transform -n "nurbsCircle1";
+createNode nurbsCurve -n "nurbsCircleShape1" -p "nurbsCircle1";
 	setAttr -k off ".v";
-	setAttr ".cc" -type "nurbsCurve" 
-		2 33 1 no 3
-		36 0 0 1 1 2 2 2.3738281250000002 2.3738281250000002 2.4535156250000001 2.4535156250000001
-		 2.5402343749999998 2.5402343749999998 2.6199218749999997 2.6199218749999997 2.7353515625
-		 2.7353515625 2.8513168688226576 2.8513168688226576 2.9778793688226575 2.9778793688226575
-		 3.1442856188226576 3.1442856188226576 3.2310043688226573 3.2310043688226573 3.3974106188226574
-		 3.3974106188226574 3.7501449938226576 3.7501449938226576 4.7501449938226576 4.7501449938226576
-		 5.7501449938226576 5.7501449938226576 5.829832493822658 5.829832493822658 6.829832493822658
-		 6.829832493822658
-		35
-		0.30644531250000001 -0.0146484375 0
-		0.21855468750000001 -0.0146484375 0
-		0.16933593750000001 0.035742187500000001 0
-		0.1201171875 0.086132812500000003 0
-		0.1201171875 0.17578125 0
-		0.1201171875 0.36269531250000003 0
-		0.1201171875 0.54960937500000007 0
-		0.080273437500000003 0.54960937500000007 0
-		0.040429687500000006 0.54960937500000007 0
-		0.040429687500000006 0.59296875000000004 0
-		0.040429687500000006 0.63632812500000002 0
-		0.080273437500000003 0.63632812500000002 0
-		0.1201171875 0.63632812500000002 0
-		0.1201171875 0.69404296875000004 0
-		0.1201171875 0.75175781250000007 0
-		0.17783203125000002 0.75732421875 0
-		0.23554687500000002 0.76289062500000004 0
-		0.23554687500000002 0.69960937500000009 0
-		0.23554687500000002 0.63632812500000002 0
-		0.31874999999999998 0.63632812500000002 0
-		0.40195312499999997 0.63632812500000002 0
-		0.40195312499999997 0.59296875000000004 0
-		0.40195312499999997 0.54960937500000007 0
-		0.31874999999999998 0.54960937500000007 0
-		0.23554687500000002 0.54960937500000007 0
-		0.23554687500000002 0.37324218750000004 0
-		0.23554687500000002 0.19687500000000002 0
-		0.23554687500000002 0.072070312499999997 0
-		0.34335937500000002 0.072070312499999997 0
-		0.3662109375 0.072070312499999997 0
-		0.39902343750000002 0.079687500000000008 0
-		0.39902343749999997 0.039843750000000004 0
-		0.39902343749999997 0 0
-		0.345703125 -0.0146484375 0
-		0.30644531250000001 -0.0146484375 0
-		;
-createNode nurbsCurve -n "curveShape2" -p "curve1";
-	setAttr -k off ".v";
-	setAttr ".cc" -type "nurbsCurve" 
-		2 23 1 no 3
-		26 0 0 1 1 2 2 3 3 4 4 5 5 6 6 7 7 7.0357469899437568 7.0357469899437568 7.4371141774437568
-		 7.4371141774437568 8.4371141774437568 8.4371141774437568 9.4371141774437568 9.4371141774437568
-		 9.5285204274437572 9.5285204274437572
-		25
-		1.0306640625000001 0.0205078125 0
-		0.91464843750000002 -0.0146484375 0
-		0.83203125 -0.0146484375 0
-		0.69140625 -0.0146484375 0
-		0.60263671875000002 0.078808593750000003 0
-		0.51386718750000004 0.17226562500000001 0
-		0.51386718750000004 0.32109375000000001 0
-		0.51386718750000004 0.4658203125 0
-		0.59208984375000007 0.55839843750000007 0
-		0.67031250000000009 0.65097656250000002 0
-		0.79218750000000004 0.65097656250000002 0
-		0.90761718750000009 0.65097656250000002 0
-		0.97060546875000009 0.56894531250000002 0
-		1.0335937500000001 0.48691406250000002 0
-		1.0335937500000001 0.33574218750000001 0
-		1.0333007812499999 0.31787109375 0
-		1.0330078125000002 0.30000000000000004 0
-		0.83232421875000007 0.30000000000000004 0
-		0.63164062500000007 0.30000000000000004 0
-		0.65683593750000002 0.0732421875 0
-		0.85371093750000004 0.0732421875 0
-		0.92578125 0.0732421875 0
-		1.0306640625000001 0.11191406250000001 0
-		1.0306640625000001 0.066210937500000011 0
-		1.0306640625000001 0.0205078125 0
-		;
-createNode nurbsCurve -n "curveShape3" -p "curve1";
-	setAttr -k off ".v";
-	setAttr ".cc" -type "nurbsCurve" 
-		2 5 1 no 3
-		8 0 0 0.28066406249999998 0.28066406249999998 1.2806640625000001 1.2806640625000001
-		 2.2806640625000001 2.2806640625000001
-		7
-		0.63691406250000004 0.38671875 0
-		0.77724609375000009 0.38671875 0
-		0.91757812500000013 0.38671875 0
-		0.91757812500000002 0.56425781250000007 0
-		0.78515625 0.56425781250000007 0
-		0.65214843750000007 0.56425781250000007 0
-		0.63691406250000004 0.38671875 0
-		;
-createNode nurbsCurve -n "curveShape4" -p "curve1";
-	setAttr -k off ".v";
-	setAttr ".cc" -type "nurbsCurve" 
-		1 12 2 no 3
-		13 0 0.40818022887342803 0.79526546005163912 0.93237483505163909 1.2397620258563322
-		 1.5368577625642486 1.6493577625642484 2.0402167257017738 2.4348037615164442 2.5719131365164443
-		 2.8884436025852054 3.2011146983253269 3.3171303233253271
-		13
-		1.1689453125 0 0
-		1.4109375000000002 0.32871093750000002 0
-		1.1759765625 0.63632812500000002 0
-		1.3130859375000001 0.63632812500000002 0
-		1.4988281250000002 0.39140625000000001 0
-		1.6669921875 0.63632812500000002 0
-		1.7794921875 0.63632812500000002 0
-		1.5591796875000001 0.3134765625 0
-		1.798828125 0 0
-		1.6617187499999999 0 0
-		1.4701171875000001 0.251953125 0
-		1.2849609375000002 0 0
-		1.1689453125 0 0
-		;
-createNode nurbsCurve -n "curveShape5" -p "curve1";
-	setAttr -k off ".v";
-	setAttr ".cc" -type "nurbsCurve" 
-		2 33 1 no 3
-		36 0 0 1 1 2 2 2.3738281250000002 2.3738281250000002 2.4535156250000001 2.4535156250000001
-		 2.5402343749999998 2.5402343749999998 2.6199218749999997 2.6199218749999997 2.7353515625
-		 2.7353515625 2.8513168688226576 2.8513168688226576 2.9778793688226575 2.9778793688226575
-		 3.1442856188226576 3.1442856188226576 3.2310043688226573 3.2310043688226573 3.3974106188226574
-		 3.3974106188226574 3.7501449938226576 3.7501449938226576 4.7501449938226576 4.7501449938226576
-		 5.7501449938226576 5.7501449938226576 5.829832493822658 5.829832493822658 6.829832493822658
-		 6.829832493822658
-		35
-		2.1597656250000004 -0.0146484375 0
-		2.0718750000000004 -0.0146484375 0
-		2.0226562500000003 0.035742187500000001 0
-		1.9734375000000002 0.086132812500000003 0
-		1.9734375000000002 0.17578125 0
-		1.9734375000000002 0.36269531250000003 0
-		1.9734375000000002 0.54960937500000007 0
-		1.9335937500000002 0.54960937500000007 0
-		1.8937500000000003 0.54960937500000007 0
-		1.8937500000000003 0.59296875000000004 0
-		1.8937500000000003 0.63632812500000002 0
-		1.9335937500000002 0.63632812500000002 0
-		1.9734375000000002 0.63632812500000002 0
-		1.9734375000000002 0.69404296875000004 0
-		1.9734375000000002 0.75175781250000007 0
-		2.0311523437500001 0.75732421875 0
-		2.0888671875 0.76289062500000004 0
-		2.0888671875 0.69960937500000009 0
-		2.0888671875 0.63632812500000002 0
-		2.1720703125000003 0.63632812500000002 0
-		2.2552734375000001 0.63632812500000002 0
-		2.2552734375000001 0.59296875000000004 0
-		2.2552734375000001 0.54960937500000007 0
-		2.1720703125000003 0.54960937500000007 0
-		2.0888671875 0.54960937500000007 0
-		2.0888671875 0.37324218750000004 0
-		2.0888671875 0.19687500000000002 0
-		2.0888671875 0.072070312499999997 0
-		2.1966796875000001 0.072070312499999997 0
-		2.2195312500000002 0.072070312499999997 0
-		2.2523437500000001 0.079687500000000008 0
-		2.2523437500000001 0.039843750000000004 0
-		2.2523437500000001 0 0
-		2.1990234375000002 -0.0146484375 0
-		2.1597656250000004 -0.0146484375 0
-		;
+	setAttr ".tw" yes;
+	setAttr -s 19 ".cp[0:18]" -type "double3" -0.99536168271232839 -1.4714227266532799e-16 
+		2.4030156738706268 0 0 0 0.99536168271233016 -1.4714227266532799e-16 2.4030156738706268 
+		0 0 0 2.4030156738706197 -6.0948324936378827e-17 0.99536168271232972 0 0 0 2.4030156738706152 
+		6.0948324936378876e-17 -0.99536168271232905 0 0 0 0.99536168271232972 1.4714227266532803e-16 
+		-2.4030156738706232 0 0 0 -0.9953616827123295 1.4714227266532799e-16 -2.4030156738706259 
+		0 0 0 -2.4030156738706192 6.0948324936378814e-17 -0.99536168271232894 0 0 0 -2.4030156738706161 
+		-6.0948324936378876e-17 0.99536168271233039 0 0 0 0 0 0 0 0 0 0 0 0;
 createNode lightLinker -s -n "lightLinker1";
 	setAttr -s 2 ".lnk";
 	setAttr -s 2 ".slnk";
@@ -298,7 +142,10 @@ createNode script -n "uiConfigurationScriptNode";
 		+ "                -shadows 0\n                -displayMode \"centerEye\" \n                -viewColor 0 0 0 1 \n                $editorName;\nstereoCameraView -e -viewSelected 0 $editorName;\n\t\t}\n\t} else {\n\t\t$label = `panel -q -label $panelName`;\n\t\tscriptedPanel -edit -l (localizedPanelLabel(\"Stereo\")) -mbv $menusOkayInPanels  $panelName;\nstring $editorName = ($panelName+\"Editor\");\n            stereoCameraView -e \n                -camera \"persp\" \n                -useInteractiveMode 0\n                -displayLights \"default\" \n                -displayAppearance \"wireframe\" \n                -activeOnly 0\n                -ignorePanZoom 0\n                -wireframeOnShaded 0\n                -headsUpDisplay 1\n                -selectionHiliteDisplay 1\n                -useDefaultMaterial 0\n                -bufferMode \"double\" \n                -twoSidedLighting 1\n                -backfaceCulling 0\n                -xray 0\n                -jointXray 0\n                -activeComponentsXray 0\n                -displayTextures 0\n                -smoothWireframe 0\n"
 		+ "                -lineWidth 1\n                -textureAnisotropic 0\n                -textureHilight 1\n                -textureSampling 2\n                -textureDisplay \"modulate\" \n                -textureMaxSize 16384\n                -fogging 0\n                -fogSource \"fragment\" \n                -fogMode \"linear\" \n                -fogStart 0\n                -fogEnd 100\n                -fogDensity 0.1\n                -fogColor 0.5 0.5 0.5 1 \n                -maxConstantTransparency 1\n                -colorResolution 4 4 \n                -bumpResolution 4 4 \n                -textureCompression 0\n                -transparencyAlgorithm \"frontAndBackCull\" \n                -transpInShadows 0\n                -cullingOverride \"none\" \n                -lowQualityLighting 0\n                -maximumNumHardwareLights 0\n                -occlusionCulling 0\n                -shadingModel 0\n                -useBaseRenderer 0\n                -useReducedRenderer 0\n                -smallObjectCulling 0\n                -smallObjectThreshold -1 \n"
 		+ "                -interactiveDisableShadows 0\n                -interactiveBackFaceCull 0\n                -sortTransparent 1\n                -nurbsCurves 1\n                -nurbsSurfaces 1\n                -polymeshes 1\n                -subdivSurfaces 1\n                -planes 1\n                -lights 1\n                -cameras 1\n                -controlVertices 1\n                -hulls 1\n                -grid 1\n                -joints 1\n                -ikHandles 1\n                -deformers 1\n                -dynamics 1\n                -fluids 1\n                -hairSystems 1\n                -follicles 1\n                -nCloths 1\n                -nParticles 1\n                -nRigids 1\n                -dynamicConstraints 1\n                -locators 1\n                -manipulators 1\n                -dimensions 1\n                -handles 1\n                -pivots 1\n                -textures 1\n                -strokes 1\n                -motionTrails 1\n                -shadows 0\n                -displayMode \"centerEye\" \n"
-		+ "                -viewColor 0 0 0 1 \n                $editorName;\nstereoCameraView -e -viewSelected 0 $editorName;\n\t\tif (!$useSceneConfig) {\n\t\t\tpanel -e -l $label $panelName;\n\t\t}\n\t}\n\n\n\tif ($useSceneConfig) {\n        string $configName = `getPanel -cwl (localizedPanelLabel(\"Current Layout\"))`;\n        if (\"\" != $configName) {\n\t\t\tpanelConfiguration -edit -label (localizedPanelLabel(\"Current Layout\")) \n\t\t\t\t-defaultImage \"\"\n\t\t\t\t-image \"\"\n\t\t\t\t-sc false\n\t\t\t\t-configString \"global string $gMainPane; paneLayout -e -cn \\\"single\\\" -ps 1 100 100 $gMainPane;\"\n\t\t\t\t-removeAllPanels\n\t\t\t\t-ap false\n\t\t\t\t\t(localizedPanelLabel(\"Persp View\")) \n\t\t\t\t\t\"modelPanel\"\n"
+		+ "                -viewColor 0 0 0 1 \n                $editorName;\nstereoCameraView -e -viewSelected 0 $editorName;\n\t\tif (!$useSceneConfig) {\n\t\t\tpanel -e -l $label $panelName;\n\t\t}\n\t}\n\n\n\tif ($useSceneConfig) {\n        string $configName = `getPanel -cwl (localizedPanelLabel(\"Current Layout\"))`;\n        if (\"\" != $configName) {\n\t\t\tpanelConfiguration -edit -label (localizedPanelLabel(\"Current Layout\")) \n\t\t\t\t-defaultImage \"\"\n\t\t\t\t-image \"\"\n\t\t\t\t-sc false\n\t\t\t\t-configString \"global string $gMainPane; paneLayout -e -cn \\\"vertical2\\\" -ps 1 21 100 -ps 2 79 100 $gMainPane;\"\n\t\t\t\t-removeAllPanels\n\t\t\t\t-ap false\n\t\t\t\t\t(localizedPanelLabel(\"Outliner\")) \n\t\t\t\t\t\"outlinerPanel\"\n"
+		+ "\t\t\t\t\t\"$panelName = `outlinerPanel -unParent -l (localizedPanelLabel(\\\"Outliner\\\")) -mbv $menusOkayInPanels `;\\n$editorName = $panelName;\\noutlinerEditor -e \\n    -showShapes 0\\n    -showAttributes 0\\n    -showConnected 0\\n    -showAnimCurvesOnly 0\\n    -showMuteInfo 0\\n    -organizeByLayer 1\\n    -showAnimLayerWeight 1\\n    -autoExpandLayers 1\\n    -autoExpand 0\\n    -showDagOnly 1\\n    -showAssets 1\\n    -showContainedOnly 1\\n    -showPublishedAsConnected 0\\n    -showContainerContents 1\\n    -ignoreDagHierarchy 0\\n    -expandConnections 0\\n    -showUpstreamCurves 1\\n    -showUnitlessCurves 1\\n    -showCompounds 1\\n    -showLeafs 1\\n    -showNumericAttrsOnly 0\\n    -highlightActive 1\\n    -autoSelectNewObjects 0\\n    -doNotSelectNewObjects 0\\n    -dropIsParent 1\\n    -transmitFilters 0\\n    -setFilter \\\"defaultSetFilter\\\" \\n    -showSetMembers 1\\n    -allowMultiSelection 1\\n    -alwaysToggleSelect 0\\n    -directSelect 0\\n    -displayMode \\\"DAG\\\" \\n    -expandObjects 0\\n    -setsIgnoreFilters 1\\n    -containersIgnoreFilters 0\\n    -editAttrName 0\\n    -showAttrValues 0\\n    -highlightSecondary 0\\n    -showUVAttrsOnly 0\\n    -showTextureNodesOnly 0\\n    -attrAlphaOrder \\\"default\\\" \\n    -animLayerFilterOptions \\\"allAffecting\\\" \\n    -sortOrder \\\"none\\\" \\n    -longNames 0\\n    -niceNames 1\\n    -showNamespace 1\\n    -showPinIcons 0\\n    -mapMotionTrails 0\\n    $editorName\"\n"
+		+ "\t\t\t\t\t\"outlinerPanel -edit -l (localizedPanelLabel(\\\"Outliner\\\")) -mbv $menusOkayInPanels  $panelName;\\n$editorName = $panelName;\\noutlinerEditor -e \\n    -showShapes 0\\n    -showAttributes 0\\n    -showConnected 0\\n    -showAnimCurvesOnly 0\\n    -showMuteInfo 0\\n    -organizeByLayer 1\\n    -showAnimLayerWeight 1\\n    -autoExpandLayers 1\\n    -autoExpand 0\\n    -showDagOnly 1\\n    -showAssets 1\\n    -showContainedOnly 1\\n    -showPublishedAsConnected 0\\n    -showContainerContents 1\\n    -ignoreDagHierarchy 0\\n    -expandConnections 0\\n    -showUpstreamCurves 1\\n    -showUnitlessCurves 1\\n    -showCompounds 1\\n    -showLeafs 1\\n    -showNumericAttrsOnly 0\\n    -highlightActive 1\\n    -autoSelectNewObjects 0\\n    -doNotSelectNewObjects 0\\n    -dropIsParent 1\\n    -transmitFilters 0\\n    -setFilter \\\"defaultSetFilter\\\" \\n    -showSetMembers 1\\n    -allowMultiSelection 1\\n    -alwaysToggleSelect 0\\n    -directSelect 0\\n    -displayMode \\\"DAG\\\" \\n    -expandObjects 0\\n    -setsIgnoreFilters 1\\n    -containersIgnoreFilters 0\\n    -editAttrName 0\\n    -showAttrValues 0\\n    -highlightSecondary 0\\n    -showUVAttrsOnly 0\\n    -showTextureNodesOnly 0\\n    -attrAlphaOrder \\\"default\\\" \\n    -animLayerFilterOptions \\\"allAffecting\\\" \\n    -sortOrder \\\"none\\\" \\n    -longNames 0\\n    -niceNames 1\\n    -showNamespace 1\\n    -showPinIcons 0\\n    -mapMotionTrails 0\\n    $editorName\"\n"
+		+ "\t\t\t\t-ap false\n\t\t\t\t\t(localizedPanelLabel(\"Persp View\")) \n\t\t\t\t\t\"modelPanel\"\n"
 		+ "\t\t\t\t\t\"$panelName = `modelPanel -unParent -l (localizedPanelLabel(\\\"Persp View\\\")) -mbv $menusOkayInPanels `;\\n$editorName = $panelName;\\nmodelEditor -e \\n    -cam `findStartUpCamera persp` \\n    -useInteractiveMode 0\\n    -displayLights \\\"default\\\" \\n    -displayAppearance \\\"wireframe\\\" \\n    -activeOnly 0\\n    -ignorePanZoom 0\\n    -wireframeOnShaded 0\\n    -headsUpDisplay 1\\n    -selectionHiliteDisplay 1\\n    -useDefaultMaterial 0\\n    -bufferMode \\\"double\\\" \\n    -twoSidedLighting 1\\n    -backfaceCulling 0\\n    -xray 0\\n    -jointXray 0\\n    -activeComponentsXray 0\\n    -displayTextures 0\\n    -smoothWireframe 0\\n    -lineWidth 1\\n    -textureAnisotropic 0\\n    -textureHilight 1\\n    -textureSampling 2\\n    -textureDisplay \\\"modulate\\\" \\n    -textureMaxSize 16384\\n    -fogging 0\\n    -fogSource \\\"fragment\\\" \\n    -fogMode \\\"linear\\\" \\n    -fogStart 0\\n    -fogEnd 100\\n    -fogDensity 0.1\\n    -fogColor 0.5 0.5 0.5 1 \\n    -maxConstantTransparency 1\\n    -rendererName \\\"base_OpenGL_Renderer\\\" \\n    -colorResolution 256 256 \\n    -bumpResolution 512 512 \\n    -textureCompression 0\\n    -transparencyAlgorithm \\\"frontAndBackCull\\\" \\n    -transpInShadows 0\\n    -cullingOverride \\\"none\\\" \\n    -lowQualityLighting 0\\n    -maximumNumHardwareLights 1\\n    -occlusionCulling 0\\n    -shadingModel 0\\n    -useBaseRenderer 0\\n    -useReducedRenderer 0\\n    -smallObjectCulling 0\\n    -smallObjectThreshold -1 \\n    -interactiveDisableShadows 0\\n    -interactiveBackFaceCull 0\\n    -sortTransparent 1\\n    -nurbsCurves 1\\n    -nurbsSurfaces 1\\n    -polymeshes 1\\n    -subdivSurfaces 1\\n    -planes 1\\n    -lights 1\\n    -cameras 1\\n    -controlVertices 1\\n    -hulls 1\\n    -grid 1\\n    -joints 1\\n    -ikHandles 1\\n    -deformers 1\\n    -dynamics 1\\n    -fluids 1\\n    -hairSystems 1\\n    -follicles 1\\n    -nCloths 1\\n    -nParticles 1\\n    -nRigids 1\\n    -dynamicConstraints 1\\n    -locators 1\\n    -manipulators 1\\n    -dimensions 1\\n    -handles 1\\n    -pivots 1\\n    -textures 1\\n    -strokes 1\\n    -motionTrails 1\\n    -shadows 0\\n    $editorName;\\nmodelEditor -e -viewSelected 0 $editorName\"\n"
 		+ "\t\t\t\t\t\"modelPanel -edit -l (localizedPanelLabel(\\\"Persp View\\\")) -mbv $menusOkayInPanels  $panelName;\\n$editorName = $panelName;\\nmodelEditor -e \\n    -cam `findStartUpCamera persp` \\n    -useInteractiveMode 0\\n    -displayLights \\\"default\\\" \\n    -displayAppearance \\\"wireframe\\\" \\n    -activeOnly 0\\n    -ignorePanZoom 0\\n    -wireframeOnShaded 0\\n    -headsUpDisplay 1\\n    -selectionHiliteDisplay 1\\n    -useDefaultMaterial 0\\n    -bufferMode \\\"double\\\" \\n    -twoSidedLighting 1\\n    -backfaceCulling 0\\n    -xray 0\\n    -jointXray 0\\n    -activeComponentsXray 0\\n    -displayTextures 0\\n    -smoothWireframe 0\\n    -lineWidth 1\\n    -textureAnisotropic 0\\n    -textureHilight 1\\n    -textureSampling 2\\n    -textureDisplay \\\"modulate\\\" \\n    -textureMaxSize 16384\\n    -fogging 0\\n    -fogSource \\\"fragment\\\" \\n    -fogMode \\\"linear\\\" \\n    -fogStart 0\\n    -fogEnd 100\\n    -fogDensity 0.1\\n    -fogColor 0.5 0.5 0.5 1 \\n    -maxConstantTransparency 1\\n    -rendererName \\\"base_OpenGL_Renderer\\\" \\n    -colorResolution 256 256 \\n    -bumpResolution 512 512 \\n    -textureCompression 0\\n    -transparencyAlgorithm \\\"frontAndBackCull\\\" \\n    -transpInShadows 0\\n    -cullingOverride \\\"none\\\" \\n    -lowQualityLighting 0\\n    -maximumNumHardwareLights 1\\n    -occlusionCulling 0\\n    -shadingModel 0\\n    -useBaseRenderer 0\\n    -useReducedRenderer 0\\n    -smallObjectCulling 0\\n    -smallObjectThreshold -1 \\n    -interactiveDisableShadows 0\\n    -interactiveBackFaceCull 0\\n    -sortTransparent 1\\n    -nurbsCurves 1\\n    -nurbsSurfaces 1\\n    -polymeshes 1\\n    -subdivSurfaces 1\\n    -planes 1\\n    -lights 1\\n    -cameras 1\\n    -controlVertices 1\\n    -hulls 1\\n    -grid 1\\n    -joints 1\\n    -ikHandles 1\\n    -deformers 1\\n    -dynamics 1\\n    -fluids 1\\n    -hairSystems 1\\n    -follicles 1\\n    -nCloths 1\\n    -nParticles 1\\n    -nRigids 1\\n    -dynamicConstraints 1\\n    -locators 1\\n    -manipulators 1\\n    -dimensions 1\\n    -handles 1\\n    -pivots 1\\n    -textures 1\\n    -strokes 1\\n    -motionTrails 1\\n    -shadows 0\\n    $editorName;\\nmodelEditor -e -viewSelected 0 $editorName\"\n"
 		+ "\t\t\t\t$configName;\n\n            setNamedPanelLayout (localizedPanelLabel(\"Current Layout\"));\n        }\n\n        panelHistory -e -clear mainPanelHistory;\n        setFocus `paneLayout -q -p1 $gMainPane`;\n        sceneUIReplacement -deleteRemaining;\n        sceneUIReplacement -clear;\n\t}\n\n\ngrid -spacing 5 -size 12 -divisions 5 -displayAxes yes -displayGridLines yes -displayDivisionLines yes -displayPerspectiveLabels no -displayOrthographicLabels no -displayAxesBold yes -perspectiveLabelPosition axis -orthographicLabelPosition edge;\nviewManip -drawCompass 0 -compassAngle 0 -frontParameters \"\" -homeParameters \"\" -selectionLockParameters \"\";\n}\n");
@@ -306,6 +153,12 @@ createNode script -n "uiConfigurationScriptNode";
 createNode script -n "sceneConfigurationScriptNode";
 	setAttr ".b" -type "string" "playbackOptions -min 1 -max 24 -ast 1 -aet 48 ";
 	setAttr ".st" 6;
+createNode makeNurbCircle -n "makeNurbCircle1";
+	setAttr ".nr" -type "double3" 0 1 0 ;
+	setAttr ".s" 16;
+createNode transformGeometry -n "transformGeometry1";
+	setAttr ".txf" -type "matrix" 1.7930953900510198 0 0 0 0 1.7930953900510198 0 0
+		 0 0 1.7930953900510198 0 0 0 0 1;
 select -ne :time1;
 	setAttr ".o" 1;
 	setAttr ".unw" 1;
@@ -327,11 +180,15 @@ select -ne :hardwareRenderGlobals;
 select -ne :defaultHardwareRenderGlobals;
 	setAttr ".fn" -type "string" "im";
 	setAttr ".res" -type "string" "ntsc_4d 646 485 1.333";
+select -ne :ikSystem;
+	setAttr -s 4 ".sol";
+connectAttr "transformGeometry1.og" "nurbsCircleShape1.cr";
 relationship "link" ":lightLinker1" ":initialShadingGroup.message" ":defaultLightSet.message";
 relationship "link" ":lightLinker1" ":initialParticleSE.message" ":defaultLightSet.message";
 relationship "shadowLink" ":lightLinker1" ":initialShadingGroup.message" ":defaultLightSet.message";
 relationship "shadowLink" ":lightLinker1" ":initialParticleSE.message" ":defaultLightSet.message";
 connectAttr "layerManager.dli[0]" "defaultLayer.id";
 connectAttr "renderLayerManager.rlmi[0]" "defaultRenderLayer.rlid";
+connectAttr "makeNurbCircle1.oc" "transformGeometry1.ig";
 connectAttr "defaultRenderLayer.msg" ":defaultRenderingList1.r" -na;
-// End of text.ma
+// End of flower.ma

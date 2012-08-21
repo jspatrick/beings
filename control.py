@@ -189,9 +189,126 @@ def setInfo(control, info):
     control = str(control)
     nodeTag.setTag(control, CONTROL_TAG_NAME, info)
 
+
+LOCKS_TAG_NAME = 'controlLocks'
+_defaultLocks = {'lockedKeyable': [],
+                   'unlockedUnkeyable': [],
+                   'unlockedKeyable': []}
+
+def setLockTag(ctl, **kwargs):
+    """
+    Add new lock information to the lock tag of a control.  Create the tag
+    if it does not exist
+
+    @keyword unlockedUnkeyable: channels that are unlcoked but not keyable
+    @keyword uu: unlockedUnkeyable alias
+    @keyword unlockedKeyable: channels that are unlcoked but not keyable
+    @keyword uk: unlockedKeyable alias
+    @keyword lockedKeyable: channels that are unlcoked but not keyable
+    @keyword lk: lockedKeyable alias
+
+    update locking information on controls.  This is used to toggle locking when rig nodes are
+    locked
+    """
+
+    if not (isControl(ctl) or isEditor(ctl)):
+        raise RuntimeError('%s is not a control or editor' % ctl)
+    if nodeTag.hasTag(ctl, LOCKS_TAG_NAME):
+        current = nodeTag.getTag(node, LOCKS_TAG_NAME)
+    else:
+        current = copy.deepcopy(_defaultLocks)
+
+    for long_, short in [('unlockedUnkeyable', 'uu'),
+                          ('unlockedKeyable', 'uk'),
+                          ('lockedKeyable', 'lk')]:
+
+        val = set(kwargs.get(long_, kwargs.get(short, [])))
+        current[long_] = list(val.union(current[long_]))
+
+    nodeTag.setTag(ctl, LOCKS_TAG_NAME, current)
+
+
+def getLockTag(node):
+    """
+    Get the lock tag of a node.  If the node is not tagged,
+    the default empty lock tag is returned
+    @param node: the node to query
+    @type node: str
+
+    @return: lock tag dictionary
+    @rtype: dict
+    """
+    if not nodeTag.hasTag(node, LOCKS_TAG_NAME):
+        return copy.deepcopy(_defaultLocks)
+
+    return nodeTag.getTag(node, LOCKS_TAG_NAME)
+
+def _getLeafAttributes(node, attr, returnSelf=True):
+    """
+    Get a list of child attributes.  If the attribute itself is the
+    leaf, return it in a list
+    """
+    children = MC.attributeQuery(attr, n=node, lc=1)
+    if not children:
+        if returnSelf:
+            return [attr]
+        else:
+            return []
+    for child in children:
+        children.extend(_getLeafAttributes(node, child, returnSelf=False))
+    return children
+
+
+def setLocks(node):
+    """
+    Lock a node according to its lock tag.
+    @param node: the node to lock
+    """
+
+    lockData = getLockTag(node)
+
+    attrs = MC.listAttr(node, l=False, k=False, se=True)
+    for attr in attrs:
+        #don't lock compound attributes - just lock the 'leaf' children
+        if not MC.attributeQuery(attr, n=node, ex=1):
+            continue
+
+        children = MC.attributeQuery(attr, n=node, nc=1)
+        if children:
+            continue
+        try:
+            MC.setAttr('%s.%s' % (node, attr), l=True, k=False, cb=False)
+        except:
+            _logger.debug("Cannot lock %s.%s" % (node, attr))
+
+
+    for attr in lockData['unlockedUnkeyable']:
+        for childAttr in _getLeafAttributes(node, attr):
+            MC.setAttr('%s.%s' % (node, childAttr), l=False)
+
+    for attr in lockData['lockedKeyable']:
+        for childAttr in _getLeafAttributes(node, attr):
+            MC.setAttr('%s.%s' % (node, childAttr), k=True)
+
+    for attr in lockData['unlockedKeyable']:
+        for childAttr in _getLeafAttributes(node, attr):
+            MC.setAttr('%s.%s' % (node, childAttr), k=True, l=False)
+
+
 def isControl(xform):
     if nodeTag.hasTag(xform, CONTROL_TAG_NAME):
         return True
+
+def isEditor(xform):
+    par = MC.listRelatives(xform, parent=1)
+    if not par:
+        return False
+    if isControl(par[0]):
+
+        if xform == '%s_editor' % par[0]:
+
+            return True
+    return False
 
 def makeControl(name, xformType=None, **kwargs):
     """
@@ -255,6 +372,7 @@ def makeControl(name, xformType=None, **kwargs):
 
     return xform
 
+
 def flushControlScaleToShape(control):
     """If a control's scale is not at identity, push scaling down to the shape
     and set the control's scale to [1,1,1]"""
@@ -282,8 +400,15 @@ def flushControlScaleToShape(control):
         if not editable:
             setEditable(control, False)
 
+
 def getEditor(ctl):
-    """If an editor for the control exists, return it.  Else, return None"""
+    """If an editor for the control exists, return it.  Else, return None
+    @param ctl: the control
+    @type ctl: str
+
+    @return: the control, or None
+    @rtype: str or None
+    """
     editor = '%s_editor' % ctl
     if MC.objExists(editor):
         return editor
@@ -292,7 +417,15 @@ def getEditor(ctl):
 
 def setEditable(ctl, state):
     """
-    Add a new xform to a control
+    Add an intermediate xform node to a control.  The control's editable
+    state can be toggled, and transformation differences to the 'editor' node
+    will be flushed down to the shape level and recorded in the control data
+    @param ctl: the control to make editable
+    @type ctl: str
+    @param state: True or False
+    @type state: bool
+
+    @return: True if state was changed, else False
     """
     editor = getEditor(ctl)
     if editor and state:
@@ -474,11 +607,19 @@ def makeStorableXform(xform, **kwargs):
 
 
 def isStorableXform(xform):
+    """
+    Is the node tagged as a storableXform node?
+    """
     if nodeTag.hasTag(xform, STORABLE_TAG_NAME):
         return True
     return False
 
 def getStorableXformInfo(xform):
+    """
+    Get information needed to record the state of a transform node to rebuild
+    it, duplicate it, etc
+    """
+
     if not nodeTag.hasTag(xform, STORABLE_TAG_NAME):
         raise RuntimeError("%s is not a storable node" % xform)
 
@@ -646,7 +787,11 @@ def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
 
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     """
-    Setup a control to be 'centered' down a bone
+    Setup a control to be 'centered' down a bone.
+    @param startJoint: the joint the control should start at
+    @param endJoint: the joint the control should end at
+    @param ctl: the control node
+    @param centerDown: the control axis to stretch to center the node
     """
 
     o = utils.Orientation()
@@ -685,9 +830,17 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
 def setupFkCtls(bndJnts, rigCtls, descriptions, namer):
     """Set up fk controls from bndJnts.
 
-    This will delete the original controls that were passed
-    in and rebuild the control shapes on a duplicate of the bind joints.
-    Zero nodes will be placed above the controls
+    This will delete the original controls passed in and
+    rebuild the control shapes on a duplicate of the bind joints passed in
+    Zero nodes will be placed above the controls, so the control matrices will
+    equal identiy
+
+    @param bndJnts: the joints to duplicate as fk controls
+    @param rigCtls: the controls that will be deleted and have their shapes reparented
+    @param descriptions: names for the new controls
+
+    @param namer: a Namer object used to rename the new joints (const)
+
     @return: list of new joint controls
     """
 

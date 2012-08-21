@@ -25,7 +25,7 @@ beingsLogger = logging.getLogger('beings')
 beingsLogger.setLevel(logging.INFO)
 _logger = logging.getLogger(__name__)
 
-#set up logging
+#set up logging to log with the function name and line number.
 
 class BeingsFilter(logging.Filter):
     def __init__(self, name=''):
@@ -400,15 +400,38 @@ class Widget(treeItem.PluggedTreeItem):
     def state(self): return self.__state
 
     def registerBindJoint(self, jnt):
-        '''Register bind joints to be duplicated'''
+        '''Register bind joints to be created in the rig build'''
         jnt = str(jnt)
         self._joints.add(jnt)
         control.setStorableXformAttrs(jnt, worldSpace=True, categories=['bindJnt'])
 
-    def registerControl(self, ctl, ctlType ='layout'):
-        """Register a control that should be cached"""
+    def registerControl(self, ctl, ctlType, uk=None, uu=None, lk=None):
+        """Register a control that should be cached
+        @param ctl: the control
+        @type ctl: str
+        @param ctlType: the type of control - either layout or rig
+        @type ctlType: str
+        @param uk: unlocked, keyable attrs, ie ['tx', 'ty']
+        @param uu: unlocked, unkeyable attrs
+        @param lk: locked, keyable attrs
+        @type uk, uu, lk: list of strings
+        """
+
         if ctlType not in ['rig', 'layout']:
             raise RuntimeError("Invalid ctl type '%s'" % ctlType)
+
+        locks = {}
+        locks['uk'] = uk or []
+        locks['uu'] = uu or []
+        locks['lk'] = lk or []
+
+        editor = control.getEditor(ctl)
+        if editor:
+            locks['uk'] = list(set(locks['uk']).union(['t', 'r', 's']))
+            control.setLockTag(editor, **locks)
+            #locks['uk'] =
+        else:
+            control.setLockTag(ctl, **locks)
 
         ctl = str(ctl)
         if not control.isStorableXform(ctl):
@@ -427,7 +450,7 @@ class Widget(treeItem.PluggedTreeItem):
         self._controls.add(ctl)
 
 
-    def buildLayout(self, useCachedDiffs=True, altDiffs=None, children=True):
+    def buildLayout(self, useCachedDiffs=True, altDiffs=None, children=True, lock=True):
         if self.state() != 'unbuilt':
             if self.state() == 'layoutBuilt':
                 self.cacheDiffs()
@@ -496,6 +519,11 @@ class Widget(treeItem.PluggedTreeItem):
 
         #notify relatives build finished
         self.__notifyBuildComplete('layout')
+
+
+        if lock:
+            for node in self.getNodes():
+                control.setLocks(node)
 
         return result
 
@@ -674,7 +702,7 @@ class Widget(treeItem.PluggedTreeItem):
             raise utils.BeingsError("Invalid status '%s'" % status)
         status = self._nodeStatus[node] = status
 
-    def buildRig(self, altDiffs=None, returnBeforeBuild=False, skipCallbacks=False):
+    def buildRig(self, altDiffs=None, returnBeforeBuild=False, skipCallbacks=False, lock=True):
         """build the rig
         @param altDiffs=None: Use the provided diff dict instead of the internal diffs
         @param returnBeforeBuild=False:  for developing rig methods.  Returns the args
@@ -732,6 +760,10 @@ class Widget(treeItem.PluggedTreeItem):
         #notify relatives that build finished
         if not skipCallbacks:
             self.__notifyBuildComplete('rig')
+
+        if lock:
+            for node in self.getNodes():
+                control.setLocks(node)
 
         return result
 
@@ -871,6 +903,7 @@ class Root(Widget):
         self.addPlug('master')
         self.options.addOpt('rigType', 'core', presets=['core'])
 
+
     def childCompletedBuild(self, child, buildType):
         MC.refresh()
         if buildType == 'rig':
@@ -888,9 +921,7 @@ class Root(Widget):
                         MC.connectAttr('%s.uniformScale' % self._otherNodes['master'],
                                        '%s.%s' % (node, attr))
 
-                    masterNodes = child.getNodes('master')
-                    if masterNodes:
-                        MC.parent(masterNodes, self._otherNodes['top'])
+
                     dntNodes = child.getNodes('dnt')
                     if dntNodes:
                         MC.parent(dntNodes, self._otherNodes['dnt'])
@@ -901,14 +932,15 @@ class Root(Widget):
         MC.refresh()
         super(Root, self).childCompletedBuild(child, buildType)
 
+
     def _makeLayout(self, namer):
         #mkae the layout control
         masterLayoutCtl = control.makeControl(namer.name(d='layout', r='ctl'),
                                               shape='circle',
-                                              color='red',
+                                              color='purple',
                                               s=[4.5, 4.5, 4.5],
                                               xformType='transform')
-        self.registerControl(masterLayoutCtl)
+        self.registerControl(masterLayoutCtl, 'layout', uk=['rx', 'ry', 'rz', 'tx', 'ty', 'tz'])
 
         #make rig control
         masterCtl = control.makeControl(namer('', r='ctl'),
@@ -916,11 +948,16 @@ class Root(Widget):
                                         color='lite blue',
                                         xformType='transform',
                                         s=[4,4,4])
+
+
         MC.parent(masterCtl, masterLayoutCtl)
-        self.registerControl(masterCtl, ctlType='rig')
+        control.setEditable(masterCtl, True)
+        self.registerControl(masterCtl, 'rig')
+
 
     def _makeRig(self, namer):
         masterCtl = namer(r='ctl')
+
         self.setPlugNode('master', masterCtl)
 
         if self.root() == self:
@@ -944,6 +981,7 @@ class Root(Widget):
         for channel in ['sx', 'sy', 'sz']:
             MC.connectAttr('%s.uniformScale' % masterCtl, '%s.%s' % (masterCtl, channel))
 
+        control.setLockTag(masterCtl, uk=['t', 'r', 'uniformScale'])
 
 WidgetRegistry().register(Root, 'Root', 'The widget under which all others should be parented')
 
@@ -955,7 +993,7 @@ class CenterOfGravity(Widget):
         self.options.setPresets('side', 'cn')
         self.addPlug('cog_bnd')
         self.addPlug('cog_ctl')
-        self.addPlug('body_ctl')
+        self.addPlug('prepivot_ctl')
         self.addPlug('pivot_ctl')
 
     def childCompletedBuild(self, child, buildType):
@@ -979,11 +1017,11 @@ class CenterOfGravity(Widget):
     def _makeLayout(self, namer):
         cogLayoutCtl = control.makeControl(namer.name(d='layout', r='ctl'),
                                            shape='circle',
-                                           color='yellow',
+                                           color='purple',
                                            s=[4, 4, 4],
                                            xformType='transform')
         MC.setAttr('%s.ty' % cogLayoutCtl, 5)
-        self.registerControl(cogLayoutCtl)
+        self.registerControl(cogLayoutCtl, 'layout', uk=['t', 'r'])
 
         cogJnt = MC.createNode('joint', name=namer('', r='bnd'))
 
@@ -993,53 +1031,54 @@ class CenterOfGravity(Widget):
         self.registerBindJoint(cogJnt)
 
 
-        bodyCtl = control.makeControl(namer('body', r='ctl'),
-                                      shape='triangle',
+        bodyCtl = control.makeControl(namer('prepivot', r='ctl'),
+                                      shape='circle',
                                       color='green',
                                       xformType='transform',
                                       s=[3.5, 3.5, 3.5])
         MC.parent(bodyCtl, cogLayoutCtl)
         control.setEditable(bodyCtl, True)
 
-        pivotCtl = control.makeControl(namer.name('body_pivot', r='ctl'),
-                                       shape='jack',
-                                       color='yellow',
+        pivotCtl = control.makeControl(namer.name('pivot', r='ctl'),
+                                       shape='flower',
+                                       color='salmon',
                                        xformType='transform',
                                        s=[2,2,2])
         MC.parent(pivotCtl, cogLayoutCtl)
         control.setEditable(pivotCtl, True)
 
         cogCtl = control.makeControl(namer.name('', r='ctl'),
-                                     shape='triangle',
+                                     shape='circle',
                                      color='green',
                                      xformType='transform',
-                                     s=[2,2,2])
+                                     s=[3,3,3])
         control.setEditable(cogCtl, True)
         MC.parent(cogCtl, cogLayoutCtl)
 
 
-        self.registerControl(bodyCtl, ctlType='rig')
-        self.registerControl(pivotCtl, ctlType='rig')
-        self.registerControl(cogCtl, ctlType='rig')
+        self.registerControl(bodyCtl, 'rig')
+        self.registerControl(pivotCtl, 'rig')
+        self.registerControl(cogCtl, 'rig')
 
 
     def _makeRig(self, namer):
         #set up the positions of the controls
         rigCtls = {}
-        for name in ['', 'body', 'body_pivot']:
+        for name in ['', 'prepivot', 'pivot']:
             ctl = namer(name, r='ctl')
             if not MC.objExists(ctl):
                 raise RuntimeError("cannot get control for '%s'" % ctl)
             rigCtls[name] = ctl
+            control.setLockTag(ctl, uk=['r', 't'])
 
         cogJnt = namer('', r='bnd')
         if not MC.objExists(cogJnt):
             raise RuntimeError("cannot get control for '%s'" % cogJnt)
         self.setNodeCateogry(cogJnt, 'parent')
 
-        MC.parent(rigCtls['body_pivot'], rigCtls['body'])
-        MC.parent(rigCtls[''], rigCtls['body_pivot'])
-        bodyZero = utils.insertNodeAbove(rigCtls['body'])
+        MC.parent(rigCtls['pivot'], rigCtls['prepivot'])
+        MC.parent(rigCtls[''], rigCtls['pivot'])
+        bodyZero = utils.insertNodeAbove(rigCtls['prepivot'])
         self.setNodeCateogry(bodyZero, 'parent')
 
 
@@ -1048,7 +1087,7 @@ class CenterOfGravity(Widget):
         pivInv = utils.insertNodeAbove(rigCtls[''], name=name)
         mdn = MC.createNode('multiplyDivide', n=namer.name(d='piv_inverse_mdn'))
         MC.setAttr('%s.input2' % mdn, -1,-1,-1, type='double3')
-        MC.connectAttr('%s.t' % rigCtls['body_pivot'], '%s.input1' % mdn)
+        MC.connectAttr('%s.t' % rigCtls['pivot'], '%s.input1' % mdn)
         MC.connectAttr('%s.output' % mdn, '%s.t' % pivInv)
 
         #constrain the cog jnt to the cog ctl
@@ -1058,8 +1097,8 @@ class CenterOfGravity(Widget):
         #assign the nodes:
 
         self.setPlugNode('cog_ctl', rigCtls[''])
-        self.setPlugNode('body_ctl', rigCtls['body'])
-        self.setPlugNode('pivot_ctl', rigCtls['body_pivot'])
+        self.setPlugNode('prepivot_ctl', rigCtls['prepivot'])
+        self.setPlugNode('pivot_ctl', rigCtls['pivot'])
         self.setPlugNode('cog_bnd', cogJnt)
 
         #tag controls

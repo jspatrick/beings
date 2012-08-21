@@ -127,7 +127,7 @@ class OptionCollection(Observable):
             for opt, val in tmp.iteritems():
                 if not self.__rules[opt]['hidden']:
                     result[opt] = val
-        return result
+        return sorted(result)
 
     def setAllOpts(self, optDct):
         for optName, optVal in optDct.items():

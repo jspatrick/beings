@@ -681,11 +681,12 @@ def bindNodesToSurface(nodes, surface, skipTipOrient=False):
         #utils.fixJointConstraints(nodes[i])
 
 
-class HeadNeck(core.Widget):
+class Spine(core.Widget):
     def __init__(self):
         super(HeadNeck, self).__init__('neck')
-        self.options.addOpt('numNeckBones', 2, min=1, optType=int)
-        self.options.addOpt('numIkCtls', 2, min=1, optType=int)
+        
+        self.options.addOpt('numBones', 6, min=1, optType=int)
+        self.options.addOpt('numIkCtls', 4, min=2, optType=int)
         self.options.subscribe('optChanged', self.__optionChanged)
         self.__setPlugs()
 
@@ -703,8 +704,6 @@ class HeadNeck(core.Widget):
 
 
     def __optionChanged(self, event):
-        if event.optName != 'numNeckBones':
-            return
         self.__setPlugs()
 
 

@@ -130,35 +130,6 @@ class FkChain(core.Widget):
                 MC.setAttr('%s.%s' % (par, attr) , l=1)
 
 
-    def _preMirror(self, thisCtl, otherCtl, thisNamer, otherNamer):
-        """do ik control mirroring"""
-        direct = ['tx', 'ty', 'sx', 'sy', 'sz', 'rz']
-        inverted = ['tz', 'ry', 'rx']
-
-        if thisCtl == thisNamer('ctl_editor', r='ik'):
-
-            for attr in direct:
-
-                MC.connectAttr('%s.%s' % (thisCtl, attr),
-                               '%s.%s' % (otherCtl, attr))
-
-            for attr in inverted:
-                fromAttr = '%s.%s' % (thisCtl, attr)
-                toAttr = '%s.%s' % (otherCtl, attr)
-                mdn = MC.createNode('multiplyDivide',
-                                    n=thisNamer.name(d='%s%sTo%s%s' % (thisCtl,attr,otherCtl,attr)))
-
-                MC.setAttr('%s.input2X' % mdn, -1)
-                MC.setAttr('%s.operation' % mdn, 1)
-
-                MC.connectAttr(fromAttr, '%s.input1X' % mdn)
-                MC.connectAttr('%s.outputX' % mdn, toAttr)
-
-            return True
-
-
-        return False
-
     def _makeRig(self, namer):
         jntCnt =  self.options.getValue('numBones') + 1
         toks = ascii_lowercase[:jntCnt]

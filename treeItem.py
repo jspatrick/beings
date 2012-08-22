@@ -24,7 +24,7 @@ class TreeItem(Observable):
         result = []
         for child in self.__children:
             if recursive:
-                result.extend(child.children())
+                result.extend(child.children(recursive=True))
             result.append(child)
         return result
 

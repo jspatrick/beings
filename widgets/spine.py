@@ -398,6 +398,12 @@ def setupIkSplineJnts(jntList, crv, surf, ikNode,
     jntNames = ['%s_jnt_%s' % (nodeName,ascii_lowercase[i]) for i in range(len(jntList))]
     splineJnts = utils.dupJntList(jntList, jntNames, namer)
 
+    #locking these joints prevents the ik system from setting their values - so unlock but make
+    #unkeyable
+    for jnt in splineJnts:
+        control.setLockTag(jnt, uu=['t', 'r', 's'])
+
+        
     handle, ee = MC.ikHandle(solver='ikSplineSolver',
                              sj=splinePosJnts[0], ee=splinePosJnts[-1], curve=crv,
                              simplifyCurve=False, parentCurve=False, createCurve=False)
@@ -739,7 +745,7 @@ class Spine(core.Widget):
 
         ctlKwargs = {'shape': 'sphere',
                      'color': 'purple',
-                     's': [1.5, .5, 1.5]}
+                     's': [7.5, 2, 7.5]}
 
         doubleEndPoints=False
         if numIkCtls == 2:
@@ -747,7 +753,8 @@ class Spine(core.Widget):
 
         nurbsObjs = createBeingsSplineObjs(numIkCtls, numJnts, namer=namer,
                                            ctlKwargs = ctlKwargs,
-                                           doubleEndPoints=doubleEndPoints)
+                                           doubleEndPoints=doubleEndPoints,
+                                           ctlSep=5)
 
         jntToks = self.__getToks(bndJnts=True)
 
@@ -782,7 +789,7 @@ class Spine(core.Widget):
 
             kwargs = {'color': 'yellow',
                       'shape': 'circle',
-                      's': [2, 2, 2]}
+                      's': [6, 6, 6]}
 
             n = namer(ikToks[i], r='ik')
 
@@ -797,7 +804,7 @@ class Spine(core.Widget):
         for i, tok in enumerate(jntToks[1:]):
             kwargs = {'color':'green',
                       'shape':'cube',
-                      's': [2,2,2]}
+                      's': [5,2,5]}
 
             rigCtl = control.makeControl(namer(tok, r='fk'), **kwargs)
             utils.snap(jnts[i+1], rigCtl)
@@ -810,8 +817,8 @@ class Spine(core.Widget):
         #make a tip joint control
         tipCtl = control.makeControl(namer('tip_layout'),
                                      shape='cube',
-                                     s=[.75, .75, .75],
-                                     color='purple')
+                                     s=[2, 2, 2],
+                                     color='blue')
         utils.snap(tip, tipCtl)
         MC.parent(tipCtl, nurbsObjs['ikCtls'][-1])
         self.registerControl(tipCtl, 'layout', uk=['ty', 'tz'])

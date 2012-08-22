@@ -37,7 +37,7 @@ class Arm(core.Widget):
             jnts[tok] = MC.joint(p=positions[i], n = namer.name(r='bnd', d=tok))
             self.registerBindJoint(jnts[tok])
             layoutCtls[tok] = control.makeControl(namer.name(d='%s_layout' % tok, r='ctl'),
-                                               shape='sphere')
+                                               shape='sphere', color='purple')
 
             self.registerControl(layoutCtls[tok], 'layout', uk=['t', 'r'])
             utils.snap(jnts[tok], layoutCtls[tok], orient=False)
@@ -85,7 +85,7 @@ class Arm(core.Widget):
         handUpCtl = control.makeControl(namer('hand_up', r='ctl'),
                                                     shape='cube',
                                                     s=[.75, .75, .75],
-                                                    color='green')
+                                                    color='blue')
         self.registerControl(handUpCtl, 'layout', uk=['t', 'r'])
         MC.parent(handUpCtl, layoutCtls['hand'])
         MC.makeIdentity(handUpCtl, t=1, r=1, s=1)

@@ -36,7 +36,6 @@ class FkChain(core.Widget):
         for plug in toAdd:
             self.addPlug(plug)
 
-
     def __optionChanged(self, event):
         if event.optName != 'numBones':
             return
@@ -144,7 +143,7 @@ class FkChain(core.Widget):
         if side == 'rt':
             o.setAxis('aim', 'negY')
             o.reorientJoints(bndJnts)
-        return
+        
 
         fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, toks[:-1], namer)
 

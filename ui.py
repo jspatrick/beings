@@ -1,12 +1,17 @@
+import logging, sys, os, json
+from functools import partial
+_logger = logging.getLogger(__name__)
+
+__rootLevel = logging.getLogger().level
+
 from PyQt4.QtCore import *
 from PyQt4.QtGui import *
 from PyQt4 import uic
 import core
 import utils
 import options
-import logging, sys, os, json
-from functools import partial
-_logger = logging.getLogger(__name__)
+#seems like importing pyqt changes root logger level to 0
+logging.getLogger().setLevel(__rootLevel)
 
 core._importAllWidgets(reloadThem=True)
 
@@ -271,7 +276,7 @@ class RigWidget(QWidget):
         if filePath:
             data = core.getSaveData(self.rigView.model().root)
             with open(filePath, 'w') as f:
-                json.dump(data, f)
+                json.dump(data, f, indent=2, sort_keys=True)
         self.__fileName = str(filePath)
         _logger.info("Saved rig as %s" % filePath)
 
@@ -293,7 +298,7 @@ class RigWidget(QWidget):
     def on_buildRigBtn_released(self):
         self.rigView.model().root.buildRig()
         self.rigView.model().root.lockNodes()
-        
+
     @pyqtSlot()
     @PopupError()
     def on_deleteRigBtn_released(self):

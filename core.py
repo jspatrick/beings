@@ -422,11 +422,13 @@ class Widget(treeItem.PluggedTreeItem):
 
         if ctlType not in ['rig', 'layout']:
             raise RuntimeError("Invalid ctl type '%s'" % ctlType)
-
+        if not control.isControl(ctl):
+            raise RuntimeError("%s is not a control" % ctl)
         locks = {}
         locks['uk'] = uk or []
         locks['uu'] = uu or []
         locks['lk'] = lk or []
+
 
         editor = control.getEditor(ctl)
         if editor:
@@ -675,7 +677,9 @@ class Widget(treeItem.PluggedTreeItem):
             for nodeName, info in diffDct.items():
                 if not MC.objExists(nodeName):
                     _logger.warning("skipping non-existant '%s'" % nodeName)
-                control.makeStorableXform(nodeName, **info)
+                    continue
+                else:
+                    control.makeStorableXform(nodeName, **info)
 
     def setNodeCateogry(self, node, category):
         '''
@@ -765,7 +769,7 @@ class Widget(treeItem.PluggedTreeItem):
         nodes = [x for x in self.getNodes() if MC.objectType(x, isAType='dagNode')]
         for node in nodes:
             control.setLocks(node)
-            
+
         if recursive:
             for child in self.children():
                 child.lockNodes(recursive=recursive)
@@ -957,7 +961,7 @@ class Root(Widget):
         masterLayoutCtl = control.makeControl(namer.name(d='layout', r='ctl'),
                                               shape='circle',
                                               color='purple',
-                                              s=[4.5, 4.5, 4.5],
+                                              s=[12, 12, 12],
                                               xformType='transform')
         self.registerControl(masterLayoutCtl, 'layout', uk=['rx', 'ry', 'rz', 'tx', 'ty', 'tz'])
 
@@ -966,7 +970,7 @@ class Root(Widget):
                                         shape='circle',
                                         color='lite blue',
                                         xformType='transform',
-                                        s=[4,4,4])
+                                        s=[10,10,10])
 
 
         MC.parent(masterCtl, masterLayoutCtl)
@@ -1037,7 +1041,7 @@ class CenterOfGravity(Widget):
         cogLayoutCtl = control.makeControl(namer.name(d='layout', r='ctl'),
                                            shape='circle',
                                            color='purple',
-                                           s=[4, 4, 4],
+                                           s=[11, 11, 11],
                                            xformType='transform')
         MC.setAttr('%s.ty' % cogLayoutCtl, 5)
         self.registerControl(cogLayoutCtl, 'layout', uk=['t', 'r'])
@@ -1054,7 +1058,7 @@ class CenterOfGravity(Widget):
                                       shape='circle',
                                       color='green',
                                       xformType='transform',
-                                      s=[3.5, 3.5, 3.5])
+                                      s=[10, 10, 10])
         MC.parent(bodyCtl, cogLayoutCtl)
         control.setEditable(bodyCtl, True)
 
@@ -1062,7 +1066,7 @@ class CenterOfGravity(Widget):
                                        shape='flower',
                                        color='salmon',
                                        xformType='transform',
-                                       s=[2,2,2])
+                                       s=[7,7,7])
         MC.parent(pivotCtl, cogLayoutCtl)
         control.setEditable(pivotCtl, True)
 
@@ -1070,7 +1074,7 @@ class CenterOfGravity(Widget):
                                      shape='circle',
                                      color='green',
                                      xformType='transform',
-                                     s=[3,3,3])
+                                     s=[9,9,9])
         control.setEditable(cogCtl, True)
         MC.parent(cogCtl, cogLayoutCtl)
 
@@ -1228,6 +1232,8 @@ class RigModel(QtCore.QAbstractItemModel):
         if mimedata.hasFormat('application/x-widgetlist'):
             for widget in self._mimeDataWidgets:
                 if widget.parent() is newParent:
+                    continue
+                if widget is newParent:
                     continue
 
                 widget.parent().rmChild(widget)

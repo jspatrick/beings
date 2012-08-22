@@ -74,13 +74,13 @@ class HeadNeck(core.Widget):
 
         ctlKwargs = {'shape': 'sphere',
                      'color': 'purple',
-                     's': [1.5, .5, 1.5]}
+                     's': [6.5, 1.5, 6.5]}
         doubleEndPoints=False
         if numIkCtls == 2:
             doubleEndPoints=True
         nurbsObjs = createBeingsSplineObjs(numIkCtls, numJnts, namer=namer,
                                            ctlKwargs = ctlKwargs,
-                                           doubleEndPoints=doubleEndPoints)
+                                           doubleEndPoints=doubleEndPoints, ctlSep=4)
         del ctlKwargs
 
         #rename & regiser joints and add a 'tip' joint
@@ -92,7 +92,7 @@ class HeadNeck(core.Widget):
             self.registerBindJoint(jnt)
 
         tipXform = MC.xform(jnts[-1], q=1, t=1, ws=1)
-        tipXform[1] = tipXform[1] + 2
+        tipXform[1] = tipXform[1] + 10
         MC.select(jnts[-1])
         tip = MC.joint(p=tipXform,
                  n=namer(toks[-1], r='bnd'))
@@ -105,22 +105,30 @@ class HeadNeck(core.Widget):
 
         ikRigCtls = []
         for i, ctl in enumerate(nurbsObjs['ikCtls']):
-            self.registerControl(ctl, 'layout')
+            self.registerControl(ctl, 'layout', uk=['ty', 'tz'])
             if i > 0:
                 kwargs = {'color': 'yellow',
-                          'shape': 'sphere'}
+                          'shape': 'sphere',
+                          's': [2,2,2]}
                 if i < (numIkCtls-1):
                     n = namer('ctl', r='ik', alphaSuf=i-1)
                 else:
                     n = namer('head_ctl', r='ik')
+                    kwargs['s'] = [4,1,4]
+
                 rigCtl = control.makeControl(n, **kwargs)
+
+                if i == (numIkCtls-1):
+                    control.centeredCtl(jnts[-2], jnts[-1], rigCtl)
+
                 MC.parent(rigCtl, ctl)
                 MC.makeIdentity(rigCtl, t=1, r=1, s=1)
                 control.setEditable(rigCtl, True)
+
                 self.registerControl(rigCtl, 'rig')
                 ikRigCtls.append(rigCtl)
 
-        control.centeredCtl(jnts[-2], jnts[-1], ikRigCtls[-1])
+
 
         rigCtls = []
         for i, tok in enumerate(toks):
@@ -128,7 +136,7 @@ class HeadNeck(core.Widget):
             if tok != 'head_tip':
                 kwargs = {'color':'green',
                           'shape':'cube',
-                          's': [2,2,2]}
+                          's': [5,1,5]}
 
                 rigCtl = control.makeControl(namer(tok, r='fk'), **kwargs)
                 self.registerControl(rigCtl, 'rig')
@@ -136,13 +144,13 @@ class HeadNeck(core.Widget):
                 utils.snap(jnts[i], rigCtl)
                 MC.parent(rigCtl, jnts[i])
 
-                control.centeredCtl(jnts[i], jnts[i+1], rigCtl)
+                #control.centeredCtl(jnts[i], jnts[i+1], rigCtl)
                 control.setEditable(rigCtl, True)
 
         #make a tip joint control
         tipCtl = control.makeControl(namer('tip_layout'),
                                      shape='cube',
-                                     s=[.35, .35, .35],
+                                     s=[1,1,1],
                                      color='blue')
         utils.snap(jnts[-1], tipCtl)
         MC.parent(tipCtl, nurbsObjs['ikCtls'][-1])
@@ -156,65 +164,13 @@ class HeadNeck(core.Widget):
 
         return
 
-        for i, tok in enumerate(self.__getToks()):
-            ctlKwargs = {'color': 'yellow',
-                         'shape': 'sphere',
-                         's': [.5, .5, .5]}
-
-            if tok == 'head_tip':
-                ctlKwargs['shape'] = 'cube'
-                ctlKwargs['s'] = [.35, .35, .35]
-                ctlKwargs['color'] = 'blue'
-
-                jnt = MC.joint(p=[0,i*2+2, 0], n=namer(tok, r='bnd'))
-            else:
-                jnt = MC.joint(p=[0,i*2, 0], n=namer(tok, r='bnd'))
-
-            if tok == 'head':
-                ctlKwargs['shape'] = 'cube'
-                ctlKwargs['s'] = [.75, .75, .75]
-
-            self.registerBindJoint(jnt)
-            jnts.append(jnt)
-
-            layoutCtl = control.makeControl(namer('layout_%s' % tok, r='fk'),
-                                            **ctlKwargs)
-
-            self.registerControl(layoutCtl, 'layout')
-            layoutCtls.append(layoutCtl)
-            utils.snap(jnt, layoutCtl)
-
-
-            if tok != 'head_tip':
-                kwargs = {'color':'green',
-                          'shape':'circle'}
-
-                if tok == 'head':
-                    kwargs['shape'] = 'sphere'
-
-                rigCtl = control.makeControl(namer(tok, r='fk'), **kwargs)
-                self.registerControl(rigCtl, 'rig')
-                rigCtls.append(rigCtl)
-                utils.snap(jnt, rigCtl)
-                MC.parent(rigCtl, jnt)
-
-
-            if tok != 'head_tip':
-                MC.setAttr("%s.tx" % layoutCtl, l=1)
-
-            MC.select(jnt)
-
-
-
-        MC.parent(layoutCtls[-1], layoutCtls[-2])
-        return
-
     def _makeRig(self, namer):
 
         neckJntCnt =  self.options.getValue('numNeckBones') + 1
         ikCtlCnt =  self.options.getValue('numIkCtls')
         toks = self.__getToks()
         bndJnts = [namer(t, r='bnd') for t in toks]
+    
 
         MC.makeIdentity(bndJnts, apply=True, r=1, t=1, s=1)
 
@@ -223,6 +179,8 @@ class HeadNeck(core.Widget):
 
         fkCtls = [namer(t, r='fk') for t in toks[:-1]]
         fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, toks[:-1], namer)
+        for ctl in fkCtls:
+            control.setLockTag(ctl, uk=['r'])
 
         for i, tok in enumerate(toks[:-1]):
             self.setPlugNode(tok, fkCtls[i])
@@ -244,6 +202,9 @@ class HeadNeck(core.Widget):
         baseIkCtl = MC.createNode('transform', n=namer('base', r='ik'))
         utils.snap(bndJnts[0], baseIkCtl, orient=False)
         ikCtls.insert(0, baseIkCtl)
+
+        for ctl in ikCtls:
+            control.setLockTag(ctl, uk=['r', 't'])
 
         tmp = MC.createNode('transform', n="TMP")
         utils.parentShape(tmp, ikCtls[-1], deleteChildXform=False)
@@ -273,6 +234,8 @@ class HeadNeck(core.Widget):
         MC.addAttr(ikCtls[-1], ln='fkIk', dv=0, k=1, min=0, max=1)
         MC.addAttr(ikCtls[-1], ln='stretchAmt', dv=0, k=1, min=0, max=1)
         MC.addAttr(ikCtls[-1], ln='evenStretchAmt', dv=0, k=1, min=0, max=1)
+
+        control.setLockTag(ikCtls[-1], uk=['fkIk', 'stretchAmt', 'evenStretchAmt'])
 
         MC.connectAttr('%s.stretchAmt' % ikCtls[-1], '%s.stretchAmt' % ikNode)
         MC.connectAttr('%s.evenStretchAmt' % ikCtls[-1], '%s.evenStretchAmt' % ikNode)

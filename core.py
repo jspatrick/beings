@@ -424,19 +424,22 @@ class Widget(treeItem.PluggedTreeItem):
             raise RuntimeError("Invalid ctl type '%s'" % ctlType)
         if not control.isControl(ctl):
             raise RuntimeError("%s is not a control" % ctl)
+
         locks = {}
         locks['uk'] = uk or []
         locks['uu'] = uu or []
         locks['lk'] = lk or []
 
 
-        editor = control.getEditor(ctl)
-        if editor:
-            locks['uk'] = list(set(locks['uk']).union(['t', 'r', 's']))
-            control.setLockTag(editor, **locks)
-            #locks['uk'] =
-        else:
-            control.setLockTag(ctl, **locks)
+
+        if ctlType == 'rig':
+            editor = control.getEditor(ctl)
+            if not editor:
+                control.setEditable(ctl, True)
+                editor = control.getEditor(ctl)
+            control.setLockTag(editor, uk=['t', 'r', 's'])
+            
+        control.setLockTag(ctl, **locks)
 
         ctl = str(ctl)
         if not control.isStorableXform(ctl):
@@ -499,6 +502,7 @@ class Widget(treeItem.PluggedTreeItem):
         for jnt in self._joints:
             MC.setAttr('%s.overrideEnabled' % jnt, 1)
             MC.setAttr('%s.overrideDisplayType' % jnt, 2)
+
 
         if altDiffs is not None:
             self.applyDiffs(altDiffs)
@@ -768,6 +772,14 @@ class Widget(treeItem.PluggedTreeItem):
     def lockNodes(self, recursive=True):
         nodes = [x for x in self.getNodes() if MC.objectType(x, isAType='dagNode')]
         for node in nodes:
+            if MC.objectType(node, isAType='joint'):
+                #use normal node locking for controls, but for other joints
+                #this can interfere with ik
+                if not control.isControl(node):
+                    MC.setAttr('%s.overrideEnabled' % node, 1)
+                    MC.setAttr('%s.overrideEnabled' % node, 1)
+                    MC.setAttr('%s.overrideDisplayType' % node, 2)
+
             control.setLocks(node)
 
         if recursive:
@@ -1349,6 +1361,23 @@ def getSaveData(widget):
     return result
 
 
+def loadJsonData(f):
+    """
+    Convert strings to unicode
+    @param f: file object
+    @return: the json data
+    """
+    def hook(dct):
+        if not isinstance(dct, dict):
+            return dct
+        r = {}
+        for k, v in dct.iteritems():
+            r[str(k)] = v
+        return r
+
+    return json.load(f, object_hook=hook)
+
+
 def buildRig(fromPath=None, skipBuild=False):
     _importAllWidgets(reloadThem=True)
     if fromPath:
@@ -1356,12 +1385,14 @@ def buildRig(fromPath=None, skipBuild=False):
             raise RuntimeError("%s does not exist" % fromPath)
 
         with open(fromPath) as f:
-            data = json.load(f)
+            data = loadJsonData(f)
         rig  = rigFromData(data)
         if not skipBuild:
             rig.buildRig()
 
     return rig
+
+
 
 def rigFromData(data):
     '''

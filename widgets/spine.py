@@ -392,18 +392,19 @@ def setupIkSplineJnts(jntList, crv, surf, ikNode,
     jntNames = ['%s_pos_jnt_%s' % (nodeName, ascii_lowercase[i]) for i in range(len(jntList))]
     splinePosJnts = utils.dupJntList(jntList, jntNames, namer)
     for jnt in splinePosJnts:
-        control.setLockTag(jnt, uu=['t', 'r'])
+        control.setLockTag(jnt, uu=['t', 'r', 's'])
 
     #these are the actual joints that will be oriented and positioned correctly
     jntNames = ['%s_jnt_%s' % (nodeName,ascii_lowercase[i]) for i in range(len(jntList))]
     splineJnts = utils.dupJntList(jntList, jntNames, namer)
-
+    for jnt in splineJnts:
+        control.setLockTag(jnt, uu=['t', 'r', 's'])
     #locking these joints prevents the ik system from setting their values - so unlock but make
     #unkeyable
     for jnt in splineJnts:
         control.setLockTag(jnt, uu=['t', 'r', 's'])
 
-        
+
     handle, ee = MC.ikHandle(solver='ikSplineSolver',
                              sj=splinePosJnts[0], ee=splinePosJnts[-1], curve=crv,
                              simplifyCurve=False, parentCurve=False, createCurve=False)

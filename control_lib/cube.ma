@@ -1,6 +1,6 @@
 //Maya ASCII 2012 scene
 //Name: cube.ma
-//Last modified: Mon, Aug 20, 2012 09:15:49 PM
+//Last modified: Tue, Aug 21, 2012 07:05:36 PM
 //Codeset: UTF-8
 requires maya "2012";
 requires "stereoCamera" "10.0";
@@ -13,12 +13,12 @@ fileInfo "osv" "Mac OS X 10.7.4";
 fileInfo "license" "student";
 createNode transform -s -n "persp";
 	setAttr ".v" no;
-	setAttr ".t" -type "double3" 28 21 28 ;
-	setAttr ".r" -type "double3" -27.938352729602379 44.999999999999972 -5.172681101354183e-14 ;
+	setAttr ".t" -type "double3" 11.762376643437001 18.615780104377443 10.665471853673624 ;
+	setAttr ".r" -type "double3" -49.538352729602543 47.800000000000189 4.7349370140181744e-15 ;
 createNode camera -s -n "perspShape" -p "persp";
 	setAttr -k off ".v" no;
 	setAttr ".fl" 34.999999999999986;
-	setAttr ".coi" 44.82186966202994;
+	setAttr ".coi" 24.467387744875818;
 	setAttr ".imn" -type "string" "persp";
 	setAttr ".den" -type "string" "persp_depth";
 	setAttr ".man" -type "string" "persp_mask";
@@ -71,22 +71,22 @@ createNode nurbsCurve -n "curveShape1" -p "curve1";
 		1 15 0 no 3
 		16 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
 		16
-		-0.5 0.5 0.5
-		0.5 0.5 0.5
-		0.5 0.5 -0.5
-		-0.5 0.5 -0.5
-		-0.5 0.5 0.5
-		-0.5 -0.5 0.5
-		-0.5 -0.5 -0.5
-		0.5 -0.5 -0.5
-		0.5 -0.5 0.5
-		-0.5 -0.5 0.5
-		0.5 -0.5 0.5
-		0.5 0.5 0.5
-		0.5 0.5 -0.5
-		0.5 -0.5 -0.5
-		-0.5 -0.5 -0.5
-		-0.5 0.5 -0.5
+		-1 1 1
+		1 1 1
+		1 1 -1
+		-1 1 -1
+		-1 1 1
+		-1 -1 1
+		-1 -1 -1
+		1 -1 -1
+		1 -1 1
+		-1 -1 1
+		1 -1 1
+		1 1 1
+		1 1 -1
+		1 -1 -1
+		-1 -1 -1
+		-1 1 -1
 		;
 createNode lightLinker -s -n "lightLinker1";
 	setAttr -s 2 ".lnk";
@@ -182,6 +182,8 @@ select -ne :hardwareRenderGlobals;
 select -ne :defaultHardwareRenderGlobals;
 	setAttr ".fn" -type "string" "im";
 	setAttr ".res" -type "string" "ntsc_4d 646 485 1.333";
+select -ne :ikSystem;
+	setAttr -s 4 ".sol";
 relationship "link" ":lightLinker1" ":initialShadingGroup.message" ":defaultLightSet.message";
 relationship "link" ":lightLinker1" ":initialParticleSE.message" ":defaultLightSet.message";
 relationship "shadowLink" ":lightLinker1" ":initialShadingGroup.message" ":defaultLightSet.message";

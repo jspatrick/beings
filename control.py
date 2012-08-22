@@ -36,7 +36,6 @@ reload(utils)
 import nodeTag
 
 _logger = logging.getLogger(__name__)
-_logger.setLevel(logging.DEBUG)
 
 _handleData = {'s': [1,1,1],
                'r': [0,0,0],
@@ -288,7 +287,7 @@ def setLocks(node):
     for lType, kwargs in d.items():
         for attr in lockData[lType]:
             for childAttr in _getLeafAttributes(node, attr):
-                
+
                 _logger.debug("setting %s: %s" % (lType, "%s.%s" % (node, childAttr)))
 
                 MC.setAttr('%s.%s' % (node, childAttr), **kwargs)
@@ -446,6 +445,12 @@ def setEditable(ctl, state):
     info  = getInfo(ctl)
     if state:
         editor = MC.createNode('transform', name='%s_editor' % ctl, parent=None)
+        
+        if nodeTag.hasTag(ctl, '%s_editor' % LOCKS_TAG_NAME):
+            tag = nodeTag.getTag(ctl, '%s_editor' % LOCKS_TAG_NAME)
+            nodeTag.rmTag(ctl, '%s_editor' % LOCKS_TAG_NAME)
+            nodeTag.setTag(editor, LOCKS_TAG_NAME, tag)
+
         MC.parent(editor, ctl)
         MC.setAttr('%s.t' % editor, *info['t'], type='double3')
         MC.setAttr('%s.r' % editor, *info['r'], type='double3')
@@ -454,6 +459,10 @@ def setEditable(ctl, state):
         utils.parentShape(editor, ctl, deleteChildXform=False)
 
     else:
+        if nodeTag.hasTag(editor, LOCKS_TAG_NAME):
+            editorLocks = nodeTag.getTag(editor, LOCKS_TAG_NAME)
+            nodeTag.setTag(ctl, '%s_editor' % LOCKS_TAG_NAME, editorLocks)
+
         setInfo(ctl, info)
         utils.parentShape(ctl, editor, deleteChildXform=True)
     return True
@@ -828,7 +837,7 @@ def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):
     #unit by default.
     scale = getInfo(ctl)['s']
     scale = scale[utils.indexFromVector(o.getAxis('aim'))]
-    scale = (1.0/scale)
+    scale = (1.0/(scale*2))
     MC.setAttr("%s.input2X" % mdn, scale)
 
     scaleAttr = 'scale%s' % o.getAxis('aim', asString=True)[3]

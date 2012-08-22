@@ -259,7 +259,7 @@ class RigWidget(QWidget):
 
         if fname:
             with open(fname) as f:
-                data = json.load(f)
+                data = core.loadJsonData(f)
             self.loadRig(data)
         self.__fileName = str(fname)
 
@@ -276,7 +276,7 @@ class RigWidget(QWidget):
         if filePath:
             data = core.getSaveData(self.rigView.model().root)
             with open(filePath, 'w') as f:
-                json.dump(data, f, indent=2, sort_keys=True)
+                json.dump(data, f, indent=2, sort_keys=True, ensure_ascii=True)
         self.__fileName = str(filePath)
         _logger.info("Saved rig as %s" % filePath)
 
@@ -292,7 +292,7 @@ class RigWidget(QWidget):
     def on_buildLayoutBtn_released(self):
         self.rigView.model().root.buildLayout()
         self.rigView.model().root.lockNodes()
-
+        
     @pyqtSlot()
     @PopupError()
     def on_buildRigBtn_released(self):

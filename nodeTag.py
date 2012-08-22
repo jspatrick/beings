@@ -44,6 +44,7 @@ def getTag(node, tagName, noError=False):
     tagAttr = getTagAttr(tagName)
 
     result = {}
+
     if MC.attributeQuery(tagAttr, n=node, ex=1):
         tagStr = MC.getAttr('%s.%s' % (node, tagAttr))
         result = eval(tagStr)
@@ -53,11 +54,16 @@ def getTag(node, tagName, noError=False):
 
     return result
 
+
+def rmTag(node, tagName):
+    node = str(node)
+    if MC.attributeQuery(tagName, node=node, ex=1):
+        MC.deleteAttr('%s.%s' % node, tagName)
+
+
 def getNodesWithTag(tagname, inNodeList=None):
     tagAttr = getTagAttr(tagname)
     nodes = MC.ls('*.%s' % tagAttr, o=1) or []
     if inNodeList is not None:
         nodes = list(set(nodes).intersection(inNodeList))
     return nodes
-
-

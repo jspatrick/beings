@@ -217,7 +217,7 @@ class Widget(treeItem.PluggedTreeItem):
     '''
 
     BUILD_TYPES = ['layout', 'rig']
-    VALID_NODE_CATEGORIES = ['dnt', 'cog ', 'parent', 'ik']
+    VALID_NODE_CATEGORIES = ['dnt', 'cog', 'parent', 'ik']
     def __init__(self, part='widget', plugs=None):
         super(Widget, self).__init__(plugs=plugs)
 

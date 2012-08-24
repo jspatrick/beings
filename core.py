@@ -438,7 +438,7 @@ class Widget(treeItem.PluggedTreeItem):
                 control.setEditable(ctl, True)
                 editor = control.getEditor(ctl)
             control.setLockTag(editor, uk=['t', 'r', 's'])
-            
+
         control.setLockTag(ctl, **locks)
 
         ctl = str(ctl)
@@ -510,6 +510,7 @@ class Widget(treeItem.PluggedTreeItem):
         elif useCachedDiffs and self._cachedDiffs:
             self.applyDiffs(self.getDiffs(cached=True))
 
+
         #build all children
         if children:
             for child in self.children():
@@ -528,6 +529,7 @@ class Widget(treeItem.PluggedTreeItem):
 
         #notify relatives build finished
         self.__notifyBuildComplete('layout')
+
 
         return result
 
@@ -685,6 +687,10 @@ class Widget(treeItem.PluggedTreeItem):
                 else:
                     control.makeStorableXform(nodeName, **info)
 
+            #diffs might be applied on top of constraints, etc - mark
+            #all nodes to dirty so everything is pulled
+            MC.dgdirty(self.getNodes())
+            
     def setNodeCateogry(self, node, category):
         '''
         Add a node to a category.  This is used by the parenting
@@ -779,6 +785,8 @@ class Widget(treeItem.PluggedTreeItem):
                     MC.setAttr('%s.overrideEnabled' % node, 1)
                     MC.setAttr('%s.overrideEnabled' % node, 1)
                     MC.setAttr('%s.overrideDisplayType' % node, 2)
+
+                    continue
 
             control.setLocks(node)
 

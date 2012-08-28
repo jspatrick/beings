@@ -128,7 +128,7 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
-    
+
 def _addControlToDisplayLayer(ctl, layer):
     if layer not in ['layout', 'rig']:
         raise RuntimeError("invalid layer")
@@ -273,10 +273,13 @@ class Widget(treeItem.PluggedTreeItem):
         parent = self.parent()
         if parent:
             if hasattr(parent, 'childCompletedBuild'):
+                _logger.debug("notifying %s that child %s finished %s" % (parent.name(), self.name(), buildType))
                 parent.childCompletedBuild(self, buildType)
+
         for child in self.children():
             if hasattr(child, 'parentCompletedBuild'):
                 child.parentCompletedBuild(self, buildType)
+                _logger.debug("notifying %s that parent %s finished %s" % (child.name(), self.name(), buildType))
 
 
     def childCompletedBuild(self, child, buildType):
@@ -289,7 +292,7 @@ class Widget(treeItem.PluggedTreeItem):
             for node in child.getNodes('parent'):
                 MC.parent(node, parentNode)
                 utils.fixInverseScale([node])
-                
+
     def parentCompletedBuild(self, parent, buildType):
         if buildType == 'layout':
             if self._mirroring == 'source':
@@ -319,8 +322,7 @@ class Widget(treeItem.PluggedTreeItem):
             if category is not None:
                 if category not in self._nodeCategories.keys():
                     raise utils.BeingsError("Invalid category %s" % category)
-                #return a copy of the list
-                print self._nodeCategories[category]
+
                 nodes = [n for n in self._nodeCategories[category] if MC.objExists(n)]
                 self._nodeCategories[category] = copy.copy(nodes) # set it to the existing objs
 
@@ -489,6 +491,7 @@ class Widget(treeItem.PluggedTreeItem):
         """
         Delete nodes
         """
+        _logger.info("deleting %s" % self.name())
         if deleteChildren:
             for child in self.children(recursive=True):
                 child.delete(cache=cache)
@@ -512,6 +515,7 @@ class Widget(treeItem.PluggedTreeItem):
             for node in self.getNodes():
                 if MC.objExists(node):
                     MC.delete(node)
+
         self._joints = set()
         self._controls = set()
         self._nodes = []
@@ -675,6 +679,12 @@ class Widget(treeItem.PluggedTreeItem):
             self.buildLayout()
             self.delete()
 
+        for child in self.children(recursive=True):
+            if child.state() == 'rigBuilt' or child.state() == 'layoutBuilt':
+                child.delete()
+            if not child._cachedDiffs:
+                child.buildLayout()
+                child.delete()
 
         #this seems to be a bug - if refresh isn't called, there is some odd behavior when things
         #are dupicated
@@ -790,8 +800,6 @@ class Widget(treeItem.PluggedTreeItem):
         '''
         diffs = self.getDiffs(generic=True)
         otherDiffs = other.getDiffs(generic=True)
-        print diffs
-        print otherDiffs
         direct = ['tz', 'ty', 'rx', 'sx', 'sy', 'sz']
         inverted = ['tx', 'ry', 'rz']
         namer = Namer(self.options.getValue('char'),
@@ -911,10 +919,19 @@ class Root(Widget):
 
                     dntNodes = child.getNodes('dnt')
                     if dntNodes:
-                        MC.parent(dntNodes, self._otherNodes['dnt'])
+                        for dntNode in dntNodes:
+                            rels = MC.listRelatives(dntNode)
+                            MC.refresh()
+                            MC.parent(dntNode, self._otherNodes['dnt'])
+                            newRels = MC.listRelatives(dntNode)
+                            diff = set(newRels).difference(rels)
+                            if diff:
+                                raise RuntimeError("nodes went missing: %s" % str(diff))
+
                     ikNodes = child.getNodes('ik')
                     for node in ikNodes:
                         if child.nodeStatus(node) != 'handled':
+                            MC.refresh()
                             MC.parent(node, self.plugNode('master'))
         MC.refresh()
         super(Root, self).childCompletedBuild(child, buildType)

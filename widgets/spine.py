@@ -155,7 +155,6 @@ def closestPointOnNurbsObj(xformNode, nurbsObj, worldSpace=False):
 def closestParamOnCurve(node, crv):
     """Get the closest parameter on the curve to the node"""
     pnt = closestPointOnNurbsObj(node, crv)
-    print
     crv = getShape(crv)
     crvFn = OM.MFnNurbsCurve(strToDagPath(crv))
     su = OM.MScriptUtil()
@@ -296,7 +295,6 @@ def bindControlsToShape(ctls, shape, doubleEndPoints=False):
         else:
             cmpts = '%s.cv[%i]%s' % (shape, i, suff)
 
-        print cmpts
         cls, handle = MC.cluster(cmpts)
         handleShape  = MC.listRelatives(handle)[0]
 
@@ -356,7 +354,7 @@ def createBeingsSplineObjs(numIkCtls, numBndJnts, ctlSep=2, namer=None, ctlKwarg
     result['ikCtls'] = ikCtls
 
 
-    utils.fixInverseScale(bndJnts)
+    #utils.fixInverseScale(bndJnts)
 
     result['jnts']  = bndJnts
 
@@ -410,9 +408,8 @@ def setupIkSplineJnts(jntList, crv, surf, ikNode,
                              simplifyCurve=False, parentCurve=False, createCurve=False,
         n=namer('_spline_ikh'))
 
-    MC.refresh()
     MC.parent(handle, ikNode)
-    MC.refresh()
+
     if not MC.objExists(handle):
         raise RuntimeError('%s deleted!' % handle)
     xforms = []
@@ -458,9 +455,8 @@ def setupIkSplineJnts(jntList, crv, surf, ikNode,
         utils.fixJointConstraints(splineJnts[-1])
 
     MC.setAttr("%s.v" % splinePosJnts[0], 0)
-    MC.setAttr("%s.v" % handle, 0)
 
-    return (splineJnts, splinePosJnts, ups)
+    return (splineJnts, splinePosJnts, ups, handle)
 
 
 def aimXforms(xforms, upXforms, posiNodes, ikNode):
@@ -613,7 +609,7 @@ def setupSpineIkNode(ctlList, jntList, surf=None, crv=None, nodeName='beings_spl
     MC.orientConstraint(ctlList[-1], stretchJnts[-1])
     utils.fixJointConstraints(stretchJnts[-1])
 
-    nsJnts, nsPosJnts, esUps = setupIkSplineJnts(jntList, crv, surf, ikNode,
+    nsJnts, nsPosJnts, esUps, ikHandle = setupIkSplineJnts(jntList, crv, surf, ikNode,
                          namer = namer,
                          nodeName='%s_ns' % nodeName,
                          tipCtl = ctlList[-1])
@@ -625,7 +621,7 @@ def setupSpineIkNode(ctlList, jntList, surf=None, crv=None, nodeName='beings_spl
     MC.setAttr("%s.v" % stretchJnts[0], 0)
 
 
-    return ikNode
+    return ikNode, ikHandle
 
 
 def bindNodesToSurface(nodes, surface, skipTipOrient=False):
@@ -884,8 +880,10 @@ class Spine(core.Widget):
         bindControlsToShape(ikCtls, crv,  doubleEndPoints=doubleEndPoints)
         bindControlsToShape(ikCtls, srf,  doubleEndPoints=doubleEndPoints)
 
-        ikNode = setupSpineIkNode(ikCtls, ikJnts, nodeName='splinik', namer=namer,
+        ikNode, ikHandle = setupSpineIkNode(ikCtls, ikJnts, nodeName='splinik', namer=namer,
                          crv=crv, surf=srf)
+
+        self._otherNodes['ikHandle'] = ikHandle
 
         self.setNodeCateogry(ikNode, 'dnt')
         MC.setAttr("%s.v" % ikNode, 0)
@@ -893,12 +891,13 @@ class Spine(core.Widget):
 
         #parent the fk control to the ik control
         MC.parent(fkCtls[0], ikCtls[0])
-        print fkCtls
-        utils.fixInverseScale(fkCtls[0])
+
+        utils.fixInverseScale(fkCtls)
 
         #constrain the pelvis jnt to the first ik control
-        MC.parentConstraint(ikCtls[0], bndJnts[0])
-        MC.scaleConstraint(ikCtls[0], bndJnts[0])
+        MC.parent(bndJnts[0], ikCtls[0])
+        # MC.parentConstraint(ikCtls[0], bndJnts[0])
+        # MC.scaleConstraint(ikCtls[0], bndJnts[0])
 
         #tag this node so the master connect the uniform scale
         core.Root.tagInputScaleAttr(ikNode, 'inputScaleAmt')
@@ -940,5 +939,13 @@ class Spine(core.Widget):
         for ctl in ikCtls[1:-1]:
             MC.connectAttr('%s.fkIk' % (ikCtls[-1]), '%s.v' % ctl)
 
+        if not MC.objExists(self._otherNodes['ikHandle']):
+            raise RuntimeError("%s doesn't exist" % self._otherNodes['ikHandle'])
+
+    def parentCompletedBuild(self, parent, buildType):
+        super(Spine, self).parentCompletedBuild(parent, buildType)
+        if buildType == 'rig':
+            if not MC.objExists(self._otherNodes['ikHandle']):
+                _logger.warning("%s doesn't exist" % self._otherNodes['ikHandle'])
 
 core.WidgetRegistry().register(Spine, "Spine", "An Ik/Fk spine")

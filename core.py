@@ -128,62 +128,7 @@ class BuildCheck(object):
         new.__dict__.update(method.__dict__)
         return new
 
-
-
-def duplicateBindJoints(jointList, namer, resolution='bnd'):
-    """
-    Depreciated
-
-    Duplicate the bind joints.  Give a new prefix
-    @param jointDict: a dict of {'jointToken', jointName}
-    @param namer: a namer object used to name the new joints
-    """
-    #check that all parents are also joints in the dict
-    reverseJointDict = {}
-    for k, v in jointDict.items():
-        reverseJointDict[v] = k
-
-    parentJnts = {} # map of joint tokens to parent joint tokens
-    for jnt in jointList:
-        par = MC.listRelatives(jnt, parent=1)
-        par = par[0] if par else None
-        if par in jointList:
-            parentJnts[jnt] = par
-
-    #store so we can reset it
-    origResTok = namer.getToken('r')
-    namer.setTokens(r=resolution)
-
-    result = {}
-    for tok, jnt in jointDict.items():
-        MC.select(cl=1)
-        result[tok] = MC.duplicate(jnt, po=1, n=namer(tok))[0]
-        if MC.listRelatives(result[tok], parent=1):
-            MC.parent(result[tok], world=True)
-
-        MC.makeIdentity(result[tok], r=1, t=0, s=0, n=0, apply=True)
-
-    #do parenting
-    for key, parentKey in parentToks.items():
-        if not parentKey:
-            continue
-        parent = namer(parentKey)
-        MC.parent(result[key], parent)
-
-    #freeze joints
-    newJnts = result.values()
-    for jnt in newJnts:
-        MC.makeIdentity(jnt, apply=1, t=1, r=1, s=1, n=1)
-
-    utils.fixInverseScale(newJnts)
-
-    #reset tokens
-    namer.setTokens(r=origResTok)
-
-    return result
-
-
-
+    
 def _addControlToDisplayLayer(ctl, layer):
     if layer not in ['layout', 'rig']:
         raise RuntimeError("invalid layer")
@@ -342,9 +287,9 @@ class Widget(treeItem.PluggedTreeItem):
             parentNode = self.__plugNodes[plug]
 
             for node in child.getNodes('parent'):
-                utils.fixInverseScale([node])
                 MC.parent(node, parentNode)
-
+                utils.fixInverseScale([node])
+                
     def parentCompletedBuild(self, parent, buildType):
         if buildType == 'layout':
             if self._mirroring == 'source':
@@ -690,7 +635,7 @@ class Widget(treeItem.PluggedTreeItem):
             #diffs might be applied on top of constraints, etc - mark
             #all nodes to dirty so everything is pulled
             MC.dgdirty(self.getNodes())
-            
+
     def setNodeCateogry(self, node, category):
         '''
         Add a node to a category.  This is used by the parenting
@@ -773,21 +718,20 @@ class Widget(treeItem.PluggedTreeItem):
         if not skipCallbacks:
             self.__notifyBuildComplete('rig')
 
+        #cleanup
+        nodes = self.getNodes()
+        csts = [x for x in nodes if MC.objectType(x, isAType='constraint')]
+        for cst in csts:
+            utils.fixJointConstraints(utils.getConstraintSlave(cst))
+
+        jnts = [x for x in nodes if MC.objectType(x, isAType='joint')]
+        utils.fixInverseScale(jnts)
+
         return result
 
     def lockNodes(self, recursive=True):
         nodes = [x for x in self.getNodes() if MC.objectType(x, isAType='dagNode')]
         for node in nodes:
-            if MC.objectType(node, isAType='joint'):
-                #use normal node locking for controls, but for other joints
-                #this can interfere with ik
-                if not control.isControl(node):
-                    MC.setAttr('%s.overrideEnabled' % node, 1)
-                    MC.setAttr('%s.overrideEnabled' % node, 1)
-                    MC.setAttr('%s.overrideDisplayType' % node, 2)
-
-                    continue
-
             control.setLocks(node)
 
         if recursive:
@@ -1049,7 +993,7 @@ class CenterOfGravity(Widget):
                 cogNodes = child.getNodes('ik')
                 cogNodes.extend(child.getNodes('cog'))
                 if cogNodes:
-                    pm.parent(cogNodes, self.plugNode('cog_bnd'))
+                    MC.parent(cogNodes, self.plugNode('cog_bnd'))
                     for node in cogNodes:
                         child.setNodeStatus(node, 'handled')
         MC.refresh()
@@ -1187,7 +1131,7 @@ class RigModel(QtCore.QAbstractItemModel):
             parent = parentIndex.internalPointer()
         children = parent.children()
         if not children:
-            return QModelIndex()
+            return QtCore.QModelIndex()
 
         child = children[row]
         return self.createIndex(row, col, child)

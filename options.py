@@ -133,6 +133,7 @@ class OptionCollection(Observable):
         for optName, optVal in optDct.items():
             self.setValue(optName, optVal)
 
+
 #todo: implement delegate
 class OptionCollectionModel(QtCore.QAbstractItemModel):
     #any method that changes options should call the refresh method
@@ -191,7 +192,7 @@ class OptionCollectionModel(QtCore.QAbstractItemModel):
             elif col == (self._columns.index('Value')):
                 pyVal = self.__values[row]
 
-                if type(pyVal) not in [str, int, float]:
+                if type(pyVal) not in [str, int, float, bool]:
                     _logger.warning("non-core option typing not implemented")
                     return QtCore.QVariant()
 
@@ -224,6 +225,14 @@ class OptionCollectionModel(QtCore.QAbstractItemModel):
                     value = int(value.toDouble()[0])
                 elif optType == float:
                     value = float(value.toDouble()[0])
+                elif optType == bool:
+                    v = value.toString()
+
+                    if v in ['false', 'False', '', '0']:
+                        value = False
+                    else:
+                        value = True
+
                 else:
                     raise NotImplementedError("invalid type %r" % optType)
 

@@ -36,7 +36,7 @@ reload(utils)
 import nodeTag
 
 _logger = logging.getLogger(__name__)
-
+_logger.setLevel(logging.DEBUG)
 _handleData = {'s': [1,1,1],
                'r': [0,0,0],
                't': [0,0,0],
@@ -266,7 +266,6 @@ def setLocks(node):
 
     attrs = set(MC.listAttr(node, k=True) or [])
     attrs.update(MC.listAttr(node, cb=True) or [])
-
     for attr in attrs:
         #don't lock compound attributes - just lock the 'leaf' children
         if not MC.attributeQuery(attr, n=node, ex=1):
@@ -275,33 +274,27 @@ def setLocks(node):
         children = MC.attributeQuery(attr, n=node, nc=1)
         if children:
             continue
+
         try:
-            MC.setAttr('%s.%s' % (node, attr), l=True, k=False, cb=False)
+            MC.setAttr('%s.%s' % (node, attr), l=True, k=False)
+            _logger.debug("Locked '%s.%s'" % (node, attr))
         except:
             _logger.debug("Cannot lock %s.%s" % (node, attr))
 
     d = {'unlockedKeyable': {'l': False, 'k': True},
          'unlockedUnkeyable': {'l': False, 'k': False},
-         'lockedKeyable': {'l': True, 'k': False}}
+         'lockedKeyable': {'l': True, 'k': True}}
 
     for lType, kwargs in d.items():
         for attr in lockData[lType]:
             for childAttr in _getLeafAttributes(node, attr):
-
                 _logger.debug("setting %s: %s" % (lType, "%s.%s" % (node, childAttr)))
-
                 MC.setAttr('%s.%s' % (node, childAttr), **kwargs)
 
-    # for attr in lockData['unlockedUnkeyable']:
-
-    # for attr in lockData['lockedKeyable']:
-    #     for childAttr in _getLeafAttributes(node, attr):
-    #         MC.setAttr('%s.%s' % (node, childAttr), k=True)
-
-    # for attr in lockData['unlockedKeyable']:
-    #     for childAttr in _getLeafAttributes(node, attr):
-    #         MC.setAttr('%s.%s' % (node, childAttr), k=True, l=False)
-
+    if MC.objectType(node, isAType='joint') and not isControl(node):
+        _logger.debug('unlocking joint rotations for %s' % node)
+        for attr in ['rx', 'ry', 'rz']:
+            MC.setAttr('%s.%s' % (node, attr), l=False)
 
 def isControl(xform):
     if nodeTag.hasTag(xform, CONTROL_TAG_NAME):
@@ -445,7 +438,7 @@ def setEditable(ctl, state):
     info  = getInfo(ctl)
     if state:
         editor = MC.createNode('transform', name='%s_editor' % ctl, parent=None)
-        
+
         if nodeTag.hasTag(ctl, '%s_editor' % LOCKS_TAG_NAME):
             tag = nodeTag.getTag(ctl, '%s_editor' % LOCKS_TAG_NAME)
             nodeTag.rmTag(ctl, '%s_editor' % LOCKS_TAG_NAME)
@@ -523,14 +516,17 @@ def addStorableXformCategory(xform, *categories):
 
 
 def makeStorableXform(xform, **kwargs):
-    """Make a storable xform
+    """Make a storable xform.
+
     @keyword nodeType: the type of node to create.  Defaults to transform
     @keyword worldSpace: apply matrix in worldSpace
     @keyword categories: apply these categories
     @keyword matrix: apply this matrix to the node
     @keyword parent: parent the node under this xform
     @keyword jointOrient: apply this joint orientation
-    @keyword radius: apply this joint radius"""
+    @keyword radius: apply this joint radius
+    @keyword rotation: apply this joint rotation
+    @keyword worldRotate: apply this world"""
     #get args - get defaults if not specified
     for key in kwargs:
         if key not in _xformKwargs:
@@ -555,55 +551,29 @@ def makeStorableXform(xform, **kwargs):
     if kwargs.get('rotateOrder', None) is not None:
         MC.setAttr('%s.rotateOrder' % xform, kwargs['rotateOrder'])
 
-    #apply xform
-    if kwargs.get('matrix', None) is not None:
-        MC.xform(xform,
-                 m=kwargs['matrix'],
-                 ws=kwargs['worldSpace'])
-
     #parent the node.  None can be used to parent to the world, so grab something
     #that's not a valid node name in maya
     parent = kwargs.get('parent', '~noArg~')
     nodeType = MC.objectType(xform)
 
     if parent != '~noArg~' and parent is not None and MC.objExists(parent):
-        parentNodeType =  MC.objectType(parent)
         if parent in (MC.listRelatives(xform, parent=1) or []):
             _logger.debug("Skipping parenting - already parented")
+
         else:
-            #if the node is worldSpace, preserve world transforms;
-            #else, preserve local transforms
-            preOrient = None
-            if nodeType == 'joint':
-                preOrient = MC.getAttr('%s.jointOrient' % xform)[0]
-                print preOrient
+            #use relative parenting to keep joints from getting extra xform
+            MC.parent(xform, parent, r=1)
 
 
-            if nodeType == 'joint' and parentNodeType == 'joint':
-                #connectJoint cmd screws up scale, but keeps new xform from
-                #being made
-                if MC.listRelatives(xform, parent=1):
-                    MC.parent(xform, world=1)
-                tmp = MC.getAttr('%s.s' % xform)[0]
-                MC.connectJoint(xform, parent, pm=1)
-                #set the scale back
-                MC.setAttr('%s.s' % xform, *tmp, type='double3')
-            else:
-                MC.parent(xform, parent, absolute=kwargs['worldSpace'])
-
-
-            if nodeType == 'joint':
-                #by default, transforms needed to preserve world space are put into joint's orient.  Put them
-                #into rotation instead - it's more obvious and consistent with transform behavior
-                MC.makeIdentity(xform, apply=1, r=1, t=0, s=0, n=0, jointOrient=0)
-                jo = MC.getAttr('%s.jointOrient' % xform)[0]
-                jo = [jo[0] - preOrient[0], jo[1] - preOrient[1], jo[2] - preOrient[2]]
-                MC.setAttr('%s.jointOrient' % xform, *preOrient, type='double3')
-                MC.setAttr('%s.r' % xform, *jo, type='double3')
+    if kwargs.get('matrix', None) is not None:
+        ws = kwargs.get('worldSpace', False)
+        MC.xform(xform,
+                 m=kwargs['matrix'],
+                 ws=ws)
 
 
     if nodeType == 'joint':
-        #in the case of a world matrix, we need to explicitly store
+        #need to explicitly store
         #euler rotation and orient values, since setting the matrix with the
         #xform command resets joint orientation to 0
 
@@ -611,7 +581,8 @@ def makeStorableXform(xform, **kwargs):
             MC.setAttr('%s.jointOrient' % xform, *kwargs['jointOrient'], type='double3')
 
         if kwargs.get('rotation', None):
-            MC.setAttr('%s.r' % xform, *kwargs['rotation'], type='double3')
+            MC.xform(xform, ro=kwargs['rotation'], ws=kwargs.get('worldSpace', False))
+
         if kwargs.get('radius', None):
             MC.setAttr('%s.radius' % xform, kwargs['radius'])
 
@@ -656,7 +627,7 @@ def getStorableXformInfo(xform):
     if result['nodeType'] == 'joint':
         result['radius'] = MC.getAttr('%s.radius' % (xform))
         result['jointOrient']  = MC.getAttr('%s.jointOrient' % xform)[0]
-        result['rotation'] = MC.getAttr('%s.r' % xform)[0]
+        result['rotation'] = MC.xform(xform, q=1, ro=1, ws=result['worldSpace'])
 
     par = MC.listRelatives(xform, parent=1, pa=1)
     if par:
@@ -691,6 +662,7 @@ def getStorableXforms(inNodeList=None, categories=None):
 
     return result
 
+
 def getStorableXformRebuildData(inNodeList = None, categories=None):
     """
     Get a single dictionary that can be used to reconstruct nodes.  By
@@ -707,6 +679,7 @@ def getStorableXformRebuildData(inNodeList = None, categories=None):
     for node in getStorableXforms(inNodeList=inNodeList, categories=categories):
         result[node] = getStorableXformInfo(node)
     return result
+
 
 def substituteInData(xformData, *args):
     """
@@ -766,6 +739,94 @@ def _sortNodesTopDown(nodeList):
 
     return result
 
+
+class _LinkedNodePool(object):
+    def __init__(self):
+        self._pool = set([])
+
+    def addNode(self, node):
+        self._pool.add(node)
+
+    def getNode(self, name):
+        for node in self._pool:
+            if node.name == name:
+                return node
+
+    def remove(self, name):
+        self._pool.discard(_LinkedNode(name))
+
+    def getNodeGroups(self):
+        groups = []
+        while len(self._pool):
+            n = self._pool.pop()
+            nodes = n.allConnectedNodes()
+            self._pool.difference_update(nodes)
+            groups.append([n.name for n in nodes])
+        return groups
+
+
+class _LinkedNode(object):
+    def __init__(self, name):
+        self.name = str(name)
+        self.parent=None
+        self.children=[]
+
+    def allChildren(self):
+        result = []
+        if not self.children:
+            return result
+
+        for child in self.children:
+            result.append(child)
+            result.extend(child.allChildren())
+        return result
+
+    def allConnectedNodes(self):
+        nodes = [self]
+
+        parent = self.parent
+        while parent:
+            nodes.insert(0, parent)
+            parent = parent.parent
+
+        nodes.extend(self.allChildren())
+
+        return nodes
+
+    def __str__(self): return self.name
+    def __hash__(self): return hash(self.name)
+    def __eq__(self, other):  return self.name == other.name
+
+
+def _sortNodesTopDownFromData(data):
+    pool = _LinkedNodePool()
+    for node, xformData in data.iteritems():
+        linkedNode = pool.getNode(node)
+        if not linkedNode:
+            linkedNode = _LinkedNode(node)
+            pool.addNode(linkedNode)
+
+        par = xformData.get('parent', None)
+        if par is None or par not in data.keys():
+            continue
+        else:
+            linkedParNode = pool.getNode(par)
+            if not linkedParNode:
+                linkedParNode = _LinkedNode(par)
+                pool.addNode(linkedParNode)
+            linkedNode.parent = linkedParNode
+            linkedParNode.children.append(linkedNode)
+
+    result = []
+    grps = pool.getNodeGroups()
+    for grp in grps:
+        result.extend(grp)
+
+    _logger.debug('sorted: %s' % result)
+
+    return result
+
+
 def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
     """
     Rebuild xforms from the data gotten from getStorableXformRebuildData
@@ -785,23 +846,12 @@ def makeStorableXformsFromData(xformData, sub=None, skipParenting=False):
             v['parent'] = re.sub(sub[0], sub[1], v['parent'])
             xformData[k] = v
 
-    xformDataCopy = copy.deepcopy(xformData)
-    secondPassCopy = copy.deepcopy(xformData)
     #make all the nodes first so they can be parented
-    for name, data in xformDataCopy.iteritems():
-        data.pop('parent', None)
-        data.pop('jointOrient', None)
-        data.pop('rotation', None)
-        makeStorableXform(name, **data)
+    result = []
+    for node in _sortNodesTopDownFromData(xformData):
+        result.append(makeStorableXform(node, **xformData[node]))
 
-    #apply matrices from top to bottom
-
-    for node in _sortNodesTopDown(secondPassCopy.keys()):
-        data = secondPassCopy[node]
-        data.pop('matrix')
-        makeStorableXform(node,  **data)
-
-    return xformData.keys()
+    return result
 
 
 def centeredCtl(startJoint, endJoint, ctl, centerDown='posY'):

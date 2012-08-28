@@ -407,8 +407,14 @@ def setupIkSplineJnts(jntList, crv, surf, ikNode,
 
     handle, ee = MC.ikHandle(solver='ikSplineSolver',
                              sj=splinePosJnts[0], ee=splinePosJnts[-1], curve=crv,
-                             simplifyCurve=False, parentCurve=False, createCurve=False)
+                             simplifyCurve=False, parentCurve=False, createCurve=False,
+        n=namer('_spline_ikh'))
+
+    MC.refresh()
     MC.parent(handle, ikNode)
+    MC.refresh()
+    if not MC.objExists(handle):
+        raise RuntimeError('%s deleted!' % handle)
     xforms = []
     ups = []
 
@@ -760,6 +766,7 @@ class Spine(core.Widget):
         jntToks = self.__getToks(bndJnts=True)
 
         #create a pelvis joint that will remain oriented to the base control
+        MC.select(cl=1)
         jnts = nurbsObjs['jnts']
         baseJnt = MC.joint(name=jntToks[0])
         utils.fixInverseScale([baseJnt])
@@ -886,6 +893,7 @@ class Spine(core.Widget):
 
         #parent the fk control to the ik control
         MC.parent(fkCtls[0], ikCtls[0])
+        print fkCtls
         utils.fixInverseScale(fkCtls[0])
 
         #constrain the pelvis jnt to the first ik control

@@ -92,6 +92,16 @@ def getScaleCompJnt(jnt):
 
     return pm.PyNode(scJnt)
 
+def isScaleCompJnt(jnt):
+    jnt = str(jnt)
+
+    cncts = MC.connectionInfo('%s.message' % jnt, dfs=1) or []
+    for cnct in cncts:
+        if cnct.split('.')[-1] == 'scaleCompJnt':
+            return True
+    return False
+
+
 def fixJointConstraints(slaveNode):
     csts = pm.listConnections(slaveNode, s=1, d=0, type='constraint')
     if not csts:
@@ -716,12 +726,22 @@ def fixInverseScale(jointList):
     connected to the child's inverseScale attribute
     """
     for jnt in jointList:
+        if not pm.objExists(jnt):
+            _logger.warning("%s does not exist!" % jnt)
+            continue
+
+        jnt = pm.PyNode(jnt)
         if not isinstance(jnt, pm.nodetypes.Joint):
             continue
         parent = jnt.getParent()
         if isinstance(parent, pm.nodetypes.Joint):
+
+            #scale comp joints should not be fixed
+            if isScaleCompJnt(jnt):
+                continue
+
             #check if there's a connection
-            if len(jnt.inverseScale.inputs()) != 1 or jnt.inverseScale.inputs(plugs=True)[0] != parent.scale:
+            elif len(jnt.inverseScale.inputs()) != 1 or jnt.inverseScale.inputs(plugs=True)[0] != parent.scale:
                 parent.scale >> jnt.inverseScale
                 _logger.debug("connected %s's scale to %s's inverse scale" % (parent.name(), jnt.name()))
 

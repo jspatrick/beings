@@ -221,6 +221,11 @@ class RigWidget(QWidget):
             self.widgetList.addItem(wdg)
         self.menuBar = QMenuBar(self)
 
+        self.options = options.OptionCollection()
+        self.options.addOpt('lock', True, optType=bool)
+        self.rigOptionsView.setModel(options.OptionCollectionModel(self.options))
+        self.options.addOpt('character name', 'char', optType=str)
+
         fileMenu = self.menuBar.addMenu('&File')
         newAction = self.createAction('&New', slot=self.fileNew)
         saveAsAction = self.createAction("&Save As..", slot=self.saveRig)
@@ -287,17 +292,36 @@ class RigWidget(QWidget):
         self.rigView.model().root = root
         self.rigView.model().reset()
 
+    def _root(self):
+        return self.rigView.model().root
+
     @pyqtSlot()
     @PopupError()
     def on_buildLayoutBtn_released(self):
-        self.rigView.model().root.buildLayout()
-        self.rigView.model().root.lockNodes()
-        
+        root = self._root()
+        charName = self.options.getValue('character name')
+        root.options.setValue('char', charName)
+        for child in root.children(recursive=True):
+            child.options.setValue('char', charName)
+
+        root.buildLayout()
+        if self.options.getValue('lock'):
+            root.lockNodes()
+
+
     @pyqtSlot()
     @PopupError()
     def on_buildRigBtn_released(self):
-        self.rigView.model().root.buildRig()
-        self.rigView.model().root.lockNodes()
+        root = self._root()        
+        charName = self.options.getValue('character name')
+        root.options.setValue('char', charName)
+        for child in root.children(recursive=True):
+            child.options.setValue('char', charName)
+
+        root.buildRig()
+        if self.options.getValue('lock'):
+            root.lockNodes()
+
 
     @pyqtSlot()
     @PopupError()

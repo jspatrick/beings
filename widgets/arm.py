@@ -62,40 +62,45 @@ class Arm(core.Widget):
                           worldUpObject = layoutCtls['uparm'])
         MC.setAttr('%s.v' % l, 0)
 
-        #aim the hip at the knee
+        #aim the uparm at the loarm
         MC.aimConstraint(layoutCtls['loarm'], jnts['uparm'], aimVector=[0,1,0],
-                         upVector=[1,0,0],
-                         worldUpVector=[0,-1,0],
-                         worldUpType='objectRotation',
+                         upVector=[0,0,1],
+                         worldUpType='object',
                          worldUpObject=l)
 
-        #aim the knee at the ankle
+        #aim the loarm at the hand
         MC.aimConstraint(layoutCtls['hand'], jnts['loarm'], aimVector=[0,1,0],
-                         upVector=[1,0,0],
-                         worldUpVector=[0,-1,0],
-                         worldUpType='objectRotation',
+                         upVector=[0,0,1],
+                         worldUpType='object',
                          worldUpObject=l)
 
 
-
-
-
-        #setup hand tip
+        #setup hand twist
         MC.parent(layoutCtls['hand_tip'], layoutCtls['hand'])
+
+        handTwistNode = MC.createNode('transform', n=namer.name(d='hand_orientor_loc'))
+        MC.parent(handTwistNode, layoutCtls['hand'])
+        MC.makeIdentity(handTwistNode, t=1, r=1, s=1)
+        MC.aimConstraint(layoutCtls['hand_tip'], handTwistNode,
+                         aimVector=[0,1,0],
+                         upVector=[0,0,1],
+                         worldUpVector=[0,0,1])
+
+
         handUpCtl = control.makeControl(namer('hand_up', r='ctl'),
                                                     shape='cube',
                                                     s=[.75, .75, .75],
                                                     color='blue')
         self.registerControl(handUpCtl, 'layout', uk=['t', 'r'])
-        MC.parent(handUpCtl, layoutCtls['hand'])
+        MC.parent(handUpCtl, handTwistNode)
         MC.makeIdentity(handUpCtl, t=1, r=1, s=1)
-        MC.setAttr('%s.ty' % handUpCtl, 3)
+        MC.setAttr('%s.tz' % handUpCtl, 3)
 
 
         aimVec = [0,1,0]
-        upVec = [-1,0,0]
-        if self.options.getValue('side') == 'rt':
-            upVec = [1,0,0]
+        upVec = [0,0,1]
+        # if self.options.getValue('side') == 'rt':
+        #     upVec = [1,0,0]
 
         MC.aimConstraint(layoutCtls['hand_tip'], jnts['hand'],
                          aimVector=aimVec,
@@ -108,9 +113,10 @@ class Arm(core.Widget):
 
         #hand
         handCtl = control.makeControl(namer.name(d='ctl', r='ik'),
-                                      shape='jack',
-                                      color='red',
-                                      s=[2,2,2])
+                                              shape='jack',
+                                              color='red',
+                                              xformType='joint',
+                                              s=[2,2,2])
 
 
         control.setEditable(handCtl, True)
@@ -231,16 +237,32 @@ class Arm(core.Widget):
         ikCtl = namer('ctl', r='ik')
         if not MC.objExists(ikCtl):
             raise RuntimeError("cannot find '%s'" % ikCtl)
+        MC.makeIdentity(ikCtl, apply=True, r=1, s=1)
 
-        o = utils.Orientation()
+        # o = utils.Orientation()
+        # side = self.options.getValue('side')
+        # if side == 'rt':
+        #     o.setAxis('aim', 'negY')
+        #     o.reorientJoints(bndJnts)
+        #     MC.setAttr('%s.rx' % ikCtl,
+        #                 (MC.getAttr('%s.rx' % ikCtl) * -1))
+
+        #     MC.setAttr('%s.rz' % ikCtl,
+        #                (180 + MC.getAttr('%s.rz' % ikCtl) % 360))
+
+
         side = self.options.getValue('side')
         if side == 'rt':
-            o.setAxis('aim', 'negY')
-            o.reorientJoints(bndJnts)
-            MC.setAttr('%s.rx' % ikCtl,
-                       (180 + MC.getAttr('%s.rx' % ikCtl) % 360))
-            MC.setAttr('%s.rz' % ikCtl,
-                       (180 + MC.getAttr('%s.rz' % ikCtl) % 360))
+            o = utils.Orientation()
+            otherO = utils.Orientation()
+            otherO.setAxis('aim', 'posX')
+            otherO.setAxis('up', 'posY')
+
+            o.setAxis('aim', 'posX')
+            o.setAxis('up', 'negY')
+            origOrient = MC.getAttr('%s.jointOrient' % ikCtl)[0]
+            newOrient = o.newAngle(origOrient, origOrient=otherO)
+            MC.setAttr('%s.jointOrient' % ikCtl, *newOrient, type='double3')
 
 
         fkCtls = control.setupFkCtls(bndJnts[:-1], fkCtls, self.__toks[:-1], namer)

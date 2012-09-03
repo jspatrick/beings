@@ -47,12 +47,11 @@ class PopupError():
 class WidgetTree(QTreeView):
     def __init__(self, parent=None):
         super(WidgetTree, self).__init__(parent)
-        self.rig = core.RigModel('mychar')
+        self.rig = core.RigModel()
         self.setModel(self.rig)
         self.rig.reset()
         self.setAnimated(True)
-        # self.connect(self.model(), SIGNAL("dataChanged(QModelIndex,QModelIndex)"),
-        #              self.change)
+
         self.setDragEnabled(True)
         self.setAcceptDrops(True)
         self.showDropIndicator()
@@ -64,7 +63,8 @@ class WidgetTree(QTreeView):
 
     def onSelectionChanged(self):
         index = self.selectedIndexes()[0]
-        widget = index.internalPointer()
+        model = self.model()
+        widget = model.widgetFromIndex(index)
         self.emit(SIGNAL('widgetSelected'), widget)
 
     def setModel(self, rig):
@@ -72,14 +72,6 @@ class WidgetTree(QTreeView):
         super(WidgetTree, self).setModel(rig)
         self.rig.reset()
 
-    # def change(self, topLeftIndex, bottomRightIndex):
-    #     self.update(topLeftIndex)
-    #     self.expandAll()
-    #     self.expanded()
-
-    # def expanded(self):
-    #     for column in range(self.model().columnCount(QModelIndex())):
-    #             self.resizeColumnToContents(column)
 
 class WidgetList(QListWidget):
     def __init__(self, parent=None):
@@ -137,14 +129,15 @@ class RigViewDelegate(QItemDelegate):
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.MouseButtonPress and index.isValid():
             if event.button() == Qt.RightButton:
-                widget = index.internalPointer()
+                widget = model.widgetFromIndex(index)
                 menu = QMenu()
 
                 if widget.children:
-                    rmAction = QAction("Remove (preserve children)", self)
-                    self.connect(rmAction, SIGNAL('triggered()'),
-                                 partial(widget.parent().rmChild, widget, reparentChildren=True ))
-                    menu.addAction(rmAction)
+                    #TODO: fix this
+                    # rmAction = QAction("Remove (preserve children)", self)
+                    # self.connect(rmAction, SIGNAL('triggered()'),
+                    #              partial(widget.parent().rmChild, widget, reparentChildren=True ))
+                    # menu.addAction(rmAction)
 
                     rmDeleteAction = QAction("Remove (delete children)", self)
                     self.connect(rmDeleteAction, SIGNAL('triggered()'),
@@ -160,21 +153,33 @@ class RigViewDelegate(QItemDelegate):
 
 
                 mirrorAction = QAction("Mirror", self)
-                self.connect(mirrorAction, SIGNAL('triggered()'), partial(widget.setMirrored, True))
+                self.connect(mirrorAction, SIGNAL('triggered()'), partial(self.setMirrored, widget, True, index, model))
                 menu.addAction(mirrorAction)
 
                 unmirrorAction = QAction("Un-Mirror", self)
-                self.connect(unmirrorAction, SIGNAL('triggeredWidget'), partial(widget.setMirrored, False))
+                self.connect(unmirrorAction, SIGNAL('triggered()'), partial(self.setMirrored, widget, False, index, model))
                 menu.addAction(unmirrorAction)
 
                 menu.exec_(self.parent().viewport().mapToGlobal(event.pos()))
 
         return super(RigViewDelegate, self).editorEvent(event, model, option, index)
 
+    def setMirrored(self, widget, val, index, model):
+
+        widget.setMirrored(val)
+        model.refreshWidgetItems(widget)
+
+        other = widget.getMirrorableWidget()
+        if other:
+            model.refreshWidgetItems(other)
+
+        else:
+            _logger.warning("cannot get mirrored widget")
+
     def createEditor(self, parent, option, index):
         model = index.model()
         if index.isValid():
-            widget = index.internalPointer()
+            widget = model.widgetFromIndex(index)
         else:
             widget = model.root
 
@@ -196,16 +201,29 @@ class RigViewDelegate(QItemDelegate):
     def setEditorData(self, editor, index):
         model = index.model()
         if index.column() == model.headers.index('Part'):
-            widget = index.internalPointer()
+            widget = model.widgetFromIndex(index)
             editor.setText(widget.options.getValue('part'))
         return QItemDelegate.setEditorData(self, editor, index)
 
     def setModelData(self, editor, model, index):
-        if (index.column() == model.headers.index('Side')) or \
-               (index.column() == model.headers.index('Parent Part')):
-            model.setData(index, QVariant(editor.currentText()))
+
+        widget = model.widgetFromIndex(index)
+        item = model.itemFromIndex(index)
+
+        if index.column() == model.headers.index('Side'):
+            widget.options.setValue('side', str(editor.currentText()))
+            item.setText(editor.currentText())
+            
+        elif index.column() == model.headers.index('Parent Part'):
+            widget.parent().setChildPlug(widget, str(editor.currentText()))
+            item.setText(editor.currentText())
         else:
-            QItemDelegate.setModelData(self, editor, model, index)
+            up = editor.metaObject().userProperty()
+            val = str(up.read(editor).toString())
+            item.setText(val)
+            if index.column() == model.headers.index('Part'):
+                widget.options.setValue('part', val)
+
 
 
 class RigWidget(QWidget):
@@ -312,7 +330,7 @@ class RigWidget(QWidget):
     @pyqtSlot()
     @PopupError()
     def on_buildRigBtn_released(self):
-        root = self._root()        
+        root = self._root()
         charName = self.options.getValue('character name')
         root.options.setValue('char', charName)
         for child in root.children(recursive=True):

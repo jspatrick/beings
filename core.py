@@ -4,7 +4,7 @@ The core widget and rig objects that custom widgets should inherit
 import logging, re, copy, os, sys, __builtin__, json
 import maya.cmds as MC
 import pymel.core as PM
-from PyQt4 import QtCore
+from PyQt4 import QtCore, QtGui
 
 import control as control
 reload(control)
@@ -24,7 +24,7 @@ import nodeTag as NT
 beingsLogger = logging.getLogger('beings')
 beingsLogger.setLevel(logging.INFO)
 _logger = logging.getLogger(__name__)
-
+#_logger.setLevel(logging.DEBUG)
 #set up logging to log with the function name and line number.
 
 class BeingsFilter(logging.Filter):
@@ -203,9 +203,9 @@ class Widget(treeItem.PluggedTreeItem):
         #is the widget mirrored?
         self._mirroring = ''
 
-    def removedChild(self, child):
-        child._mirroring = ''
-        super(Widget, self).removedChild(child)
+    def rmChild(self, child, **kwargs):
+        child.setMirrored(False)
+        return super(Widget, self).rmChild(child, **kwargs)
 
     def setPlugNode(self, part, node):
         if part not in self.plugs():
@@ -245,11 +245,7 @@ class Widget(treeItem.PluggedTreeItem):
 
         #if changing the part or side invalidates mirroring, set it
         if opt == 'part' or opt == 'side':
-            if self._mirroring:
-                other = self._getMirrorableWidget()
-                if other:
-                    other._mirroring = ''
-                self._mirroring = ''
+            self.setMirrored(False)
 
     def __validateChildSettings(self):
         """
@@ -296,7 +292,7 @@ class Widget(treeItem.PluggedTreeItem):
     def parentCompletedBuild(self, parent, buildType):
         if buildType == 'layout':
             if self._mirroring == 'source':
-                other = self._getMirrorableWidget()
+                other = self.getMirrorableWidget()
                 self.mirror(other)
 
     def name(self):
@@ -500,7 +496,7 @@ class Widget(treeItem.PluggedTreeItem):
         #the mirrored widget
         if self.mirroredState() == 'source' and self.state() == 'layoutBuilt':
             _logger.info("deleting a mirrored widget - deleteing the other side first")
-            other = self._getMirrorableWidget()
+            other = self.getMirrorableWidget()
             if other.state() == 'layoutBuilt':
                 _logger.debug("deleting mirrored target %r" % other)
                 other.delete()
@@ -549,7 +545,7 @@ class Widget(treeItem.PluggedTreeItem):
 
         #if this is mirrored, cache diffs on other rig too
         if self.mirroredState() == 'source':
-            other = self._getMirrorableWidget()
+            other = self.getMirrorableWidget()
             if other:
                 other.cacheDiffs()
 
@@ -757,17 +753,27 @@ class Widget(treeItem.PluggedTreeItem):
         is available, mirror it
         """
         if not val:
+            _logger.debug("Un-Mirroring %s" % self)
             self._mirroring = ''
-            return
-        _logger.debug("Mirroring %s" % self)
-        other = self._getMirrorableWidget()
-        if not other:
-            _logger.info("No sibling widget with same part name and opposite side")
-            return
-        self._mirroring = 'source'
-        other._mirroring = 'target'
+            other = self.getMirrorableWidget()
+            if not other:
+                _logger.info("No sibling widget with same part name and opposite side")
+            else:
+                other._mirroring = ''
 
-    def _getMirrorableWidget(self):
+        else:
+            _logger.debug("Mirroring %s" % self)
+            other = self.getMirrorableWidget()
+            if not other:
+                _logger.info("No sibling widget with same part name and opposite side")
+            else:
+                self._mirroring = 'source'
+                other._mirroring = 'target'
+
+    def getMirroredState(self):
+        return self._mirroring
+
+    def getMirrorableWidget(self):
         """Get the mirror-able sibling"""
         siblings = [w for w in self.parent().children(recursive=False) if w is not self]
         part = self.options.getValue('part')
@@ -777,8 +783,9 @@ class Widget(treeItem.PluggedTreeItem):
         elif side == 'rt':
             findSide = 'lf'
         else:
-            _logger.info("Cannot mirror 'center' widgets")
-            return
+            _logger.debug("Cannot mirror 'center' widgets")
+            return None
+
         for sibling in siblings:
             if sibling.options.getValue('part') == part and \
                sibling.options.getValue('side') == findSide:
@@ -1110,83 +1117,130 @@ class CenterOfGravity(Widget):
 
 WidgetRegistry().register(CenterOfGravity, 'Center Of Gravity', 'Put body widgets under this')
 
+class RigModel(QtGui.QStandardItemModel):
 
-class RigModel(QtCore.QAbstractItemModel):
-    '''
-    Abstract item model for a rig
-    '''
     #a dummy object used as the 'root' of the rig
+    WIDGET_ROLE = QtCore.Qt.UserRole + 2
 
-    def __init__(self, charname='mychar', parent=None):
+    def __init__(self, parent=None):
         super(RigModel, self).__init__(parent=parent)
         self.root = Root()
+        rootItem = self.invisibleRootItem()
+        rootItem.setData(self.root, self.WIDGET_ROLE)
+
         self.headers = ['Part', 'Side', 'Parent Part', 'Class', 'Mirrored']
-        self._mimeDataWidgets = []
+        self.setHorizontalHeaderLabels(self.headers)
+        self.setColumnCount(len(self.headers))
+
+        self.root.subscribe('aboutToRemoveChild', self._aboutToRemoveChild)
         self.root.subscribe('addedChild', self._addedChild)
         self.root.subscribe('removedChild', self._removedChild)
 
-    def _addedChild(self, event):
+        self._mimeDataWidgets = []
+
+    def _aboutToRemoveChild(self, event):
+        #TODO:  this is dirty - should't set object attrs from ui code.  fix this.
         parent = event.parent
         child = event.child
-
+        mw = child.getMirrorableWidget()
+        if mw:
+            mw._mirroring = ''
+            self.itemFromWidget(mw)
+        child.mirroring = ''
         _logger.debug("Added child %r under parent %s" % (child, parent))
-        #TODO: make this add rows
-        self.reset()
 
-    def _removedChild(self, event):
-        parent = event.parent
-        child = event.child
 
-        _logger.debug("Removed child %r under parent %s" % (child, parent))
-        #TODO: make this rm rows
-        self.reset()
+    def widgetFromIndex(self, index):
+        item = self.itemFromIndex(index)
+        if item.column() != 0:
+            parent = item.parent()
+            if not parent:
+                item = self.item(item.row(), 0)
+            else:
+                item = parent.child(item.row(), 0)
 
-    def index(self, row, col, parentIndex):
-        if not parentIndex.isValid():
-            parent = self.root
-        else:
-            parent = parentIndex.internalPointer()
-        children = parent.children()
-        if not children:
-            return QtCore.QModelIndex()
+        return item.data(self.WIDGET_ROLE).toPyObject()
 
-        child = children[row]
-        return self.createIndex(row, col, child)
+    def itemFromWidget(self, widget, rootItem=None):
+        if widget == self.root:
+            return self.invisibleRootItem()
 
-    def parent(self, index):
-        if not index.isValid():
-            return QtCore.QModelIndex()
-        widget = index.internalPointer()
-        parent = widget.parent()
-        if parent == self.root:
-            return QtCore.QModelIndex()
-        #get row of parent
-        row = parent.parent().childIndex(parent)
-        return self.createIndex(row, 0, parent)
+        if not rootItem:
+            rootItem = self.invisibleRootItem()
 
-    def rowCount(self, parentIndex):
-        if parentIndex.column() > 0:
-            return 0
+        for row in range(rootItem.rowCount()):
+            childItem = rootItem.child(row, 0)
+            childWidget = childItem.data(self.WIDGET_ROLE).toPyObject()
+            if childWidget == widget:
+                return childItem
+            item = self.itemFromWidget(widget, rootItem=childItem)
+            if item:
+                return item
 
-        if not parentIndex.isValid():
-            parent = self.root
-        else:
-            parent = parentIndex.internalPointer()
+        return None
 
-        return len(parent.children())
+    def refreshWidgetItems(self, widget):
+        widgetItem = self.itemFromWidget(widget)
+        widgetIndex = widgetItem.index()
+        for i, colName in enumerate(self.headers):
+            colIndex = self.index(widgetIndex.row(), i, widgetIndex.parent())
+            colItem = self.itemFromIndex(colIndex)
+            if colName == 'Part':
+                colItem.setText(widget.options.getValue('part'))
+            elif colName == 'Side':
+                colItem.setText(widget.options.getValue('side'))
+            elif colName == 'Mirrored':
+                colItem.setText(widget.getMirroredState())
+            elif colName == 'Parent Part':
+                colItem.setText(widget.plugOfParent())
 
-    def columnCount(self, parentIndex): return len(self.headers)
-    def supportedDropActions(self):
-        return QtCore.Qt.MoveAction | QtCore.Qt.CopyAction
 
-    def flags(self, index):
+    def addWidgetItems(self, parent, widget):
+        parentItem = self.itemFromWidget(parent)
+        rowIndex = parentItem.rowCount()
+        childItem = QtGui.QStandardItem(widget.options.getValue('part'))
+        childItem.setData(widget, self.WIDGET_ROLE)
+
         flags =  QtCore.Qt.ItemIsEnabled | \
                 QtCore.Qt.ItemIsSelectable | \
                 QtCore.Qt.ItemIsEditable | \
                 QtCore.Qt.ItemIsDragEnabled | \
                 QtCore.Qt.ItemIsDropEnabled
 
-        return flags
+        childItem.setFlags(flags)
+
+
+        parentItem.appendRow(childItem)
+
+        parentItem.setChild(rowIndex, self.headers.index('Side'),
+                            QtGui.QStandardItem(widget.options.getValue('side')))
+        parentItem.setChild(rowIndex, self.headers.index('Parent Part'),
+                            QtGui.QStandardItem(widget.parent().plugOfChild(widget)))
+        parentItem.setChild(rowIndex, self.headers.index('Class'),
+                            QtGui.QStandardItem(widget.__class__.__name__))
+        parentItem.setChild(rowIndex, self.headers.index('Mirrored'),
+                            QtGui.QStandardItem(widget.mirroredState()))
+
+
+    def _addedChild(self, event):
+        parent = event.parent
+        child = event.child
+        _logger.debug("Added child %r under parent %s" % (child, parent))
+
+        self.addWidgetItems(parent, child)
+
+
+    def _removedChild(self, event):
+        parent = event.parent
+        child = event.child
+        _logger.debug("Added child %r under parent %s" % (child, parent))
+
+        parentItem = self.itemFromWidget(parent)
+        childItem = self.itemFromWidget(child)
+        childRow = childItem.index().row()
+        parentItem.removeRow(childRow)
+        for child in parent.children():
+            self.refreshWidgetItems(child)
 
     def mimeTypes(self):
         types = QtCore.QStringList()
@@ -1196,17 +1250,21 @@ class RigModel(QtCore.QAbstractItemModel):
 
     def mimeData(self, indexList):
         widgets = []
-        for i in range(len(indexList)):
-            widgets.append(indexList[i].internalPointer())
+
+        for index in indexList:
+            widget = self.widgetFromIndex(index)
+            widgets.append(widget)
+
         self._mimeDataWidgets = list(set(widgets))
 
         mimeData = QtCore.QMimeData()
         mimeData.setData("application/x-widgetlist", QtCore.QByteArray())
+
         return mimeData
 
     def dropMimeData(self, mimedata, action, row, column, parentIndex):
         if parentIndex.isValid():
-            newParent = parentIndex.internalPointer()
+            newParent = self.widgetFromIndex(parentIndex)
         else:
             newParent = self.root
 
@@ -1229,105 +1287,8 @@ class RigModel(QtCore.QAbstractItemModel):
             newParent.addChild(widget)
         return True
 
-    def data(self, index, role):
-        if not index.isValid():
-            return QtCore.QVariant()
-        if role != QtCore.Qt.DisplayRole:
-            return QtCore.QVariant()
-        else:
-            widget = index.internalPointer()
-            if index.column() == self.headers.index('Part'):
-                return QtCore.QVariant(widget.options.getValue('part'))
-            if index.column() == self.headers.index('Side'):
-                return QtCore.QVariant(widget.options.getValue('side'))
-            if index.column() == self.headers.index('Parent Part'):
-                plug = widget.parent().plugOfChild(widget)
-                return QtCore.QVariant(plug)
-            if index.column() == self.headers.index('Class'):
-                return QtCore.QVariant(widget.__class__.__name__)
-            if index.column() == self.headers.index('Mirrored'):
-                return QtCore.QVariant(widget.mirroredState())
-
-
-            return QtCore.QVariant("Test..")
-
-    def setData(self, index, value, role=QtCore.Qt.EditRole):
-        if not index.isValid():
-            return False
-
-        widget = index.internalPointer()
-        header = self.headers[index.column()]
-        value = str(value.toString())
-        if header == 'Part':
-            widget.options.setValue('part', value)
-
-        if header == 'Side':
-            if value not in widget.options.getPresets('side'):
-                _logger.warning('invalid side "%s"' % value)
-            else:
-                widget.options.setValue('side', value)
-
-        if header == 'Parent Part':
-            parent = widget.parent()
-            parent.setChildPlug(widget, value)
-
-        self.emit(QtCore.SIGNAL("dataChanged(QModelIndex, QModelIndex)"), index, index)
-        return True
-
-    def headerData(self, section, orientation, role):
-        if orientation == QtCore.Qt.Horizontal and role == QtCore.Qt.DisplayRole:
-            return QtCore.QVariant(self.headers[section])
-        return QtCore.QVariant()
-
-    def getBadNames(self):
-        """
-        Return a list of [('badID', widget)] for all widgets with a duplicate or invalid name
-        """
-
-        allWidgets = self.root.childWidgets()
-        result = []
-        IDs = []
-        for widget in allWidgets:
-            name = widget.name()
-            if name not in IDs:
-                IDs.append(name)
-            else:
-                result.append(name)
-        return result
-
-def getSaveData(widget):
-    '''
-    Get widget data needed to reconstruct the rig
-    starting at root, for each child get:
-    id: {parentWidgetID,
-         parentNode,
-         registered name,
-         optionData,
-         diffData}
-    '''
-    result = {}
-    allWidgets = widget.children(recursive=True) + [widget]
-    for widget in allWidgets:
-        if widget.state() == 'layoutBuilt':
-            widget.cacheDiffs()
-    registry = WidgetRegistry()
-
-    #determine whether the cog has been removed from the widget
-    for widget in allWidgets:
-        wdata = {}
-
-        if not widget.parent():
-            wdata['parentID'] = 'None'
-            wdata['plug'] = 'None'
-        else:
-            wdata['parentID'] = str(id(widget.parent()))
-            wdata['plug'] = str(widget.parent().plugOfChild(widget))
-        wdata['options'] = widget.options.getData()
-        wdata['diffs'] = widget.getDiffs(generic=True)
-        wdata['widgetName'] = registry.widgetName(widget)
-        result[str(id(widget))] = wdata
-
-    return result
+    def supportedDropActions(self):
+        return QtCore.Qt.MoveAction | QtCore.Qt.CopyAction
 
 
 def loadJsonData(f):

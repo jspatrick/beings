@@ -51,32 +51,41 @@ class TreeItem(Observable):
         is removed"""
         pass
 
-    def addChild(self, child, plug=""):
+    def addChild(self, child, plug="", skipCallbacks=False):
 
         #don't allow the same instance in the tree twice
+
         root = self.root()
         ids = [id(w) for w in root.children(recursive=True)]
         ids.append(id(root))
         if id(child) in ids:
             raise RuntimeError("Cannot add the same instance twice")
 
+        if not skipCallbacks:
+            self.notify('aboutToAddChild', parent=self, child=child)
+            parent = self.parent()
+            while parent:
+                parent.notify('aboutToAddChild', parent=self, child=child)
+                parent = parent.parent()
+
         child._setParent(self)
         self.__children.append(child)
         self.addedChild(child)
 
-        self.notify('addedChild', parent=self, child=child)
-        parent = self.parent()
-        while parent:
-            parent.notify('addedChild', parent=self, child=child)
-            parent = parent.parent()
+        if not skipCallbacks:
+            self.notify('addedChild', parent=self, child=child)
+            parent = self.parent()
+            while parent:
+                parent.notify('addedChild', parent=self, child=child)
+                parent = parent.parent()
 
-    def _reparentGrandchildren(self, child):
+    def _reparentGrandchildren(self, child, skipCallbacks=False):
         grandChildren = child.children(recursive=False)
         for grandChild in grandChildren:
-            child.rmChild(grandChild)
-            self.addChild(grandChild)
+            child.rmChild(grandChild, skipCallbacks=skipCallbacks)
+            self.addChild(grandChild, skipCallbacks=skipCallbacks)
 
-    def rmChild(self, child, reparentChildren=False):
+    def rmChild(self, child, reparentChildren=False, skipCallbacks=False):
         """
         Remove a child
         @param reparentChildren=True: if True, reparent child's children to the this obj.
@@ -85,19 +94,26 @@ class TreeItem(Observable):
         _logger.debug("Current children before removing: %r" % self.__children)
 
         if reparentChildren:
-            self._reparentGrandchildren(child)
+            self._reparentGrandchildren(child, skipCallbacks=skipCallbacks)
+
+        if not skipCallbacks:
+            self.notify('aboutToRemoveChild', parent=self, child=child)
+            parent = self.parent()
+            while parent:
+                parent.notify('aboutToRemovehild', parent=self, child=child)
+                parent = parent.parent()
 
         index = self.childIndex(child)
         self.__children.pop(index)
         child._setParent(None)
         self.removedChild(child)
 
-        self.notify('removedChild', parent=self, child=child)
-
-        parent = self.parent()
-        while parent:
-            parent.notify('removedChild', parent=self, child=child)
-            parent = parent.parent()
+        if not skipCallbacks:
+            self.notify('removedChild', parent=self, child=child)
+            parent = self.parent()
+            while parent:
+                parent.notify('removedChild', parent=self, child=child)
+                parent = parent.parent()
 
         return child
 
@@ -126,6 +142,15 @@ class PluggedTreeItem(TreeItem):
 
     def plugOfChild(self, child): return self.__childPlugs[self.childIndex(child)]
 
+    def plugOfParent(self):
+        """
+        Get the plug this node is plugged into
+        """
+        parent =  self.parent()
+        if not parent:
+            return ""
+        return parent.plugOfChild(self)
+    
     def setChildPlug(self, child, plug):
         if plug not in self.plugs():
             raise RuntimeError("invalid plug '%s'" % plug)
@@ -148,10 +173,10 @@ class PluggedTreeItem(TreeItem):
                 newPlug = list(new)[0]
                 self.setChildPlug(child, list(new)[0])
                 self.notify("childPlugChanged", newPlug=newPlug, oldPlug=currentPlug)
-                
+
         self.__plugs = new
 
-    def addChild(self, child, plug=""):
+    def addChild(self, child, skipCallbacks=False, plug=""):
         if not self.__plugs:
             raise RuntimeError("must add plugs to the parent before adding a child")
         if not plug:
@@ -163,21 +188,21 @@ class PluggedTreeItem(TreeItem):
         self.__childPlugs.append(plug)
 
         try:
-            return super(PluggedTreeItem, self).addChild(child)
+            return super(PluggedTreeItem, self).addChild(child, skipCallbacks=skipCallbacks)
         except:
             self.__childPlugs.pop()
             raise
 
-    def _reparentGrandchildren(self, child):
+    def _reparentGrandchildren(self, child, skipCallbacks=False):
         grandChildren = child.children(recursive=False)
         plug = self.plugs()[0]
 
         for grandChild in grandChildren:
-            child.rmChild(grandChild)
+            child.rmChild(grandChild, skipCallbacks=skipCallbacks)
             self.addChild(grandChild, plug=plug)
 
 
-    def rmChild(self, child, reparentChildren=False):
+    def rmChild(self, child, reparentChildren=False, skipCallbacks=False):
         """
         Remove a child
         @param reparentChildren=True: if True, reparent child's children to the this obj.
@@ -185,4 +210,5 @@ class PluggedTreeItem(TreeItem):
         _logger.debug("Removing '%s'" % child)
         index = self.childIndex(child)
         self.__childPlugs.pop(index)
-        return super(PluggedTreeItem, self).rmChild(child, reparentChildren=reparentChildren)
+        return super(PluggedTreeItem, self).rmChild(child, reparentChildren=reparentChildren,
+                                                    skipCallbacks=skipCallbacks)

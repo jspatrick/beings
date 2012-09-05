@@ -39,11 +39,14 @@ class BeingsFilter(logging.Filter):
 
         return True
 
+
 def _setupLogging():
+    """Add a filter to the beings root logger to display some message info"""
     _beingsRootLogger = logging.getLogger('beings')
     for fltr in _beingsRootLogger.filters:
         _beingsRootLogger.removeFilter(fltr)
     _beingsRootLogger.addFilter(BeingsFilter())
+
 _setupLogging()
 
 
@@ -757,7 +760,7 @@ class Widget(treeItem.PluggedTreeItem):
             self._mirroring = ''
             other = self.getMirrorableWidget()
             if not other:
-                _logger.info("No sibling widget with same part name and opposite side")
+                _logger.debug("No sibling widget with same part name and opposite side")
             else:
                 other._mirroring = ''
 
@@ -765,16 +768,24 @@ class Widget(treeItem.PluggedTreeItem):
             _logger.debug("Mirroring %s" % self)
             other = self.getMirrorableWidget()
             if not other:
-                _logger.info("No sibling widget with same part name and opposite side")
+                _logger.debug("No sibling widget with same part name and opposite side")
             else:
-                self._mirroring = 'source'
-                other._mirroring = 'target'
+                if self.options.getValue('side') == 'lf':
+                    self._mirroring = 'source'
+                    other._mirroring = 'target'
+                else:
+                    other._mirroring = 'source'
+                    self._mirroring = 'target'
 
     def getMirroredState(self):
         return self._mirroring
 
     def getMirrorableWidget(self):
         """Get the mirror-able sibling"""
+        parent = self.parent()
+        if not parent:
+            return None
+
         siblings = [w for w in self.parent().children(recursive=False) if w is not self]
         part = self.options.getValue('part')
         side = self.options.getValue('side')
@@ -1129,12 +1140,8 @@ class RigModel(QtGui.QStandardItemModel):
         rootItem.setData(self.root, self.WIDGET_ROLE)
 
         self.headers = ['Part', 'Side', 'Parent Part', 'Class', 'Mirrored']
-        self.setHorizontalHeaderLabels(self.headers)
-        self.setColumnCount(len(self.headers))
 
-        self.root.subscribe('aboutToRemoveChild', self._aboutToRemoveChild)
-        self.root.subscribe('addedChild', self._addedChild)
-        self.root.subscribe('removedChild', self._removedChild)
+        self.reset()
 
         self._mimeDataWidgets = []
 
@@ -1195,7 +1202,27 @@ class RigModel(QtGui.QStandardItemModel):
                 colItem.setText(widget.plugOfParent())
 
 
-    def addWidgetItems(self, parent, widget):
+    def reset(self, root=None):
+        self.clear()
+        del self.root
+
+        if root:
+            self.root = root
+        else:
+            self.root = Root()
+
+        self.root.subscribe('aboutToRemoveChild', self._aboutToRemoveChild)
+        self.root.subscribe('addedChild', self._addedChild)
+        self.root.subscribe('removedChild', self._removedChild)
+
+        self.setHorizontalHeaderLabels(self.headers)
+        self.setColumnCount(len(self.headers))
+
+        for child in self.root.children():
+            self.addWidgetItems(child)
+
+    def addWidgetItems(self, widget):
+        parent = widget.parent()
         parentItem = self.itemFromWidget(parent)
         rowIndex = parentItem.rowCount()
         childItem = QtGui.QStandardItem(widget.options.getValue('part'))
@@ -1221,13 +1248,15 @@ class RigModel(QtGui.QStandardItemModel):
         parentItem.setChild(rowIndex, self.headers.index('Mirrored'),
                             QtGui.QStandardItem(widget.mirroredState()))
 
+        for child in widget.children():
+            self.addWidgetItems(child)
 
     def _addedChild(self, event):
         parent = event.parent
         child = event.child
         _logger.debug("Added child %r under parent %s" % (child, parent))
 
-        self.addWidgetItems(parent, child)
+        self.addWidgetItems(child)
 
 
     def _removedChild(self, event):
@@ -1322,6 +1351,40 @@ def buildRig(fromPath=None, skipBuild=False):
 
     return rig
 
+
+def getSaveData(widget):
+    '''
+    Get widget data needed to reconstruct the rig
+    starting at root, for each child get:
+    id: {parentWidgetID,
+         parentNode,
+         registered name,
+         optionData,
+         diffData}
+    '''
+    result = {}
+    allWidgets = widget.children(recursive=True) + [widget]
+    for widget in allWidgets:
+        if widget.state() == 'layoutBuilt':
+            widget.cacheDiffs()
+    registry = WidgetRegistry()
+
+    #determine whether the cog has been removed from the widget
+    for widget in allWidgets:
+        wdata = {}
+
+        if not widget.parent():
+            wdata['parentID'] = 'None'
+            wdata['plug'] = 'None'
+        else:
+            wdata['parentID'] = str(id(widget.parent()))
+            wdata['plug'] = str(widget.parent().plugOfChild(widget))
+        wdata['options'] = widget.options.getData()
+        wdata['diffs'] = widget.getDiffs(generic=True)
+        wdata['widgetName'] = registry.widgetName(widget)
+        result[str(id(widget))] = wdata
+
+    return result
 
 
 def rigFromData(data):

@@ -224,7 +224,7 @@ class HeadNeck(core.Widget):
         bindControlsToShape(ikCtls, crv,  doubleEndPoints=doubleEndPoints)
         bindControlsToShape(ikCtls, srf,  doubleEndPoints=doubleEndPoints)
 
-        ikNode = setupSpineIkNode(ikCtls, ikJnts[:-1], nodeName='splinik', namer=namer,
+        ikNode, ikHandle = setupSpineIkNode(ikCtls, ikJnts[:-1], nodeName='splinik', namer=namer,
                          crv=crv, surf=srf)
         self.setNodeCateogry(ikNode, 'dnt')
         MC.setAttr("%s.v" % ikNode, 0)

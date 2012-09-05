@@ -287,9 +287,8 @@ class RigWidget(QWidget):
         self.__fileName = str(fname)
 
     def fileNew(self):
-        rig = core.RigModel("mychar")
-        self.rigView.setModel(rig)
-
+        self.rigView.model().reset()
+        
     def saveRig(self):
         """Save the rig data to a file"""
 
@@ -307,8 +306,7 @@ class RigWidget(QWidget):
         """Load the rig data
         @param data:  a rig dictionary"""
         root = core.rigFromData(data)
-        self.rigView.model().root = root
-        self.rigView.model().reset()
+        self.rigView.model().reset(root=root)
 
     def _root(self):
         return self.rigView.model().root
